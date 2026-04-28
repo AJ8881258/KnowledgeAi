@@ -6,6 +6,27 @@
   "description": "",
   "glyphs": [
     {
+      "icon_id": "15838599",
+      "name": "news-filling",
+      "font_class": "news-filling",
+      "unicode": "e68a",
+      "unicode_decimal": 59018
+    },
+    {
+      "icon_id": "18531433",
+      "name": "arrow",
+      "font_class": "arrow",
+      "unicode": "e619",
+      "unicode_decimal": 58905
+    },
+    {
+      "icon_id": "9930898",
+      "name": "search",
+      "font_class": "search",
+      "unicode": "e648",
+      "unicode_decimal": 58952
+    },
+    {
       "icon_id": "392055",
       "name": "CHAT",
       "font_class": "chat",
@@ -39,13 +60,6 @@
       "font_class": "setting",
       "unicode": "e657",
       "unicode_decimal": 58967
-    },
-    {
-      "icon_id": "22152927",
-      "name": "home",
-      "font_class": "home1",
-      "unicode": "e7fe",
-      "unicode_decimal": 59390
     }
   ]
 }

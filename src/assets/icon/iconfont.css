@@ -1,11 +1,21 @@
 @font-face {
   font-family: "iconfont"; /* Project id 5168726 */
-  src: url('iconfont.woff2?t=1777270628038') format('woff2'),
-       url('iconfont.woff?t=1777270628038') format('woff'),
-       url('iconfont.ttf?t=1777270628038') format('truetype');
+  src: url('iconfont.woff2?t=1777356306732') format('woff2'),
+       url('iconfont.woff?t=1777356306732') format('woff'),
+       url('iconfont.ttf?t=1777356306732') format('truetype');
 }
 
+.icon-news-filling:before {
+  content: "\e68a";
+}
 
+.icon-arrow:before {
+  content: "\e619";
+}
+
+.icon-search:before {
+  content: "\e648";
+}
 
 .icon-chat:before {
   content: "\e650";
@@ -25,9 +35,5 @@
 
 .icon-setting:before {
   content: "\e657";
-}
-
-.icon-home1:before {
-  content: "\e7fe";
 }
 
