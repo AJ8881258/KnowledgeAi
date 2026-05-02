@@ -70,6 +70,16 @@ KnowFlow AI 是一个面向学生和开发者的智能资料问答平台，支�
 - Fetch API / Axios
 - Server-Sent Events 或 fetch stream
 
+前端文档参考：
+
+- [React 文档](https://react.dev/)
+- [Vite 文档](https://vite.dev/guide/)
+- [TypeScript 文档](https://www.typescriptlang.org/docs/)
+- [Tailwind CSS 文档](https://tailwindcss.com/docs)
+- [React Router 文档](https://reactrouter.com/)
+- [Zustand 文档](https://zustand.docs.pmnd.rs/)
+- [shadcn/ui 组件文档](https://ui.shadcn.com/docs/components)
+
 选择理由：
 
 - React + Vite 适合快速构建现代前端项目。
@@ -93,6 +103,20 @@ KnowFlow AI 是一个面向学生和开发者的智能资料问答平台，支�
 - Apache PDFBox
 - Maven
 - Docker Compose
+
+后端与基础设施文档参考：
+
+- [Java 21 文档](https://docs.oracle.com/en/java/javase/21/)
+- [Spring Boot 文档](https://docs.spring.io/spring-boot/3.5/reference/)
+- [Spring Web MVC 文档](https://docs.spring.io/spring-framework/reference/web/webmvc.html)
+- [Spring Security 文档](https://docs.spring.io/spring-security/reference/)
+- [MyBatis Spring Boot Starter 文档](https://mybatis.org/spring-boot-starter/mybatis-spring-boot-autoconfigure/)
+- [PostgreSQL JDBC Driver 文档](https://jdbc.postgresql.org/documentation/)
+- [Flyway 文档](https://documentation.red-gate.com/fd)
+- [springdoc-openapi 文档](https://springdoc.org/)
+- [Apache PDFBox 文档](https://pdfbox.apache.org/)
+- [Maven 文档](https://maven.apache.org/guides/)
+- [Docker Compose 文档](https://docs.docker.com/compose/)
 
 版本依据：
 
@@ -132,6 +156,14 @@ KnowFlow AI 是一个面向学生和开发者的智能资料问答平台，支�
 - Nginx 作为统一 Gateway，对外暴露 `/api/**`。
 - 服务间通过 HTTP + Docker Compose 服务名通信。
 - 环境变量管理服务端口、数据库连接、JWT 密钥、LLM API 配置。
+
+基础设施与数据库文档参考：
+
+- [PostgreSQL 文档](https://www.postgresql.org/docs/)
+- [pgvector 文档](https://github.com/pgvector/pgvector)
+- [Nginx 文档](https://nginx.org/en/docs/)
+- [Nginx 反向代理文档](https://docs.nginx.com/nginx/admin-guide/web-server/reverse-proxy/)
+- [Docker Compose 文档](https://docs.docker.com/compose/)
 
 这样既能体现微服务拆分和独立部署，又不会一开始陷入注册中心、配置中心、链路追踪、K8s 等高成本基础设施。
 
