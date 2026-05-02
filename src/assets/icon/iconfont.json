@@ -6,6 +6,27 @@
   "description": "",
   "glyphs": [
     {
+      "icon_id": "400348",
+      "name": "chat",
+      "font_class": "chat1",
+      "unicode": "e675",
+      "unicode_decimal": 58997
+    },
+    {
+      "icon_id": "19603062",
+      "name": "book",
+      "font_class": "book",
+      "unicode": "e676",
+      "unicode_decimal": 58998
+    },
+    {
+      "icon_id": "33216015",
+      "name": "floor",
+      "font_class": "floor",
+      "unicode": "e655",
+      "unicode_decimal": 58965
+    },
+    {
       "icon_id": "15838599",
       "name": "news-filling",
       "font_class": "news-filling",

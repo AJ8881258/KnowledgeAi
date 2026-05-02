@@ -1,8 +1,20 @@
 @font-face {
   font-family: "iconfont"; /* Project id 5168726 */
-  src: url('iconfont.woff2?t=1777356306732') format('woff2'),
-       url('iconfont.woff?t=1777356306732') format('woff'),
-       url('iconfont.ttf?t=1777356306732') format('truetype');
+  src: url('iconfont.woff2?t=1777363812454') format('woff2'),
+       url('iconfont.woff?t=1777363812454') format('woff'),
+       url('iconfont.ttf?t=1777363812454') format('truetype');
+}
+
+.icon-chat1:before {
+  content: "\e675";
+}
+
+.icon-book:before {
+  content: "\e676";
+}
+
+.icon-floor:before {
+  content: "\e655";
 }
 
 .icon-news-filling:before {

@@ -50,7 +50,7 @@ export default function Layout() {
     <div>
       <SidebarProvider className="selection:bg-sky-300 selection:text-white  ">
         <AppSidebar />
-        <main className="w-full m-2">
+        <main className="w-full m-1 pr-3  ">
           <MainHeader title={header.title} desc={header.description} />
           {isMobile && <SidebarTrigger className="absolute bottom-4 right-4" />}
           <Outlet />

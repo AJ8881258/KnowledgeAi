@@ -41,7 +41,7 @@ const MainHeader = ({ title, desc }: MainHeaderProps) => {
   const navigate = useNavigate();
   return (
     <>
-      <div className=" w-full h-18  border-b-2 border-gray-200 flex items-center  justify-between ">
+      <div className=" w-full h-18 pl-2  border-b-2 border-gray-200 flex items-center  justify-between ">
         <div>
           <div className="text-[clamp(1.125rem,1.5vw,1.5rem)]">{title}</div>
           <div className="text-[clamp(0.575rem,.9vw,1.125rem)] text-gray-500">
@@ -59,7 +59,7 @@ const MainHeader = ({ title, desc }: MainHeaderProps) => {
               type="search"
               placeholder="Search..."
               className={cn(
-                "text-[clamp(0.875rem,1.25vw,1.25rem)] ",
+                "text-[clamp(0.875rem,1.25vw,1.25rem)] w-50",
                 isMobile && "w-[70%]",
               )}
             />
@@ -70,13 +70,13 @@ const MainHeader = ({ title, desc }: MainHeaderProps) => {
                 aria-label="Submit"
                 className=" rounded-3xl border-0"
               >
-                <span className="iconfont text-gray-600 text-[clamp(1.25rem,1.5vw,1.5rem)] icon-search"></span>
+                <span className="iconfont text-gray-600 text-[clamp(1rem,1.5vw,1.3rem)] icon-search"></span>
               </Button>
             )}
           </Field>
           {!isMobile && (
             <div className="flex items-center cursor-pointer">
-              <span className="iconfont icon-news-filling "></span>
+              <span className="iconfont icon-news-filling text-[clamp(1rem,1.5vw,1.3rem)] hover:-translate-y-0.5 transition-all  duration-300"></span>
             </div>
           )}
           {!isMobile && (
@@ -85,7 +85,7 @@ const MainHeader = ({ title, desc }: MainHeaderProps) => {
               onOpenChange={setIsUserPopoverOpen}
             >
               <PopoverTrigger asChild>
-                <div className="items-center flex">
+                <div className="items-center flex cursor-pointer select-none">
                   <span>WuLong</span>
                   <span
                     className={cn(
@@ -98,7 +98,7 @@ const MainHeader = ({ title, desc }: MainHeaderProps) => {
               <PopoverContent align="center" className="w-48 gap-2">
                 <PopoverHeader>
                   <PopoverTitle>Title</PopoverTitle>
-                  <PopoverDescription>Fast Via</PopoverDescription>
+                  <PopoverDescription>Via Tunnel</PopoverDescription>
                 </PopoverHeader>
                 <Field className="gap-0">
                   <Button
