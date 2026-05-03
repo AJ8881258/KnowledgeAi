@@ -42,7 +42,10 @@ export default function Layout() {
   // state manager
   const isMobile = useIsMobile();
   const location = useLocation();
-  const header = headerMap[location.pathname] ?? {
+  const headerPath = location.pathname.startsWith("/KnowledgeBases")
+    ? "/KnowledgeBases"
+    : location.pathname;
+  const header = headerMap[headerPath] ?? {
     title: "页面",
     description: "管理你的页面",
   };

@@ -71,6 +71,10 @@ export function AppSidebar() {
   const { state } = useSidebar();
   const location = useLocation();
   const navigate = useNavigate();
+  const isNavActive = (route: string) =>
+    route === "/"
+      ? location.pathname === route
+      : location.pathname === route || location.pathname.startsWith(`${route}/`);
 
   return (
     <Sidebar collapsible="icon">
@@ -117,7 +121,7 @@ export function AppSidebar() {
                   gap-2 rounded-[5px] px-3 text-gray-600  
                   group-data-[collapsible=icon]:size-9 group-data-[collapsible=icon]:justify-center
                   group-data-[collapsible=icon]:p-0 ${state === "expanded" ? "" : "p-0"}
-                  ${location.pathname === item.route ? "bg-sky-300 text-white hover:bg-sky-400 hover:text-white" : ""}
+                  ${isNavActive(item.route) ? "bg-sky-300 text-white hover:bg-sky-400 hover:text-white" : ""}
                   `}
               >
                 <span
