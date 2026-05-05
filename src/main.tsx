@@ -14,6 +14,7 @@ import SliderLayout from "@/components/slider-layout";
 import Documents from "@/pages/Documents";
 import Chat from "@/pages/Chat";
 import Settings from "@/pages/Settings";
+import { Toaster } from "@/components/ui/sonner";
 
 createRoot(document.getElementById("root")!).render(
   <BrowserRouter>
@@ -29,5 +30,6 @@ createRoot(document.getElementById("root")!).render(
 
       <Route path="/login" element={<LoginPage />} />
     </Routes>
+    <Toaster />
   </BrowserRouter>,
 );
