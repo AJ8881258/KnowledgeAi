@@ -9,6 +9,7 @@ import {
   Upload,
   X,
 } from "lucide-react";
+import { useParams } from "react-router";
 
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -32,6 +33,7 @@ type DocumentItem = {
   name: string;
   type: DocumentType;
   knowledgeBase: string;
+  knowledgeBaseSlug: string;
   status: DocumentStatus;
   chunks: number;
   size: string;
@@ -52,6 +54,7 @@ const documents: DocumentItem[] = [
     name: "javascript-event-loop.pdf",
     type: "PDF",
     knowledgeBase: "Frontend Interview",
+    knowledgeBaseSlug: "frontend-interview",
     status: "ready",
     chunks: 32,
     size: "2.4 MB",
@@ -90,6 +93,7 @@ const documents: DocumentItem[] = [
     name: "react-hooks-notes.md",
     type: "Markdown",
     knowledgeBase: "Frontend Interview",
+    knowledgeBaseSlug: "frontend-interview",
     status: "ready",
     chunks: 18,
     size: "86 KB",
@@ -99,6 +103,7 @@ const documents: DocumentItem[] = [
     name: "graduation-defense-outline.txt",
     type: "TXT",
     knowledgeBase: "Graduation Project",
+    knowledgeBaseSlug: "graduation-project",
     status: "processing",
     chunks: 0,
     size: "42 KB",
@@ -109,6 +114,7 @@ const documents: DocumentItem[] = [
     name: "database-index-guide.pdf",
     type: "PDF",
     knowledgeBase: "Database Notes",
+    knowledgeBaseSlug: "database-notes",
     status: "ready",
     chunks: 45,
     size: "3.1 MB",
@@ -118,6 +124,7 @@ const documents: DocumentItem[] = [
     name: "scanned-material.pdf",
     type: "PDF",
     knowledgeBase: "English Study",
+    knowledgeBaseSlug: "english-study",
     status: "failed",
     chunks: 0,
     size: "5.2 MB",
@@ -125,8 +132,6 @@ const documents: DocumentItem[] = [
     error: "无法提取文本",
   },
 ];
-
-const selectedDocument = documents[0];
 
 const statusMeta: Record<
   DocumentStatus,
@@ -433,7 +438,34 @@ function DocumentDetails({ item }: { item: DocumentItem }) {
   );
 }
 
+function EmptyDocumentDetails() {
+  return (
+    <aside className="min-h-0 border-t border-slate-200 bg-white xl:border-t-0 xl:border-l">
+      <div className="flex h-full min-h-[320px] flex-col items-center justify-center gap-3 px-6 text-center">
+        <FileText className="size-8 text-slate-400" />
+        <div>
+          <h2 className="text-base font-semibold text-slate-900">暂无文档详情</h2>
+          <p className="mt-1 text-sm text-slate-500">
+            当前知识库还没有可展示的文档。
+          </p>
+        </div>
+      </div>
+    </aside>
+  );
+}
+
 const Documents = () => {
+  const { knowledgeBaseId } = useParams();
+  const filteredDocuments = knowledgeBaseId
+    ? documents.filter((doc) => doc.knowledgeBaseSlug === knowledgeBaseId)
+    : documents;
+  const selectedDocument = filteredDocuments[0];
+  const currentKnowledgeBaseLabel =
+    selectedDocument?.knowledgeBase ??
+    documents.find((doc) => doc.knowledgeBaseSlug === knowledgeBaseId)
+      ?.knowledgeBase ??
+    "全部知识库";
+
   return (
     <section className="min-h-0 bg-white text-slate-900 xl:h-[calc(100svh-5rem)] xl:max-h-[calc(100svh-5rem)] xl:overflow-hidden">
       <div className="grid min-h-0 grid-cols-1 xl:h-full xl:overflow-hidden xl:grid-cols-[minmax(0,1fr)_360px]">
@@ -449,7 +481,7 @@ const Documents = () => {
                     <span className="flex size-5 items-center justify-center rounded-[3px] border border-blue-200 bg-blue-50 text-blue-600">
                       <FileText className="size-4" />
                     </span>
-                    <span className="truncate">Frontend Interview</span>
+                    <span className="truncate">{currentKnowledgeBaseLabel}</span>
                   </span>
                   <ChevronDown className="size-4 shrink-0 text-slate-500" />
                 </button>
@@ -506,12 +538,13 @@ const Documents = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {documents.map((doc) => (
+                    {filteredDocuments.length > 0 ? (
+                      filteredDocuments.map((doc) => (
                       <tr
                         key={doc.name}
                         className={cn(
                           "border-b border-slate-100 transition-colors last:border-b-0 hover:bg-slate-50",
-                          doc.name === selectedDocument.name && "bg-white",
+                          doc.name === selectedDocument?.name && "bg-white",
                         )}
                       >
                         <td className="px-4 py-5">
@@ -553,13 +586,25 @@ const Documents = () => {
                           </div>
                         </td>
                       </tr>
-                    ))}
+                      ))
+                    ) : (
+                      <tr>
+                        <td
+                          colSpan={8}
+                          className="px-4 py-16 text-center text-sm text-slate-500"
+                        >
+                          暂无文档
+                        </td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>
 
               <footer className="flex flex-col gap-3 border-t border-slate-100 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
-                <span className="text-sm text-slate-600">共 5 条</span>
+                <span className="text-sm text-slate-600">
+                  共 {filteredDocuments.length} 条
+                </span>
                 <div className="flex flex-wrap items-center gap-3">
                   <div className="flex items-center gap-2">
                     <Button
@@ -602,7 +647,11 @@ const Documents = () => {
           </div>
         </main>
 
-        <DocumentDetails item={selectedDocument} />
+        {selectedDocument ? (
+          <DocumentDetails item={selectedDocument} />
+        ) : (
+          <EmptyDocumentDetails />
+        )}
       </div>
     </section>
   );

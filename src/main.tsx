@@ -22,8 +22,12 @@ createRoot(document.getElementById("root")!).render(
       <Route element={<SliderLayout />}>
         <Route index path="/" element={<DashboardPage />} />
         <Route path="/KnowledgeBases" element={<KnowledgeBases />} />
-        <Route path="/KnowledgeBases/:knowledgeBaseId" element={<KnowledgeBases />} />
+        <Route
+          path="/KnowledgeBases/:knowledgeBaseId"
+          element={<KnowledgeBases />}
+        />
         <Route path="/Documents" element={<Documents />} />
+        <Route path="/Documents/:knowledgeBaseId" element={<Documents />} />
         <Route path="/Chat" element={<Chat />} />
         <Route path="/Settings" element={<Settings />} />
       </Route>
