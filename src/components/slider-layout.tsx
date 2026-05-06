@@ -55,7 +55,9 @@ export default function Layout() {
         <AppSidebar />
         <main className="w-full m-1 pr-3  ">
           <MainHeader title={header.title} desc={header.description} />
-          {isMobile && <SidebarTrigger className="absolute bottom-4 right-4" />}
+          {isMobile && (
+            <SidebarTrigger className="fixed right-4 bottom-4 z-40 border bg-background shadow-md" />
+          )}
           <Outlet />
         </main>
       </SidebarProvider>

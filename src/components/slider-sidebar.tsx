@@ -68,9 +68,15 @@ const navList = [
 
 export function AppSidebar() {
   // 状态管理
-  const { state } = useSidebar();
+  const { state, isMobile, setOpenMobile } = useSidebar();
   const location = useLocation();
   const navigate = useNavigate();
+  const handleNavigate = (route: string) => {
+    navigate(route);
+    if (isMobile) {
+      setOpenMobile(false);
+    }
+  };
   const isNavActive = (route: string) =>
     route === "/"
       ? location.pathname === route
@@ -85,7 +91,7 @@ export function AppSidebar() {
             <div className="flex gap-2 flex-col itemcenters- justify-start  font-bold ">
               <div className="flex w-full h-full items-end justify-between">
                 <Avatar
-                  onClick={() => navigate("/")}
+                  onClick={() => handleNavigate("/")}
                   className="mr-0 size-[clamp(2.25rem,3vw,3rem)] shrink-0 cursor-pointer 
                 transition-all duration-200 hover:scale-120 group-data-[collapsible=icon]:hidden"
                 >
@@ -115,7 +121,7 @@ export function AppSidebar() {
           return (
             <SidebarGroup key={item.text} className="px-2 py-1">
               <Button
-                onClick={() => navigate(item.route)}
+                onClick={() => handleNavigate(item.route)}
                 variant="ghost"
                 className={`flex h-[clamp(2.25rem,3vw,2.75rem)] w-full min-w-0 justify-start 
                   gap-2 rounded-[5px] px-3 text-gray-600  
