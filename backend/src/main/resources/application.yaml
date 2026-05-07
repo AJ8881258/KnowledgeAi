@@ -1,0 +1,31 @@
+spring:
+  application:
+    name: knowflow-backend
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/knowflow
+    username: knowflow
+    password: knowflow
+
+  jpa:
+    hibernate:
+      # validate 表示：启动时只校验 Entity 和数据库表是否匹配
+      # 不让 Hibernate 自动建表或改表
+      # 表结构交给 Flyway 管理
+      ddl-auto: validate
+    # 关闭 Open Session in View
+    # 这是后端 API 项目里比较推荐的做法，避免数据库会话拖到视图层
+    open-in-view: false
+    properties:
+      hibernate:
+        # 格式化 Hibernate 输出的 SQL，方便调试
+        format_sql: true
+
+  flyway:
+    # 开启 Flyway 数据库迁移
+    enabled: true
+    # 告诉 Flyway 去哪里找 SQL 脚本
+    locations: classpath:db/migration
+
+server:
+  port: 8080

@@ -118,6 +118,18 @@ KnowFlow AI 是一个面向学生和开发者的智能资料问答平台，支�
 - [Maven 文档](https://maven.apache.org/guides/)
 - [Docker Compose 文档](https://docs.docker.com/compose/)
 
+- 依赖
+- Spring Web 写 REST API
+- Spring Security 登录、权限、接口保护
+- OAuth2 Resource Server Bearer Token / JWT 鉴权
+- Spring Data JPA 操作数据库，先快速做 CRUD
+- PostgreSQL Driver 连接 PostgreSQL
+- Flyway Migration 管理数据库表结构版本
+- Validation 参数校验，比如用户名不能为空
+- Lombok 减少 getter/setter/constructor 样板代码
+- DevTools 开发热重启
+- Docker Compose Support 后面用 Docker 启动 PostgreSQL 更方便
+
 版本依据：
 
 - 项目统一使用 Java 21 作为开发和运行基准。
