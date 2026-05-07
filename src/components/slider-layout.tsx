@@ -44,7 +44,9 @@ export default function Layout() {
   const location = useLocation();
   const headerPath = location.pathname.startsWith("/KnowledgeBases")
     ? "/KnowledgeBases"
-    : location.pathname;
+    : location.pathname.startsWith("/Chat")
+      ? "/Chat"
+      : location.pathname;
   const header = headerMap[headerPath] ?? {
     title: "页面",
     description: "管理你的页面",
