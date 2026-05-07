@@ -1,3 +1,6 @@
+import { useEffect, useRef, useState } from "react";
+import type { ChangeEvent } from "react";
+import { useNavigate, useParams } from "react-router";
 import {
   Check,
   ChevronDown,
@@ -9,14 +12,23 @@ import {
   Upload,
   X,
 } from "lucide-react";
-import { useParams } from "react-router";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Progress } from "@/components/ui/progress";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 
 type DocumentType = "PDF" | "Markdown" | "TXT";
 type DocumentStatus = "ready" | "processing" | "failed";
+type PageSize = 20 | 50 | 100;
 
 type ChunkPreview = {
   id: string;
@@ -48,6 +60,7 @@ type DocumentItem = {
 
 const typeFilters = ["全部", "PDF", "Markdown", "TXT"];
 const statusFilters = ["全部状态", "Ready", "Processing", "Failed"];
+const pageSizeOptions: PageSize[] = [20, 50, 100];
 
 const documents: DocumentItem[] = [
   {
@@ -183,6 +196,59 @@ const typeMeta: Record<
   },
 };
 
+const ALLOWED_EXTENSIONS = [".pdf", ".md", ".markdown", ".txt"];
+const MAX_FILE_SIZE = 10 * 1024 * 1024;
+
+const recentKnowledgeBases = [
+  { slug: "frontend-interview", name: "Frontend Interview" },
+  { slug: "database-notes", name: "Database Notes" },
+  { slug: "graduation-project", name: "Graduation Project" },
+];
+
+function getExtension(name: string): string {
+  const dot = name.lastIndexOf(".");
+  return dot >= 0 ? name.slice(dot).toLowerCase() : "";
+}
+
+function isAllowedFile(file: File): boolean {
+  const ext = getExtension(file.name);
+  return ALLOWED_EXTENSIONS.includes(ext) && file.size <= MAX_FILE_SIZE;
+}
+
+function getPaginationItems(currentPage: number, totalPages: number) {
+  if (totalPages <= 7) {
+    return Array.from({ length: totalPages }, (_, index) => index + 1);
+  }
+
+  const pages = new Set([1, totalPages, currentPage]);
+
+  if (currentPage > 1) pages.add(currentPage - 1);
+  if (currentPage < totalPages) pages.add(currentPage + 1);
+  if (currentPage <= 3) {
+    pages.add(2);
+    pages.add(3);
+    pages.add(4);
+  }
+  if (currentPage >= totalPages - 2) {
+    pages.add(totalPages - 3);
+    pages.add(totalPages - 2);
+    pages.add(totalPages - 1);
+  }
+
+  const sortedPages = Array.from(pages)
+    .filter((page) => page >= 1 && page <= totalPages)
+    .sort((a, b) => a - b);
+
+  return sortedPages.reduce<Array<number | "ellipsis">>((items, page, index) => {
+    const previous = sortedPages[index - 1];
+    if (previous && page - previous > 1) {
+      items.push("ellipsis");
+    }
+    items.push(page);
+    return items;
+  }, []);
+}
+
 function FileBadge({ type }: { type: DocumentType }) {
   const meta = typeMeta[type];
 
@@ -202,9 +268,11 @@ function FileBadge({ type }: { type: DocumentType }) {
 function SegmentedFilter({
   items,
   activeIndex,
+  onSelect,
 }: {
   items: string[];
   activeIndex: number;
+  onSelect?: (index: number) => void;
 }) {
   return (
     <div className="flex h-10 overflow-hidden rounded-[5px] border border-slate-200 bg-white">
@@ -212,6 +280,7 @@ function SegmentedFilter({
         <button
           key={item}
           type="button"
+          onClick={() => onSelect?.(index)}
           className={cn(
             "border-r border-slate-200 px-4 text-sm text-slate-600 transition-colors last:border-r-0 hover:bg-slate-50",
             index === activeIndex && "bg-blue-50 text-blue-600",
@@ -263,10 +332,12 @@ function IconButton({
   children,
   disabled,
   label,
+  onClick,
 }: {
   children: React.ReactNode;
   disabled?: boolean;
   label: string;
+  onClick?: () => void;
 }) {
   return (
     <Button
@@ -275,6 +346,7 @@ function IconButton({
       size="icon-xs"
       aria-label={label}
       disabled={disabled}
+      onClick={onClick}
       className="rounded-[5px] border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:bg-slate-50 disabled:text-slate-300"
     >
       {children}
@@ -291,7 +363,13 @@ function DetailRow({ label, value }: { label: string; value: React.ReactNode }) 
   );
 }
 
-function DocumentDetails({ item }: { item: DocumentItem }) {
+function DocumentDetails({
+  item,
+  onNavigateChat,
+}: {
+  item: DocumentItem;
+  onNavigateChat?: () => void;
+}) {
   const meta = statusMeta[item.status];
   const previews = item.chunkPreviews ?? [];
   const steps = item.processSteps ?? [];
@@ -342,6 +420,7 @@ function DocumentDetails({ item }: { item: DocumentItem }) {
               </Button>
               <Button
                 type="button"
+                onClick={onNavigateChat}
                 className="h-10 rounded-[5px] bg-blue-600 px-4 text-sm font-medium tracking-normal text-white normal-case hover:bg-blue-700"
               >
                 <MessageCircle data-icon="inline-start" />
@@ -454,44 +533,178 @@ function EmptyDocumentDetails() {
   );
 }
 
+type TypeTab = "全部" | "PDF" | "Markdown" | "TXT";
+
 const Documents = () => {
   const { knowledgeBaseId } = useParams();
-  const filteredDocuments = knowledgeBaseId
+  const navigate = useNavigate();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [typeTab, setTypeTab] = useState<TypeTab>("全部");
+  const [statusIndex, setStatusIndex] = useState(0);
+  const [selectedDocName, setSelectedDocName] = useState<string | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [pageSize, setPageSize] = useState<PageSize>(20);
+  const [currentPage, setCurrentPage] = useState(1);
+
+  const kbFiltered = knowledgeBaseId
     ? documents.filter((doc) => doc.knowledgeBaseSlug === knowledgeBaseId)
     : documents;
-  const selectedDocument = filteredDocuments[0];
+
+  const typeFiltered =
+    typeTab === "全部" ? kbFiltered : kbFiltered.filter((doc) => doc.type === typeTab);
+
+  const statusFiltered =
+    statusIndex === 0
+      ? typeFiltered
+      : typeFiltered.filter(
+          (doc) => doc.status === statusFilters[statusIndex].toLowerCase(),
+        );
+
+  const filteredDocuments = statusFiltered;
+  const totalItems = filteredDocuments.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+  const pageStartIndex = (safeCurrentPage - 1) * pageSize;
+  const displayedDocuments = filteredDocuments.slice(
+    pageStartIndex,
+    pageStartIndex + pageSize,
+  );
+  const displayStart = totalItems === 0 ? 0 : pageStartIndex + 1;
+  const displayEnd = Math.min(pageStartIndex + displayedDocuments.length, totalItems);
+  const paginationItems = getPaginationItems(safeCurrentPage, totalPages);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [knowledgeBaseId, typeTab, statusIndex, pageSize]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+
+  const selectedDocument =
+    displayedDocuments.find((doc) => doc.name === selectedDocName) ??
+    displayedDocuments[0];
+
   const currentKnowledgeBaseLabel =
-    selectedDocument?.knowledgeBase ??
     documents.find((doc) => doc.knowledgeBaseSlug === knowledgeBaseId)
-      ?.knowledgeBase ??
-    "全部知识库";
+      ?.knowledgeBase ?? "全部知识库";
+
+  const processFiles = (files: FileList | null) => {
+    if (!files?.length) return;
+    const fileArray = Array.from(files);
+    const valid = fileArray.filter(isAllowedFile);
+    const invalidCount = fileArray.length - valid.length;
+
+    if (invalidCount > 0) {
+      toast.error("仅支持 PDF、Markdown、TXT 格式，且不超过 10MB");
+    }
+    if (valid.length > 0) {
+      toast.success(`已选择 ${valid.length} 个文件`);
+    }
+  };
+
+  const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
+    processFiles(event.target.files);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const handleDragOver = (event: React.DragEvent) => {
+    event.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (event: React.DragEvent) => {
+    event.preventDefault();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (event: React.DragEvent) => {
+    event.preventDefault();
+    setIsDragging(false);
+    processFiles(event.dataTransfer.files);
+  };
 
   return (
     <section className="min-h-0 bg-white text-slate-900 xl:h-[calc(100svh-5rem)] xl:max-h-[calc(100svh-5rem)] xl:overflow-hidden">
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".pdf,.md,.markdown,.txt"
+        multiple
+        className="hidden"
+        onChange={handleFileChange}
+      />
       <div className="grid min-h-0 grid-cols-1 xl:h-full xl:overflow-hidden xl:grid-cols-[minmax(0,1fr)_360px]">
         <main className="min-w-0 overflow-auto bg-white px-4 py-4 xl:px-5">
           <div className="flex min-h-full flex-col gap-4">
             <div className="flex flex-col gap-3 2xl:flex-row 2xl:items-center 2xl:justify-between">
               <div className="flex flex-wrap items-center gap-3">
-                <button
-                  type="button"
-                  className="flex h-10 min-w-[230px] items-center justify-between gap-3 rounded-[5px] border border-slate-200 bg-white px-3 text-sm text-slate-700 shadow-sm"
-                >
-                  <span className="flex min-w-0 items-center gap-3">
-                    <span className="flex size-5 items-center justify-center rounded-[3px] border border-blue-200 bg-blue-50 text-blue-600">
-                      <FileText className="size-4" />
-                    </span>
-                    <span className="truncate">{currentKnowledgeBaseLabel}</span>
-                  </span>
-                  <ChevronDown className="size-4 shrink-0 text-slate-500" />
-                </button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      className="flex h-10 min-w-[230px] items-center justify-between gap-3 rounded-[5px] border border-slate-200 bg-white px-3 text-sm text-slate-700 shadow-sm"
+                    >
+                      <span className="flex min-w-0 items-center gap-3">
+                        <span className="flex size-5 items-center justify-center rounded-[3px] border border-blue-200 bg-blue-50 text-blue-600">
+                          <FileText className="size-4" />
+                        </span>
+                        <span className="truncate">
+                          {currentKnowledgeBaseLabel}
+                        </span>
+                      </span>
+                      <ChevronDown className="size-4 shrink-0 text-slate-500" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="min-w-[230px]">
+                    <DropdownMenuItem
+                      onClick={() => navigate("/Documents")}
+                    >
+                      <FileText className="size-4 text-slate-500" />
+                      全部知识库
+                    </DropdownMenuItem>
+                    {recentKnowledgeBases.map((kb) => (
+                      <DropdownMenuItem
+                        key={kb.slug}
+                        onClick={() => navigate(`/Documents/${kb.slug}`)}
+                      >
+                        <FileText className="size-4 text-slate-500" />
+                        {kb.name}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
 
-                <SegmentedFilter items={typeFilters} activeIndex={0} />
-                <SegmentedFilter items={statusFilters} activeIndex={0} />
+                <Tabs
+                  value={typeTab}
+                  onValueChange={(value) => setTypeTab(value as TypeTab)}
+                >
+                  <TabsList variant="line">
+                    {typeFilters.map((filter) => (
+                      <TabsTrigger
+                        key={filter}
+                        value={filter}
+                        className="px-4 text-xs font-medium tracking-normal normal-case text-slate-600 data-active:text-blue-600 data-active:after:bg-blue-600"
+                      >
+                        {filter}
+                      </TabsTrigger>
+                    ))}
+                  </TabsList>
+                </Tabs>
+
+                <SegmentedFilter
+                  items={statusFilters}
+                  activeIndex={statusIndex}
+                  onSelect={setStatusIndex}
+                />
               </div>
 
               <Button
                 type="button"
+                onClick={() => fileInputRef.current?.click()}
                 className="h-10 w-full rounded-[5px] bg-blue-600 px-5 text-sm font-medium tracking-normal text-white normal-case hover:bg-blue-700 sm:w-fit"
               >
                 <Upload data-icon="inline-start" />
@@ -499,7 +712,17 @@ const Documents = () => {
               </Button>
             </div>
 
-            <section className="flex min-h-[96px] items-center justify-center rounded-[6px] border border-dashed border-blue-200 bg-white px-5 py-4">
+            <section
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              className={cn(
+                "flex min-h-[96px] items-center justify-center rounded-[6px] border border-dashed px-5 py-4 transition-colors",
+                isDragging
+                  ? "border-blue-400 bg-blue-50"
+                  : "border-blue-200 bg-white",
+              )}
+            >
               <div className="flex w-full flex-col items-center justify-between gap-5 text-center sm:flex-row sm:text-left">
                 <div className="flex flex-col items-center gap-3 sm:flex-row">
                   <Upload className="size-10 text-slate-600" strokeWidth={1.8} />
@@ -515,6 +738,7 @@ const Documents = () => {
                 <Button
                   type="button"
                   variant="outline"
+                  onClick={() => fileInputRef.current?.click()}
                   className="h-10 rounded-[5px] border-slate-200 bg-white px-6 text-sm font-medium tracking-normal text-slate-700 normal-case hover:bg-slate-50"
                 >
                   选择文件
@@ -538,54 +762,72 @@ const Documents = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredDocuments.length > 0 ? (
-                      filteredDocuments.map((doc) => (
-                      <tr
-                        key={doc.name}
-                        className={cn(
-                          "border-b border-slate-100 transition-colors last:border-b-0 hover:bg-slate-50",
-                          doc.name === selectedDocument?.name && "bg-white",
-                        )}
-                      >
-                        <td className="px-4 py-5">
-                          <div className="flex min-w-0 items-center gap-3">
-                            <FileBadge type={doc.type} />
-                            <span className="truncate text-slate-700">{doc.name}</span>
-                          </div>
-                        </td>
-                        <td className="px-4 py-5">
-                          <span className="rounded-[4px] border border-slate-200 px-2 py-1 text-xs text-slate-600">
-                            {doc.type}
-                          </span>
-                        </td>
-                        <td className="px-4 py-5 text-slate-600">{doc.knowledgeBase}</td>
-                        <td className="px-4 py-5">
-                          <StatusText
-                            status={doc.status}
-                            progress={doc.progress}
-                            error={doc.error}
-                          />
-                        </td>
-                        <td className="px-4 py-5 text-slate-600">{doc.chunks}</td>
-                        <td className="px-4 py-5 text-slate-600">{doc.size}</td>
-                        <td className="px-4 py-5 text-slate-600">{doc.updatedAt}</td>
-                        <td className="px-4 py-5">
-                          <div className="flex items-center gap-2">
-                            <IconButton label={`查看 ${doc.name}`}>
-                              <Eye />
-                            </IconButton>
-                            <IconButton
-                              label={`重新索引 ${doc.name}`}
-                              disabled={doc.status === "failed"}
+                    {displayedDocuments.length > 0 ? (
+                      displayedDocuments.map((doc) => (
+                        <tr
+                          key={doc.name}
+                          onClick={() => setSelectedDocName(doc.name)}
+                          className={cn(
+                            "cursor-pointer border-b border-slate-100 transition-colors last:border-b-0 hover:bg-slate-50",
+                            doc.name === selectedDocument?.name &&
+                              "bg-blue-50/40",
+                          )}
+                        >
+                          <td className="px-4 py-5">
+                            <div className="flex min-w-0 items-center gap-3">
+                              <FileBadge type={doc.type} />
+                              <span className="truncate text-slate-700">
+                                {doc.name}
+                              </span>
+                            </div>
+                          </td>
+                          <td className="px-4 py-5">
+                            <span className="rounded-[4px] border border-slate-200 px-2 py-1 text-xs text-slate-600">
+                              {doc.type}
+                            </span>
+                          </td>
+                          <td className="px-4 py-5 text-slate-600">
+                            {doc.knowledgeBase}
+                          </td>
+                          <td className="px-4 py-5">
+                            <StatusText
+                              status={doc.status}
+                              progress={doc.progress}
+                              error={doc.error}
+                            />
+                          </td>
+                          <td className="px-4 py-5 text-slate-600">
+                            {doc.chunks}
+                          </td>
+                          <td className="px-4 py-5 text-slate-600">
+                            {doc.size}
+                          </td>
+                          <td className="px-4 py-5 text-slate-600">
+                            {doc.updatedAt}
+                          </td>
+                          <td className="px-4 py-5">
+                            <div
+                              className="flex items-center gap-2"
+                              onClick={(e) => e.stopPropagation()}
                             >
-                              <RefreshCw />
-                            </IconButton>
-                            <IconButton label={`删除 ${doc.name}`}>
-                              <Trash2 />
-                            </IconButton>
-                          </div>
-                        </td>
-                      </tr>
+                              <IconButton
+                                label={`查看 ${doc.name}`}
+                                onClick={() => setSelectedDocName(doc.name)}
+                              >
+                                <Eye />
+                              </IconButton>
+                              <IconButton
+                                label={`重新索引 ${doc.name}`}
+                                disabled={doc.status === "failed"}
+                              >
+                                <RefreshCw />
+                              </IconButton>
+                              <IconButton label={`删除 ${doc.name}`}>
+                                <Trash2 />
+                              </IconButton>
+                            </div>
+                          </td>
+                        </tr>
                       ))
                     ) : (
                       <tr>
@@ -603,7 +845,7 @@ const Documents = () => {
 
               <footer className="flex flex-col gap-3 border-t border-slate-100 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
                 <span className="text-sm text-slate-600">
-                  共 {filteredDocuments.length} 条
+                  共 {totalItems} 条，显示 {displayStart}-{displayEnd} 条
                 </span>
                 <div className="flex flex-wrap items-center gap-3">
                   <div className="flex items-center gap-2">
@@ -613,34 +855,85 @@ const Documents = () => {
                       size="icon-sm"
                       className="rounded-[5px] border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
                       aria-label="上一页"
+                      disabled={safeCurrentPage === 1}
+                      onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
                     >
                       <ChevronDown className="rotate-90" />
                     </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="icon-sm"
-                      className="rounded-[5px] border-blue-600 bg-white text-blue-600 hover:bg-blue-50"
-                    >
-                      1
-                    </Button>
+                    {paginationItems.map((item, index) =>
+                      item === "ellipsis" ? (
+                        <span
+                          key={`ellipsis-${index}`}
+                          className="flex size-9 items-center justify-center text-sm text-slate-400"
+                        >
+                          ...
+                        </span>
+                      ) : (
+                        <Button
+                          key={item}
+                          type="button"
+                          variant="outline"
+                          size="icon-sm"
+                          onClick={() => setCurrentPage(item)}
+                          className={cn(
+                            "rounded-[5px] border-slate-200 bg-white text-slate-500 hover:bg-slate-50",
+                            item === safeCurrentPage &&
+                              "border-blue-600 text-blue-600 hover:bg-blue-50",
+                          )}
+                          aria-current={item === safeCurrentPage ? "page" : undefined}
+                        >
+                          {item}
+                        </Button>
+                      ),
+                    )}
                     <Button
                       type="button"
                       variant="outline"
                       size="icon-sm"
                       className="rounded-[5px] border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
                       aria-label="下一页"
+                      disabled={safeCurrentPage >= totalPages}
+                      onClick={() =>
+                        setCurrentPage((page) => Math.min(totalPages, page + 1))
+                      }
                     >
                       <ChevronDown className="-rotate-90" />
                     </Button>
                   </div>
-                  <button
-                    type="button"
-                    className="flex h-9 items-center gap-3 rounded-[5px] border border-slate-200 bg-white px-4 text-sm text-slate-600"
-                  >
-                    20 条/页
-                    <ChevronDown className="size-4" />
-                  </button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="h-9 rounded-[5px] border-slate-200 bg-white px-4 text-sm font-normal tracking-normal text-slate-600 normal-case hover:bg-slate-50"
+                      >
+                        {pageSize} 条/页
+                        <ChevronDown data-icon="inline-end" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="min-w-36">
+                      <DropdownMenuGroup>
+                        {pageSizeOptions.map((option) => (
+                          <DropdownMenuItem
+                            key={option}
+                            onClick={() => setPageSize(option)}
+                            className={cn(
+                              "justify-between normal-case tracking-normal",
+                              option === pageSize && "bg-blue-50 text-blue-600",
+                            )}
+                          >
+                            {option} 条/页
+                            <Check
+                              className={cn(
+                                "text-blue-600",
+                                option !== pageSize && "opacity-0",
+                              )}
+                            />
+                          </DropdownMenuItem>
+                        ))}
+                      </DropdownMenuGroup>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
               </footer>
             </section>
@@ -648,7 +941,10 @@ const Documents = () => {
         </main>
 
         {selectedDocument ? (
-          <DocumentDetails item={selectedDocument} />
+          <DocumentDetails
+            item={selectedDocument}
+            onNavigateChat={() => navigate("/Chat")}
+          />
         ) : (
           <EmptyDocumentDetails />
         )}
