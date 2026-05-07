@@ -35,6 +35,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { getMockAuthSession, setMockAuthSession } from "@/lib/mock-auth";
 import { cn } from "@/lib/utils";
 
 const AUTO_SLIDE_DELAY_MS = 3600;
@@ -216,11 +217,18 @@ function LoginPage() {
   const [forgotPasswordOpen, setForgotPasswordOpen] = useState(false);
   const [createAccountOpen, setCreateAccountOpen] = useState(false);
 
+  useEffect(() => {
+    if (getMockAuthSession()) {
+      navigate("/", { replace: true });
+    }
+  }, [navigate]);
+
   const submitLogin = (nextAccount: string, nextPassword: string) => {
     if (
       nextAccount.trim() === VALID_LOGIN_ACCOUNT &&
       nextPassword === VALID_LOGIN_PASSWORD
     ) {
+      setMockAuthSession(nextAccount.trim());
       toast.success("登录成功");
       navigate("/");
       return;

@@ -3,8 +3,10 @@ import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/slider-sidebar";
 // Router
 import { Outlet, useLocation } from "react-router";
+import { Navigate } from "react-router";
 // tool
 import { useIsMobile } from "@/hooks/use-mobile";
+import { getMockAuthSession } from "@/lib/mock-auth";
 
 // components
 import MainHeader from "@/components/MainHeader";
@@ -42,10 +44,18 @@ export default function Layout() {
   // state manager
   const isMobile = useIsMobile();
   const location = useLocation();
+  const authSession = getMockAuthSession();
+
+  if (!authSession) {
+    return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+  }
+
   const headerPath = location.pathname.startsWith("/KnowledgeBases")
     ? "/KnowledgeBases"
     : location.pathname.startsWith("/Chat")
       ? "/Chat"
+      : location.pathname.startsWith("/Settings")
+        ? "/Settings"
       : location.pathname;
   const header = headerMap[headerPath] ?? {
     title: "页面",
