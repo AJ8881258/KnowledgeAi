@@ -1,5 +1,6 @@
 export const AUTH_SESSION_STORAGE_KEY = "knowflow-auth-session";
 export const USER_PROFILE_STORAGE_KEY = "knowflow-user-profile";
+export const MOCK_AUTH_SESSION_CHANGE_EVENT = "knowflow-auth-session-change";
 
 export type MockAuthSession = {
   isAuthenticated: boolean;
@@ -38,6 +39,14 @@ function readJson<T>(key: string): T | null {
   }
 }
 
+function dispatchMockAuthSessionChange() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.dispatchEvent(new Event(MOCK_AUTH_SESSION_CHANGE_EVENT));
+}
+
 export function getMockUserProfile(): MockUserProfile {
   const storedProfile = readJson<Partial<MockUserProfile>>(
     USER_PROFILE_STORAGE_KEY,
@@ -57,6 +66,7 @@ export function setMockUserProfile(profile: MockUserProfile) {
   }
 
   window.localStorage.setItem(USER_PROFILE_STORAGE_KEY, JSON.stringify(profile));
+  dispatchMockAuthSessionChange();
 }
 
 export function getMockAuthSession(): MockAuthSession | null {
@@ -84,6 +94,7 @@ export function setMockAuthSession(account: string) {
   };
 
   window.localStorage.setItem(AUTH_SESSION_STORAGE_KEY, JSON.stringify(session));
+  dispatchMockAuthSessionChange();
 }
 
 export function updateMockAuthProfile(profile: MockUserProfile) {
@@ -105,6 +116,7 @@ export function updateMockAuthProfile(profile: MockUserProfile) {
     AUTH_SESSION_STORAGE_KEY,
     JSON.stringify(nextSession),
   );
+  dispatchMockAuthSessionChange();
 }
 
 export function clearMockAuthSession(options: { clearProfile?: boolean } = {}) {
@@ -117,4 +129,6 @@ export function clearMockAuthSession(options: { clearProfile?: boolean } = {}) {
   if (options.clearProfile) {
     window.localStorage.removeItem(USER_PROFILE_STORAGE_KEY);
   }
+
+  dispatchMockAuthSessionChange();
 }

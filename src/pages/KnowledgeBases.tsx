@@ -1502,7 +1502,7 @@ function KnowledgeBaseChatView({
             </div>
           </div>
 
-          <section className="flex max-h-[420px] min-h-[320px] flex-col px-4 py-4">
+          <section className="flex min-h-0 flex-1 flex-col px-4 py-4">
             <div className="mb-3 flex items-center justify-between">
               <h3 className="text-sm font-semibold">文档处理状态</h3>
               <Button
@@ -1542,8 +1542,11 @@ function KnowledgeBaseChatView({
                   </TabsTrigger>
                 ))}
               </TabsList>
-              <TabsContent value={documentTab} className="min-h-0 flex-1">
-                <div className="h-full min-h-0 overflow-auto">
+              <TabsContent
+                value={documentTab}
+                className="flex min-h-0 flex-1 flex-col overflow-hidden"
+              >
+                <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden pr-1">
                   {filteredDocuments.length > 0 ? (
                     filteredDocuments.map((doc) => (
                       <div

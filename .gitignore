@@ -10,7 +10,7 @@ lerna-debug.log*
 #env
 .codex
 .playwright-mcp
-plan
+.claude/
 
 node_modules
 dist
@@ -22,6 +22,7 @@ dist-ssr
 !.vscode/extensions.json
 .idea
 .DS_Store
+Thumbs.db
 *.suo
 *.ntvs*
 *.njsproj

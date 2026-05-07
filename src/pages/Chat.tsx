@@ -491,6 +491,7 @@ const Chat = () => {
   const { conversationId } = useParams();
   const navigate = useNavigate();
   const [conversations, setConversations] = useState(initialConversations);
+  const [conversationMenuOpen, setConversationMenuOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [sourceSortDirection, setSourceSortDirection] =
@@ -570,6 +571,7 @@ const Chat = () => {
       });
     }
 
+    setConversationMenuOpen(false);
     setDeleteOpen(false);
     toast.success("已删除会话");
   };
@@ -725,7 +727,10 @@ const Chat = () => {
               >
                 {isFullscreen ? <Minimize2 /> : <Maximize2 />}
               </Button>
-              <DropdownMenu>
+              <DropdownMenu
+                open={conversationMenuOpen}
+                onOpenChange={setConversationMenuOpen}
+              >
                 <DropdownMenuTrigger asChild>
                   <Button
                     type="button"
@@ -747,8 +752,8 @@ const Chat = () => {
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       variant="destructive"
-                      onSelect={(event) => {
-                        event.preventDefault();
+                      onSelect={() => {
+                        setConversationMenuOpen(false);
                         setDeleteOpen(true);
                       }}
                     >

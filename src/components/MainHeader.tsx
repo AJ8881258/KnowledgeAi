@@ -1,5 +1,5 @@
 // ReactHooks
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 // Router
 import { useNavigate } from "react-router";
@@ -7,26 +7,33 @@ import { useNavigate } from "react-router";
 // tools
 import { cn } from "@/lib/utils";
 import { useIsMobile } from "@/hooks/use-mobile";
+import {
+  clearMockAuthSession,
+  getMockUserProfile,
+  MOCK_AUTH_SESSION_CHANGE_EVENT,
+} from "@/lib/mock-auth";
 
+// AlertDialog
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 // Button
 import { Button } from "@/components/ui/button";
-// Input
-import { Input } from "@/components/ui/input";
-// Popover
+// DropdownMenu
 import {
-  Popover,
-  PopoverContent,
-  PopoverDescription,
-  PopoverHeader,
-  PopoverTitle,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-// Avatar
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import MyAvatar from "@/assets/mypic.jpg";
-
-// field
-import { Field } from "@/components/ui/field";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 // typescript
 type MainHeaderProps = {
@@ -36,152 +43,116 @@ type MainHeaderProps = {
 
 const MainHeader = ({ title, desc }: MainHeaderProps) => {
   // state manager
-  const [isUserPopoverOpen, setIsUserPopoverOpen] = useState(false);
   const isMobile = useIsMobile();
   const navigate = useNavigate();
+  const [displayName, setDisplayName] = useState(
+    () => getMockUserProfile().displayName,
+  );
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [logoutDialogOpen, setLogoutDialogOpen] = useState(false);
+
+  useEffect(() => {
+    const syncDisplayName = () => {
+      setDisplayName(getMockUserProfile().displayName);
+    };
+
+    window.addEventListener(MOCK_AUTH_SESSION_CHANGE_EVENT, syncDisplayName);
+    window.addEventListener("storage", syncDisplayName);
+
+    return () => {
+      window.removeEventListener(
+        MOCK_AUTH_SESSION_CHANGE_EVENT,
+        syncDisplayName,
+      );
+      window.removeEventListener("storage", syncDisplayName);
+    };
+  }, []);
+
+  const handleLogout = () => {
+    clearMockAuthSession();
+    navigate("/login", { replace: true });
+  };
+
   return (
     <>
-      <div className=" w-full h-18 pl-2  border-b-2 border-gray-200 flex items-center  justify-between ">
-        <div>
-          <div className="text-[clamp(1.125rem,1.5vw,1.5rem)]">{title}</div>
-          <div className="text-[clamp(0.575rem,.9vw,1.125rem)] text-gray-500">
+      <div className="flex h-18 w-full items-center justify-between border-b-2 border-gray-200 pl-2">
+        <div className="min-w-0">
+          <div className="truncate text-[clamp(1.125rem,1.5vw,1.5rem)]">
+            {title}
+          </div>
+          <div className="truncate text-[clamp(0.575rem,.9vw,1.125rem)] text-gray-500">
             {desc}
           </div>
         </div>
         <div
           className={cn(
-            "flex gap-5 text-[clamp(0.875rem,1.25vw,1.25rem)] items-center",
+            "flex items-center gap-5 text-[clamp(0.875rem,1.25vw,1.25rem)]",
             isMobile && "gap-2",
           )}
         >
-          <Field orientation="horizontal" className="flex justify-end">
-            <Input
-              type="search"
-              placeholder="Search..."
-              className={cn(
-                "text-[clamp(0.875rem,1.25vw,1.25rem)] w-50",
-                isMobile && "w-[70%]",
-              )}
-            />
-            {!isMobile && (
-              <Button
-                variant="outline"
-                size="icon-xs"
-                aria-label="Submit"
-                className=" rounded-3xl border-0"
-              >
-                <span className="iconfont text-gray-600 text-[clamp(1rem,1.5vw,1.3rem)] icon-search"></span>
-              </Button>
-            )}
-          </Field>
           {!isMobile && (
-            <div className="flex items-center cursor-pointer">
-              <span className="iconfont icon-news-filling text-[clamp(1rem,1.5vw,1.3rem)] hover:-translate-y-0.5 transition-all  duration-300"></span>
+            <div className="flex cursor-pointer items-center">
+              <span className="iconfont icon-news-filling text-[clamp(1rem,1.5vw,1.3rem)] transition-all duration-300 hover:-translate-y-0.5"></span>
             </div>
           )}
-          {!isMobile && (
-            <Popover
-              open={isUserPopoverOpen}
-              onOpenChange={setIsUserPopoverOpen}
-            >
-              <PopoverTrigger asChild>
-                <div className="items-center flex cursor-pointer select-none">
-                  <span>WuLong</span>
-                  <span
-                    className={cn(
-                      "iconfont icon-arrow transform transition-transform duration-200 text-gray-600 text-[clamp(1.25rem,1.5vw,1.5rem)]",
-                      isUserPopoverOpen ? "rotate-90" : "rotate-0",
-                    )}
-                  ></span>
-                </div>
-              </PopoverTrigger>
-              <PopoverContent align="center" className="w-48 gap-2">
-                <PopoverHeader>
-                  <PopoverTitle>Title</PopoverTitle>
-                  <PopoverDescription>Via Tunnel</PopoverDescription>
-                </PopoverHeader>
-                <Field className="gap-0">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => navigate("/Profile")}
-                  >
-                    个人资料
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => navigate("/Settings")}
-                  >
-                    账号设置
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => navigate("/Models")}
-                  >
-                    模型与 API 设置
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => navigate("/Documentation")}
-                  >
-                    使用文档
-                  </Button>
-                </Field>
-              </PopoverContent>
-            </Popover>
-          )}
-          {/* User*/}
-
-          {/* avatar */}
-          {!isMobile ? (
-            <Avatar
-              className="mr-0 size-[clamp(2.25rem,3vw,3rem)] shrink-0 cursor-pointer 
-                transition-all duration-200 hover:scale-120 group-data-[collapsible=icon]:hidden"
-            >
-              <AvatarImage src={MyAvatar} />
-              <AvatarFallback>Avatar</AvatarFallback>
-            </Avatar>
-          ) : (
-            <Popover
-              open={isUserPopoverOpen}
-              onOpenChange={setIsUserPopoverOpen}
-            >
-              <PopoverTrigger asChild>
-                <Avatar
-                  className="mr-0 size-[clamp(2.25rem,3vw,3rem)] shrink-0 cursor-pointer 
-                transition-all duration-200 hover:scale-120 group-data-[collapsible=icon]:hidden"
+          <DropdownMenu open={userMenuOpen} onOpenChange={setUserMenuOpen}>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="flex min-w-0 items-center gap-1 px-2 text-[clamp(0.875rem,1.25vw,1.25rem)]"
+              >
+                <span className="flex min-w-0 items-center gap-1">
+                  <span className="max-w-24 truncate">{displayName}</span>
+                  <span className="shrink-0">Workspace</span>
+                </span>
+                <span
+                  className={cn(
+                    "iconfont icon-arrow text-[clamp(1.25rem,1.5vw,1.5rem)] text-gray-600 transition-transform duration-200",
+                    userMenuOpen ? "rotate-90" : "rotate-0",
+                  )}
+                ></span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-36">
+              <DropdownMenuGroup>
+                <DropdownMenuItem onSelect={() => navigate("/Settings")}>
+                  个人资料
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  variant="destructive"
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    setUserMenuOpen(false);
+                    setLogoutDialogOpen(true);
+                  }}
                 >
-                  <AvatarImage src={MyAvatar} />
-                  <AvatarFallback>Avatar</AvatarFallback>
-                </Avatar>
-              </PopoverTrigger>
-              <PopoverContent align="center" className="w-48 gap-2">
-                <PopoverHeader>
-                  <PopoverTitle>Title</PopoverTitle>
-                  <PopoverDescription>Fast Via</PopoverDescription>
-                </PopoverHeader>
-                <Field className="gap-0">
-                  <Button variant="ghost" size="sm">
-                    个人资料
-                  </Button>
-                  <Button variant="ghost" size="sm">
-                    账号设置
-                  </Button>
-                  <Button variant="ghost" size="sm">
-                    模型与 API 设置
-                  </Button>
-                  <Button variant="ghost" size="sm">
-                    使用文档
-                  </Button>
-                </Field>
-              </PopoverContent>
-            </Popover>
-          )}
+                  退出登录
+                </DropdownMenuItem>
+              </DropdownMenuGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
+
+      <AlertDialog open={logoutDialogOpen} onOpenChange={setLogoutDialogOpen}>
+        <AlertDialogContent className="rounded-[8px]">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="font-sans text-lg normal-case tracking-normal">
+              确认退出登录？
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              确认后会清除本地 mock 登录态，并返回登录页。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogAction type="button" onClick={handleLogout}>
+              确认退出
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 };
