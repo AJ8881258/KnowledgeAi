@@ -32,6 +32,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/knowledge-bases").permitAll()
                         // 允许所有人访问知识库详情，例如 /api/knowledge-bases/1
                         .requestMatchers(HttpMethod.GET, "/api/knowledge-bases/*").permitAll()
+                        // 允许所有人登录
+                        .requestMatchers(HttpMethod.POST, "/api/auth/login").permitAll()
                         // 除了上面两个 GET 接口，其他请求都必须登录
                         .anyRequest().authenticated())
                 // 构建 SecurityFilterChain
