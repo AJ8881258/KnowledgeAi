@@ -2,13 +2,26 @@ export const AUTH_SESSION_STORAGE_KEY = "knowflow-auth-session";
 export const USER_PROFILE_STORAGE_KEY = "knowflow-user-profile";
 export const MOCK_AUTH_SESSION_CHANGE_EVENT = "knowflow-auth-session-change";
 
-export type MockAuthSession = {
+export type AuthSession = {
   isAuthenticated: boolean;
+  id: number | null;
+  username: string;
   account: string;
+  role: string;
+  token?: string;
   displayName: string;
   email: string;
   loginAt: string;
 };
+
+export type BackendUserSession = {
+  id: number;
+  username: string;
+  role: string;
+  token?: string;
+};
+
+export type MockAuthSession = AuthSession;
 
 export type MockUserProfile = {
   displayName: string;
@@ -60,6 +73,28 @@ export function getMockUserProfile(): MockUserProfile {
   };
 }
 
+export function getAuthSession(): AuthSession | null {
+  const session = readJson<Partial<AuthSession>>(AUTH_SESSION_STORAGE_KEY);
+
+  if (!session?.isAuthenticated || (!session.username && !session.account)) {
+    return null;
+  }
+
+  const username = session.username || session.account || "";
+
+  return {
+    isAuthenticated: true,
+    id: session.id ?? null,
+    username,
+    account: session.account || username,
+    role: session.role || "",
+    token: session.token,
+    displayName: session.displayName?.trim() || username,
+    email: session.email?.trim() || "",
+    loginAt: session.loginAt || new Date().toISOString(),
+  };
+}
+
 export function setMockUserProfile(profile: MockUserProfile) {
   if (typeof window === "undefined") {
     return;
@@ -70,13 +105,7 @@ export function setMockUserProfile(profile: MockUserProfile) {
 }
 
 export function getMockAuthSession(): MockAuthSession | null {
-  const session = readJson<MockAuthSession>(AUTH_SESSION_STORAGE_KEY);
-
-  if (!session?.isAuthenticated || !session.account) {
-    return null;
-  }
-
-  return session;
+  return getAuthSession();
 }
 
 export function setMockAuthSession(account: string) {
@@ -87,11 +116,51 @@ export function setMockAuthSession(account: string) {
   const profile = getMockUserProfile();
   const session: MockAuthSession = {
     isAuthenticated: true,
+    id: null,
+    username: account,
     account,
+    role: "",
     displayName: profile.displayName,
     email: profile.email,
     loginAt: new Date().toISOString(),
   };
+
+  window.localStorage.setItem(AUTH_SESSION_STORAGE_KEY, JSON.stringify(session));
+  dispatchMockAuthSessionChange();
+}
+
+export function setAuthSession(user: BackendUserSession) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const username = user.username.trim();
+  const profile = getMockUserProfile();
+  const displayName =
+    profile.displayName === DEFAULT_MOCK_USER_PROFILE.displayName
+      ? username
+      : profile.displayName;
+  const session: AuthSession = {
+    isAuthenticated: true,
+    id: user.id,
+    username,
+    account: username,
+    role: user.role,
+    token: user.token,
+    displayName,
+    email: profile.email,
+    loginAt: new Date().toISOString(),
+  };
+
+  if (displayName === username) {
+    window.localStorage.setItem(
+      USER_PROFILE_STORAGE_KEY,
+      JSON.stringify({
+        displayName,
+        email: profile.email,
+      }),
+    );
+  }
 
   window.localStorage.setItem(AUTH_SESSION_STORAGE_KEY, JSON.stringify(session));
   dispatchMockAuthSessionChange();

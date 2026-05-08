@@ -5,6 +5,8 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
+import org.springframework.security.crypto.factory.PasswordEncoderFactories;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 
 // 告诉 Spring：这是一个配置类
@@ -34,9 +36,15 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/knowledge-bases/*").permitAll()
                         // 允许所有人登录
                         .requestMatchers(HttpMethod.POST, "/api/auth/login").permitAll()
-                        // 除了上面两个 GET 接口，其他请求都必须登录
+                        .requestMatchers(HttpMethod.POST,"/api/auth/register").permitAll()
+                        // 除了上面 接口，其他请求都必须登录
                         .anyRequest().authenticated())
                 // 构建 SecurityFilterChain
                 .build();
+    }
+
+    @Bean
+    PasswordEncoder passwordEncoder(){
+        return PasswordEncoderFactories.createDelegatingPasswordEncoder();
     }
 }

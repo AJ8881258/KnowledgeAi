@@ -1,5 +1,14 @@
-import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router";
+import {
+  type FormEvent,
+  type MouseEvent,
+  type PointerEvent,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+import { isAxiosError } from "axios";
+import { useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 import {
   ChevronLeft,
@@ -35,13 +44,52 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { getMockAuthSession, setMockAuthSession } from "@/lib/mock-auth";
+import { login, register } from "@/api/auth";
+import { getAuthSession, setAuthSession } from "@/lib/mock-auth";
 import { cn } from "@/lib/utils";
 
 const AUTO_SLIDE_DELAY_MS = 3600;
 const RECENT_AUTO_ADVANCE_MS = 700;
 const VALID_LOGIN_ACCOUNT = "admin";
 const VALID_LOGIN_PASSWORD = "admin";
+
+function getRedirectPath(state: unknown) {
+  if (typeof state !== "object" || state === null || !("from" in state)) {
+    return "/";
+  }
+
+  const from = (state as { from?: unknown }).from;
+
+  return typeof from === "string" && from.startsWith("/") ? from : "/";
+}
+
+function getErrorResponseMessage(data: unknown) {
+  if (typeof data === "string") {
+    return data;
+  }
+
+  if (typeof data !== "object" || data === null) {
+    return "";
+  }
+
+  const errorData = data as {
+    detail?: unknown;
+    error?: unknown;
+    message?: unknown;
+  };
+
+  for (const value of [
+    errorData.message,
+    errorData.detail,
+    errorData.error,
+  ]) {
+    if (typeof value === "string" && value.trim()) {
+      return value;
+    }
+  }
+
+  return "";
+}
 
 const carouselSlides = [
   {
@@ -149,6 +197,30 @@ function LoginVisualCarousel() {
     goToSlide((current) => current + 1, { coalesceRecentAuto: true });
   };
 
+  const handlePreviousPointerDown = (event: PointerEvent<HTMLButtonElement>) => {
+    if (event.button === 0) {
+      showPreviousSlide();
+    }
+  };
+
+  const handleNextPointerDown = (event: PointerEvent<HTMLButtonElement>) => {
+    if (event.button === 0) {
+      showNextSlide();
+    }
+  };
+
+  const handlePreviousClick = (event: MouseEvent<HTMLButtonElement>) => {
+    if (event.detail === 0) {
+      showPreviousSlide();
+    }
+  };
+
+  const handleNextClick = (event: MouseEvent<HTMLButtonElement>) => {
+    if (event.detail === 0) {
+      showNextSlide();
+    }
+  };
+
   return (
     <div className="flex min-h-0 flex-1 items-center justify-center">
       <div className="relative w-full max-w-[940px]">
@@ -172,8 +244,8 @@ function LoginVisualCarousel() {
           type="button"
           variant="outline"
           aria-label="上一张截图"
-          onPointerDown={clearAutoAdvance}
-          onClick={showPreviousSlide}
+          onPointerDown={handlePreviousPointerDown}
+          onClick={handlePreviousClick}
           className="absolute left-4 top-1/2 size-10 -translate-y-1/2 rounded-full border-slate-200 bg-white/90 p-0 text-slate-700 shadow-lg backdrop-blur hover:bg-white"
         >
           <ChevronLeft className="size-4" />
@@ -182,8 +254,8 @@ function LoginVisualCarousel() {
           type="button"
           variant="outline"
           aria-label="下一张截图"
-          onPointerDown={clearAutoAdvance}
-          onClick={showNextSlide}
+          onPointerDown={handleNextPointerDown}
+          onClick={handleNextClick}
           className="absolute right-4 top-1/2 size-10 -translate-y-1/2 rounded-full border-slate-200 bg-white/90 p-0 text-slate-700 shadow-lg backdrop-blur hover:bg-white"
         >
           <ChevronRight className="size-4" />
@@ -199,7 +271,9 @@ function LoginVisualCarousel() {
               onClick={() => goToSlide(index)}
               className={cn(
                 "h-2.5 rounded-full transition-all",
-                activeSlide === index ? "w-8 bg-blue-600" : "w-2.5 bg-slate-300",
+                activeSlide === index
+                  ? "w-8 bg-blue-600"
+                  : "w-2.5 bg-slate-300",
               )}
             />
           ))}
@@ -211,41 +285,144 @@ function LoginVisualCarousel() {
 
 function LoginPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [showPassword, setShowPassword] = useState(false);
-  const [account, setAccount] = useState(VALID_LOGIN_ACCOUNT);
-  const [password, setPassword] = useState(VALID_LOGIN_PASSWORD);
+  const [account, setAccount] = useState("");
+  const [password, setPassword] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [signupUsername, setSignupUsername] = useState("");
+  const [signupPassword, setSignupPassword] = useState("");
+  const [signupConfirmPassword, setSignupConfirmPassword] = useState("");
+  const [isRegistering, setIsRegistering] = useState(false);
   const [forgotPasswordOpen, setForgotPasswordOpen] = useState(false);
   const [createAccountOpen, setCreateAccountOpen] = useState(false);
+  const redirectPath = getRedirectPath(location.state);
 
   useEffect(() => {
-    if (getMockAuthSession()) {
-      navigate("/", { replace: true });
+    if (getAuthSession()) {
+      navigate(redirectPath, { replace: true });
     }
-  }, [navigate]);
+  }, [navigate, redirectPath]);
 
-  const submitLogin = (nextAccount: string, nextPassword: string) => {
-    if (
-      nextAccount.trim() === VALID_LOGIN_ACCOUNT &&
-      nextPassword === VALID_LOGIN_PASSWORD
-    ) {
-      setMockAuthSession(nextAccount.trim());
-      toast.success("登录成功");
-      navigate("/");
+  const submitLogin = async (nextAccount: string, nextPassword: string) => {
+    const username = nextAccount.trim();
+
+    if (!username || !nextPassword) {
+      toast.error("请输入账号和密码");
       return;
     }
 
-    toast.error("登录失败，请检查账号或密码");
+    setIsSubmitting(true);
+
+    try {
+      const user = await login({
+        username,
+        password: nextPassword,
+      });
+
+      setAuthSession(user);
+      toast.success("登录成功");
+      navigate(redirectPath, { replace: true });
+    } catch (error) {
+      if (isAxiosError(error)) {
+        if (error.response?.status === 401) {
+          toast.error("登录失败，请检查账号或密码");
+          return;
+        }
+
+        if (!error.response) {
+          toast.error("无法连接登录服务，请确认后端已启动");
+          return;
+        }
+      }
+
+      toast.error("登录失败，请稍后重试");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleLogin = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    submitLogin(account, password);
+    void submitLogin(account, password);
   };
 
   const handleDemoLogin = () => {
     setAccount(VALID_LOGIN_ACCOUNT);
     setPassword(VALID_LOGIN_PASSWORD);
-    submitLogin(VALID_LOGIN_ACCOUNT, VALID_LOGIN_PASSWORD);
+    void submitLogin(VALID_LOGIN_ACCOUNT, VALID_LOGIN_PASSWORD);
+  };
+
+  const resetRegisterForm = () => {
+    setSignupUsername("");
+    setSignupPassword("");
+    setSignupConfirmPassword("");
+  };
+
+  const handleCreateAccountOpenChange = (open: boolean) => {
+    if (isRegistering) {
+      return;
+    }
+
+    setCreateAccountOpen(open);
+
+    if (!open) {
+      resetRegisterForm();
+    }
+  };
+
+  const handleRegister = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    const username = signupUsername.trim();
+
+    if (!username || !signupPassword) {
+      toast.error("请输入用户名和密码");
+      return;
+    }
+
+    if (signupPassword !== signupConfirmPassword) {
+      toast.error("两次输入的密码不一致");
+      return;
+    }
+
+    setIsRegistering(true);
+
+    try {
+      const user = await register({
+        username,
+        password: signupPassword,
+      });
+
+      setAuthSession(user);
+      resetRegisterForm();
+      setCreateAccountOpen(false);
+      toast.success("注册成功，已登录");
+      navigate(redirectPath, { replace: true });
+    } catch (error) {
+      if (isAxiosError(error)) {
+        if (error.response?.status === 400 || error.response?.status === 409) {
+          const message = getErrorResponseMessage(error.response.data);
+
+          if (/exist|duplicate|already|存在/i.test(message)) {
+            toast.error("用户名已存在，请换一个用户名");
+            return;
+          }
+
+          toast.error("注册信息不完整，请检查用户名和密码");
+          return;
+        }
+
+        if (!error.response) {
+          toast.error("无法连接注册服务，请确认后端已启动");
+          return;
+        }
+      }
+
+      toast.error("注册失败，请稍后重试");
+    } finally {
+      setIsRegistering(false);
+    }
   };
 
   return (
@@ -292,6 +469,7 @@ function LoginPage() {
                       onChange={(event) => setAccount(event.target.value)}
                       placeholder="请输入账号或邮箱"
                       autoComplete="username"
+                      disabled={isSubmitting}
                       className="text-base text-slate-900 placeholder:text-slate-400 md:text-sm"
                     />
                   </InputGroup>
@@ -315,12 +493,14 @@ function LoginPage() {
                       onChange={(event) => setPassword(event.target.value)}
                       placeholder="请输入密码"
                       autoComplete="current-password"
+                      disabled={isSubmitting}
                       className="text-base text-slate-900 placeholder:text-slate-400 md:text-sm"
                     />
                     <InputGroupAddon align="inline-end">
                       <InputGroupButton
                         aria-label={showPassword ? "隐藏密码" : "显示密码"}
                         onClick={() => setShowPassword((value) => !value)}
+                        disabled={isSubmitting}
                         className="text-slate-500 hover:text-slate-700"
                       >
                         {showPassword ? <EyeOff /> : <Eye />}
@@ -356,9 +536,10 @@ function LoginPage() {
 
               <Button
                 type="submit"
+                disabled={isSubmitting}
                 className="h-12 rounded-md bg-blue-600 text-base font-semibold normal-case tracking-normal text-white shadow-[0_14px_30px_rgba(37,99,235,0.22)] hover:bg-blue-700"
               >
-                登录
+                {isSubmitting ? "登录中..." : "登录"}
               </Button>
             </form>
 
@@ -384,6 +565,7 @@ function LoginPage() {
               type="button"
               variant="outline"
               onClick={handleDemoLogin}
+              disabled={isSubmitting}
               className="mt-7 h-11 rounded-md border-blue-600 bg-white text-sm font-medium normal-case tracking-normal text-blue-600 hover:border-blue-700 hover:bg-blue-50 hover:text-blue-700"
             >
               <LockKeyhole data-icon="inline-start" />
@@ -459,18 +641,21 @@ function LoginPage() {
         </SheetContent>
       </Sheet>
 
-      <Sheet open={createAccountOpen} onOpenChange={setCreateAccountOpen}>
+      <Sheet
+        open={createAccountOpen}
+        onOpenChange={handleCreateAccountOpenChange}
+      >
         <SheetContent className="w-full max-w-[420px]">
           <SheetHeader>
             <SheetTitle className="normal-case tracking-normal">
               创建账号
             </SheetTitle>
             <SheetDescription>
-              先完成注册表单 UI，当前版本不会创建账号或连接后端服务。
+              创建后将直接进入 KnowFlow AI 工作台。
             </SheetDescription>
           </SheetHeader>
 
-          <form className="flex flex-col gap-5 px-8">
+          <form className="flex flex-col gap-5 px-8" onSubmit={handleRegister}>
             <FieldGroup className="gap-5">
               <Field className="gap-2">
                 <FieldLabel
@@ -486,29 +671,11 @@ function LoginPage() {
                   <InputGroupInput
                     id="signup-username"
                     type="text"
+                    value={signupUsername}
+                    onChange={(event) => setSignupUsername(event.target.value)}
                     placeholder="请输入用户名"
                     autoComplete="username"
-                    className="text-base text-slate-900 placeholder:text-slate-400 md:text-sm"
-                  />
-                </InputGroup>
-              </Field>
-
-              <Field className="gap-2">
-                <FieldLabel
-                  htmlFor="signup-email"
-                  className="text-sm font-medium normal-case tracking-normal"
-                >
-                  邮箱
-                </FieldLabel>
-                <InputGroup className="h-11 rounded-md border border-slate-300 bg-white px-4 shadow-sm has-[[data-slot=input-group-control]:focus-visible]:border-blue-500 has-[[data-slot=input-group-control]:focus-visible]:ring-4 has-[[data-slot=input-group-control]:focus-visible]:ring-blue-500/10">
-                  <InputGroupAddon>
-                    <Mail className="size-4 text-slate-500" />
-                  </InputGroupAddon>
-                  <InputGroupInput
-                    id="signup-email"
-                    type="email"
-                    placeholder="请输入邮箱地址"
-                    autoComplete="email"
+                    disabled={isRegistering}
                     className="text-base text-slate-900 placeholder:text-slate-400 md:text-sm"
                   />
                 </InputGroup>
@@ -528,8 +695,11 @@ function LoginPage() {
                   <InputGroupInput
                     id="signup-password"
                     type="password"
+                    value={signupPassword}
+                    onChange={(event) => setSignupPassword(event.target.value)}
                     placeholder="请输入密码"
                     autoComplete="new-password"
+                    disabled={isRegistering}
                     className="text-base text-slate-900 placeholder:text-slate-400 md:text-sm"
                   />
                 </InputGroup>
@@ -549,8 +719,13 @@ function LoginPage() {
                   <InputGroupInput
                     id="signup-confirm-password"
                     type="password"
+                    value={signupConfirmPassword}
+                    onChange={(event) =>
+                      setSignupConfirmPassword(event.target.value)
+                    }
                     placeholder="请再次输入密码"
                     autoComplete="new-password"
+                    disabled={isRegistering}
                     className="text-base text-slate-900 placeholder:text-slate-400 md:text-sm"
                   />
                 </InputGroup>
@@ -558,10 +733,11 @@ function LoginPage() {
             </FieldGroup>
 
             <Button
-              type="button"
+              type="submit"
+              disabled={isRegistering}
               className="h-11 rounded-md bg-blue-600 font-medium normal-case tracking-normal text-white hover:bg-blue-700"
             >
-              创建账号
+              {isRegistering ? "创建中..." : "创建账号"}
             </Button>
           </form>
 
@@ -570,6 +746,7 @@ function LoginPage() {
               <Button
                 type="button"
                 variant="outline"
+                disabled={isRegistering}
                 className="h-10 rounded-md normal-case tracking-normal"
               >
                 关闭

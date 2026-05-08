@@ -4,13 +4,19 @@ import java.time.OffsetDateTime;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.PrePersist;
+import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 
 @Entity
 @Table(name = "users")
 public class User {
     @Id
+    // 自动生成主键
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
     @Column(nullable = false,length = 64,unique =true )
@@ -49,5 +55,27 @@ public class User {
     }
 
     // Setter
-    
+    public void setUsername(String username) {
+        this.username = username;
+    }
+    public void setPasswordHash(String password){
+        this.passwordHash = password;
+    }
+    public void setRole(String role){
+        this.role = role;
+    }
+
+    // 创建时自动设置时间
+    @PrePersist
+    void onCreate(){
+        OffsetDateTime now = OffsetDateTime.now();
+        createdAt = now;
+        updatedAt = now;
+    }
+
+    // 更新时自动设置时间
+    @PreUpdate
+    void onUpdate(){
+        updatedAt = OffsetDateTime.now();
+    }
 }
