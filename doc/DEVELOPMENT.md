@@ -91,6 +91,8 @@ Invoke-RestMethod `
   -Body '{"username":"admin","password":"admin"}'
 ```
 
+登录成功后会返回 `tokenType` 和 `accessToken`。前端后续不要保存密码明文，只保存用户信息和 `accessToken`。
+
 知识库列表：
 
 ```powershell

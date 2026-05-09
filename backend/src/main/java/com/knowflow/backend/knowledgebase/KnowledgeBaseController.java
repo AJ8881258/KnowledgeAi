@@ -1,11 +1,11 @@
 package com.knowflow.backend.knowledgebase;
 
+import java.util.List;
+
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-
-import java.util.List;
 
 // @RestController 表示这是 REST API 控制器
 // 方法返回的对象会自动转换成 JSON
@@ -16,7 +16,6 @@ public class KnowledgeBaseController {
 
     // 注入 Repository，用它查询数据库
     private final KnowledgeBaseRepository knowledgeBaseRepository;
-
 
     // 构造器注入
     // Spring 会自动把 KnowledgeBaseRepository 传进来

@@ -381,7 +381,11 @@ function LoginPage() {
     setIsRegistering(true);
 
     try {
-      const user = await register({
+      await register({
+        username,
+        password: signupPassword,
+      });
+      const user = await login({
         username,
         password: signupPassword,
       });

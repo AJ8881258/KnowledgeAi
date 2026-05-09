@@ -4,7 +4,7 @@
 
 - Base URL: `http://localhost:8080`
 - 请求体格式: `application/json`
-- 当前认证状态: 登录和注册接口已实现；JWT 尚未实现。
+- 当前认证状态: 登录和注册接口已实现；登录成功后会返回 JWT `accessToken`。
 - 当前放行接口:
   - `POST /api/auth/login`
   - `POST /api/auth/register`
@@ -71,7 +71,9 @@
 {
   "id": 1,
   "username": "admin",
-  "role": "ADMIN"
+  "role": "ADMIN",
+  "tokenType": "Bearer",
+  "accessToken": "eyJhbGciOiJIUzI1NiJ9..."
 }
 ```
 
@@ -79,7 +81,21 @@
 
 | 状态码 | 原因 |
 |---|---|
-| `401` | 用户名或密码错误 |
+| `401` | 用户名或密码不正确 |
+
+失败响应示例：
+
+```json
+{
+  "message": "用户名或密码不正确"
+}
+```
+
+登录成功后，前端后续访问需要登录的接口时，应携带：
+
+```http
+Authorization: Bearer <accessToken>
+```
 
 ### 获取知识库列表
 

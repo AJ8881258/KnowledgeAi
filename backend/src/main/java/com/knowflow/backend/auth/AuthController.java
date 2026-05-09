@@ -17,25 +17,32 @@ import org.springframework.web.bind.annotation.RequestBody;
 public class AuthController {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final JwtTokenService jwtTokenService;
 
-    public AuthController(UserRepository userRepository, PasswordEncoder passwordEncoder) {
+    public AuthController(
+            UserRepository userRepository,
+            PasswordEncoder passwordEncoder,
+            JwtTokenService jwtTokenService) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
+        this.jwtTokenService = jwtTokenService;
     }
 
     @PostMapping("/login")
     public LoginResponse login(@RequestBody LoginRequest request) {
         User user = userRepository.findByUsername(request.getUsername())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED,
-                        "Username || Password is incorrect"));
+                        "用户名或密码不正确"));
         if (!passwordEncoder.matches(request.getPassword(), user.getPasswordHash())) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Username || Password is incorrect");
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "用户名或密码不正确");
         }
-        return new LoginResponse(user.getId(), user.getUsername(), user.getRole());
+
+        String accessToken = jwtTokenService.generateToken(user);
+        return new LoginResponse(user.getId(), user.getUsername(), user.getRole(), "Bearer", accessToken);
     }
 
     @PostMapping("/register")
-    public LoginResponse register(@RequestBody RegisterRequest request) {
+    public UserResponse register(@RequestBody RegisterRequest request) {
         String username = request.getUsername();
         String password = request.getPassword();
 
@@ -53,8 +60,8 @@ public class AuthController {
         user.setUsername(username);
         user.setPasswordHash(passwordEncoder.encode(password));
         user.setRole("USER");
-        User savedUser = userRepository.save(user);
-        return new LoginResponse(savedUser.getId(), savedUser.getUsername(), savedUser.getRole());
+        userRepository.save(user);
+        return new UserResponse(user.getId(), user.getUsername(), user.getRole());
     }
 
 }

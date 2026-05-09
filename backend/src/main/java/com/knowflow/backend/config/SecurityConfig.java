@@ -1,13 +1,26 @@
 package com.knowflow.backend.config;
 
+import java.nio.charset.StandardCharsets;
+
+import javax.crypto.SecretKey;
+import javax.crypto.spec.SecretKeySpec;
+
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
+import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.factory.PasswordEncoderFactories;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.security.oauth2.jwt.JwtEncoder;
+import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
+import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
 import org.springframework.security.web.SecurityFilterChain;
+
+import com.nimbusds.jose.jwk.source.ImmutableSecret;
 
 // 告诉 Spring：这是一个配置类
 @Configuration
@@ -28,6 +41,9 @@ public class SecurityConfig {
                 // 关闭默认 /logout
                 // 以后 JWT 模式下，前端通常删除 token 就算退出
                 .logout(AbstractHttpConfigurer::disable)
+                // JWT 不依赖后端 session，每次请求都通过 Authorization 请求头识别身份
+                .sessionManagement(session -> session
+                        .sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 // 配置接口访问权限
                 .authorizeHttpRequests(auth -> auth
                         // 允许所有人访问知识库列表
@@ -39,6 +55,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST,"/api/auth/register").permitAll()
                         // 除了上面 接口，其他请求都必须登录
                         .anyRequest().authenticated())
+                .oauth2ResourceServer(oauth2 -> oauth2.jwt(jwt -> {}))
                 // 构建 SecurityFilterChain
                 .build();
     }
@@ -46,5 +63,25 @@ public class SecurityConfig {
     @Bean
     PasswordEncoder passwordEncoder(){
         return PasswordEncoderFactories.createDelegatingPasswordEncoder();
+    }
+
+    @Bean
+    JwtEncoder jwtEncoder(JwtProperties jwtProperties) {
+        SecretKey secretKey = new SecretKeySpec(
+                jwtProperties.getSecret().getBytes(StandardCharsets.UTF_8),
+                "HmacSHA256");
+
+        return new NimbusJwtEncoder(new ImmutableSecret<>(secretKey));
+    }
+
+    @Bean
+    JwtDecoder jwtDecoder(JwtProperties jwtProperties) {
+        SecretKey secretKey = new SecretKeySpec(
+                jwtProperties.getSecret().getBytes(StandardCharsets.UTF_8),
+                "HmacSHA256");
+
+        return NimbusJwtDecoder.withSecretKey(secretKey)
+                .macAlgorithm(MacAlgorithm.HS256)
+                .build();
     }
 }

@@ -13,7 +13,8 @@ export type AuthSession = {
   username: string;
   account: string;
   role: string;
-  token?: string;
+  tokenType: string;
+  accessToken: string;
   displayName: string;
   email: string;
   loginAt: string;
@@ -23,7 +24,8 @@ export type BackendUserSession = {
   id: number | null;
   username: string;
   role: string;
-  token?: string;
+  tokenType: string;
+  accessToken: string;
 };
 
 export type MockUserProfile = {
@@ -153,6 +155,18 @@ function normalizeSession(session: unknown): AuthSession | null {
     return null;
   }
 
+  const accessToken =
+    typeof sessionRecord.accessToken === "string" &&
+    sessionRecord.accessToken.trim()
+      ? sessionRecord.accessToken.trim()
+      : typeof sessionRecord.token === "string" && sessionRecord.token.trim()
+        ? sessionRecord.token.trim()
+        : "";
+
+  if (!accessToken) {
+    return null;
+  }
+
   return {
     isAuthenticated: true,
     id: typeof sessionRecord.id === "number" ? sessionRecord.id : null,
@@ -162,10 +176,12 @@ function normalizeSession(session: unknown): AuthSession | null {
         ? sessionRecord.account.trim()
         : username,
     role: typeof sessionRecord.role === "string" ? sessionRecord.role : "",
-    token:
-      typeof sessionRecord.token === "string" && sessionRecord.token.trim()
-        ? sessionRecord.token
-        : undefined,
+    tokenType:
+      typeof sessionRecord.tokenType === "string" &&
+      sessionRecord.tokenType.trim()
+        ? sessionRecord.tokenType.trim()
+        : "Bearer",
+    accessToken,
     displayName:
       typeof sessionRecord.displayName === "string" &&
       sessionRecord.displayName.trim()
@@ -294,6 +310,7 @@ function createSession(
     ...profile,
     displayName,
   };
+  const accessToken = user.accessToken.trim();
 
   return {
     session: {
@@ -302,7 +319,8 @@ function createSession(
       username,
       account: username,
       role: user.role,
-      token: user.token,
+      tokenType: user.tokenType.trim() || "Bearer",
+      accessToken,
       displayName,
       email: nextProfile.email,
       loginAt: new Date().toISOString(),

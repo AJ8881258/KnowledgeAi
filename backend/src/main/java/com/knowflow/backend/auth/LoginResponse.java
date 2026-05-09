@@ -6,12 +6,16 @@ public class LoginResponse {
     private Long id;
     private String username;
     private String role;
+    private String tokenType;
+    private String accessToken;
 
     // Public Methods
-    public LoginResponse(Long id, String username, String role) {
+    public LoginResponse(Long id, String username, String role, String tokenType, String accessToken) {
         this.id = id;
         this.username = username;
         this.role = role;
+        this.tokenType = tokenType;
+        this.accessToken = accessToken;
     }
 
     // Getter
@@ -25,6 +29,14 @@ public class LoginResponse {
 
     public String getRole() {
         return role;
+    }
+
+    public String getTokenType() {
+        return tokenType;
+    }
+
+    public String getAccessToken() {
+        return accessToken;
     }
 
 }

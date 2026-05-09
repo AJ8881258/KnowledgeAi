@@ -15,7 +15,7 @@ Vite Dev Server
   v
 Spring Boot Backend
   |
-  | JDBC / JPA
+  | JDBC / MyBatis
   v
 PostgreSQL
 ```
@@ -50,10 +50,11 @@ com.knowflow.backend
 
 | 模块 | 职责 |
 |---|---|
-| `auth` | 注册、登录、请求和响应 DTO |
-| `config` | Spring Security 等配置 |
-| `knowledgebase` | 知识库实体、Repository、Controller |
-| `user` | 用户实体和用户查询 |
+| `auth` | 注册、登录、JWT 生成、请求和响应 DTO |
+| `common` | 统一错误响应 |
+| `config` | Spring Security、JWT 等配置 |
+| `knowledgebase` | 知识库 POJO、MyBatis Mapper、Controller |
+| `user` | 用户 POJO 和 MyBatis Mapper |
 
 ## 数据库
 
@@ -74,7 +75,7 @@ com.knowflow.backend
 
 ## 安全配置
 
-当前 Spring Security 已接入，但 JWT 尚未实现。
+当前 Spring Security 已接入，登录成功后会返回 JWT `accessToken`。
 
 当前学习阶段临时放行：
 
@@ -93,6 +94,6 @@ com.knowflow.backend
 
 1. 单体 Spring Boot 完成核心业务。
 2. 抽出清晰的 auth、knowledge-base、document、rag、chat 模块。
-3. 补齐 JWT 和统一错误响应。
+3. 补齐 `GET /api/auth/me` 和更完整的登录态管理。
 4. 文档上传、解析、chunk、embedding、检索问答跑通。
 5. 如果需要展示微服务能力，再拆为多个 Spring Boot 服务。

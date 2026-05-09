@@ -8,10 +8,10 @@ export const http = axios.create({
 });
 
 http.interceptors.request.use((config) => {
-  const token = useAuthStore.getState().session?.token;
+  const session = useAuthStore.getState().session;
 
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
+  if (session?.accessToken) {
+    config.headers.Authorization = `${session.tokenType} ${session.accessToken}`;
   }
 
   return config;

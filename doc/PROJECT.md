@@ -34,7 +34,7 @@ RAG、文档上传、向量检索和 AI 问答放在后续阶段。
 - Spring Boot
 - Spring Web MVC
 - Spring Security
-- Spring Data JPA
+- MyBatis
 - PostgreSQL
 - Flyway
 - Maven
@@ -52,7 +52,7 @@ RAG、文档上传、向量检索和 AI 问答放在后续阶段。
 - 知识库列表接口。
 - 知识库详情接口。
 - 注册接口。
-- 登录接口。
+- 登录接口，成功后返回 JWT `accessToken`。
 - Spring Security 基础配置。
 
 前端已经开始接入真实后端：

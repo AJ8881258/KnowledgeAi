@@ -9,6 +9,8 @@ export type LoginResponse = {
   id: number;
   username: string;
   role: string;
+  tokenType: string;
+  accessToken: string;
 };
 
 export type RegisterRequest = {
@@ -16,7 +18,11 @@ export type RegisterRequest = {
   password: string;
 };
 
-export type RegisterResponse = LoginResponse;
+export type RegisterResponse = {
+  id: number;
+  username: string;
+  role: string;
+};
 
 export async function login(request: LoginRequest) {
   const response = await http.post<LoginResponse>("/auth/login", request);

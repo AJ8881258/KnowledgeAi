@@ -1,10 +1,26 @@
 package com.knowflow.backend.knowledgebase;
 
-import org.springframework.data.jpa.repository.JpaRepository;
+import java.util.List;
+import java.util.Optional;
 
-// Repository 是数据访问层
-// JpaRepository<KnowledgeBase, Long> 的意思是：
-// 1. 这个 Repository 操作 KnowledgeBase 实体
-// 2. 这个实体的主键类型是 Long
-public interface KnowledgeBaseRepository extends JpaRepository<KnowledgeBase, Long> {
+import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Select;
+
+// Repository 是数据访问层。这里使用 MyBatis Mapper 手写 SQL 查询数据库。
+@Mapper
+public interface KnowledgeBaseRepository {
+
+        @Select("""
+                        SELECT id, name, description, status, created_by, created_at, updated_at
+                        FROM knowledge_bases
+                        ORDER BY id
+                        """)
+        List<KnowledgeBase> findAll();
+
+        @Select("""
+                        SELECT id, name, description, status, created_by, created_at, updated_at
+                        FROM knowledge_bases
+                        WHERE id = #{id}
+                        """)
+        Optional<KnowledgeBase> findById(Long id);
 }

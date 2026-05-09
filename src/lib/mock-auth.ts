@@ -42,14 +42,7 @@ export function getMockAuthSession(): MockAuthSession | null {
 }
 
 export function setMockAuthSession(account: string) {
-  useAuthStore.getState().setSession(
-    {
-      id: null,
-      username: account,
-      role: "",
-    },
-    { remember: true },
-  );
+  void account;
 }
 
 export function setAuthSession(

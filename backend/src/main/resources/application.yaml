@@ -7,25 +7,22 @@ spring:
     username: knowflow
     password: knowflow
 
-  jpa:
-    hibernate:
-      # validate 表示：启动时只校验 Entity 和数据库表是否匹配
-      # 不让 Hibernate 自动建表或改表
-      # 表结构交给 Flyway 管理
-      ddl-auto: validate
-    # 关闭 Open Session in View
-    # 这是后端 API 项目里比较推荐的做法，避免数据库会话拖到视图层
-    open-in-view: false
-    properties:
-      hibernate:
-        # 格式化 Hibernate 输出的 SQL，方便调试
-        format_sql: true
-
   flyway:
     # 开启 Flyway 数据库迁移
     enabled: true
     # 告诉 Flyway 去哪里找 SQL 脚本
     locations: classpath:db/migration
+
+mybatis:
+  configuration:
+    # 数据库字段是 password_hash，Java 字段是 passwordHash，开启后可以自动映射
+    map-underscore-to-camel-case: true
+
+knowflow:
+  jwt:
+    # 本地开发用密钥。正式部署时不要把生产密钥直接提交到 Git。
+    secret: "dev-only-knowflow-jwt-secret-must-be-at-least-32-characters"
+    expires-in-minutes: 120
 
 server:
   port: 8080
