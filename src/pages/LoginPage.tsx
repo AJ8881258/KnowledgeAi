@@ -34,7 +34,6 @@ import {
   InputGroupButton,
   InputGroupInput,
 } from "@/components/ui/input-group";
-import { Separator } from "@/components/ui/separator";
 import {
   Sheet,
   SheetClose,
@@ -50,8 +49,6 @@ import { cn } from "@/lib/utils";
 
 const AUTO_SLIDE_DELAY_MS = 3600;
 const RECENT_AUTO_ADVANCE_MS = 700;
-const VALID_LOGIN_ACCOUNT = "admin";
-const VALID_LOGIN_PASSWORD = "admin";
 
 function getRedirectPath(state: unknown) {
   if (typeof state !== "object" || state === null || !("from" in state)) {
@@ -289,6 +286,7 @@ function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [account, setAccount] = useState("");
   const [password, setPassword] = useState("");
+  const [rememberMe, setRememberMe] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [signupUsername, setSignupUsername] = useState("");
   const [signupPassword, setSignupPassword] = useState("");
@@ -320,7 +318,7 @@ function LoginPage() {
         password: nextPassword,
       });
 
-      setAuthSession(user);
+      setAuthSession(user, { remember: rememberMe });
       toast.success("登录成功");
       navigate(redirectPath, { replace: true });
     } catch (error) {
@@ -345,12 +343,6 @@ function LoginPage() {
   const handleLogin = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     void submitLogin(account, password);
-  };
-
-  const handleDemoLogin = () => {
-    setAccount(VALID_LOGIN_ACCOUNT);
-    setPassword(VALID_LOGIN_PASSWORD);
-    void submitLogin(VALID_LOGIN_ACCOUNT, VALID_LOGIN_PASSWORD);
   };
 
   const resetRegisterForm = () => {
@@ -394,7 +386,7 @@ function LoginPage() {
         password: signupPassword,
       });
 
-      setAuthSession(user);
+      setAuthSession(user, { remember: false });
       resetRegisterForm();
       setCreateAccountOpen(false);
       toast.success("注册成功，已登录");
@@ -514,6 +506,11 @@ function LoginPage() {
                 <Field orientation="horizontal" className="w-fit gap-3">
                   <Checkbox
                     id="remember"
+                    checked={rememberMe}
+                    onCheckedChange={(checked) =>
+                      setRememberMe(checked === true)
+                    }
+                    disabled={isSubmitting}
                     className="rounded-sm border-slate-300 data-checked:border-blue-600 data-checked:bg-blue-600"
                   />
                   <FieldLabel
@@ -554,27 +551,6 @@ function LoginPage() {
                 创建账号
               </Button>
             </div>
-
-            <div className="mt-8 flex items-center gap-4 text-sm text-slate-500">
-              <Separator className="bg-slate-200" />
-              <span className="shrink-0">或</span>
-              <Separator className="bg-slate-200" />
-            </div>
-
-            <Button
-              type="button"
-              variant="outline"
-              onClick={handleDemoLogin}
-              disabled={isSubmitting}
-              className="mt-7 h-11 rounded-md border-blue-600 bg-white text-sm font-medium normal-case tracking-normal text-blue-600 hover:border-blue-700 hover:bg-blue-50 hover:text-blue-700"
-            >
-              <LockKeyhole data-icon="inline-start" />
-              演示账号登录
-            </Button>
-
-            <p className="mt-3 text-center text-sm text-slate-500">
-              体验完整功能，适合演示与学习
-            </p>
 
             <footer className="mt-9 text-center text-xs text-slate-500">
               © 2025 KnowFlow AI · 让知识流动，让回答更可信

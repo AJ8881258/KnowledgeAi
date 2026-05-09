@@ -21,13 +21,17 @@ No test runner is configured. Adding shadcn components: `pnpm dlx shadcn@latest 
 
 - Backend development is in progress. When implementing frontend features, prefer real API integration over extending mock-only behavior when a backend endpoint or contract exists.
 - Use axios for frontend-to-backend requests. Follow any existing axios client, API module, interceptor, error handling, and response typing patterns before adding new ones.
+- Before implementing a new feature or changing an existing one, inspect the nearest existing implementation and shared project primitives first. At minimum, check `src/api/`, `src/store/`, related page components, and `doc/API.md` when the change involves server data, authentication, persisted state, or shared UI behavior.
+- Do not introduce direct `fetch` calls for frontend API requests unless there is a specific technical reason that axios cannot satisfy. Use the shared `http` client from `src/api/http.ts`, add endpoint wrappers under `src/api/`, and keep request/response types next to those wrappers.
+- Do not introduce ad hoc component-level `localStorage` access for feature state. For shared, cross-route, or persisted frontend state, use a Zustand store under `src/store/` with `persist` when persistence is required. Direct `localStorage` access should stay inside low-level adapters/helpers only, such as legacy mock-auth compatibility code.
+- Treat existing mock data, hardcoded auth, direct `localStorage`, and local-only page state as legacy migration areas unless the task is explicitly to maintain that mock behavior. Do not copy those patterns into new backend-integrated features.
 - Verify changes one by one against real behavior where possible: run the relevant command, inspect the actual route/component/API response, and confirm the specific behavior changed.
 - Because of context window limits, final development acceptance is performed by a human. Agents should provide concise manual verification steps instead of trying to exhaustively re-check the whole application in context.
 - Do not read, inspect, or analyze images/screenshots unless the user explicitly asks for image analysis. Prefer code, logs, terminal output, DOM text, network responses, and browser state for verification.
 
 ## Architecture
 
-**Stack**: React 19 + TypeScript 6 + Vite 8 + Tailwind CSS v4 + React Router 7 + axios + Zustand (placeholder) + shadcn/radix-sera UI + Lucide icons + Sonner toasts.
+**Stack**: React 19 + TypeScript 6 + Vite 8 + Tailwind CSS v4 + React Router 7 + axios + Zustand + shadcn/radix-sera UI + Lucide icons + Sonner toasts.
 
 **Package manager**: pnpm. **Path alias**: `@/*` -> `./src/*`.
 
@@ -65,6 +69,14 @@ Route-to-title mapping is defined in `headerMap` inside `slider-layout.tsx`.
 - **Icons**: Use Lucide React for standard icons. Custom iconfont icons available via the iconfont CSS class names.
 - **Responsive**: `useIsMobile()` hook (768px breakpoint) in `src/hooks/use-mobile.ts`. Fluid typography uses `clamp()`.
 - **Toasts**: Sonner `<Toaster />` mounted in `main.tsx`.
+
+### Frontend Data And State Patterns
+
+- **API calls**: Use `src/api/http.ts` and endpoint modules in `src/api/`. New frontend requests should be expressed as typed functions, for example `login()` in `src/api/auth.ts`, rather than calling HTTP clients directly from deeply nested UI handlers.
+- **Axios errors**: Follow the existing axios error handling style (`isAxiosError` where needed) and surface user-facing errors through the established UI/toast patterns.
+- **Zustand**: Use Zustand for state that is reused across components/routes, needs persistence, or represents a feature-level domain model. Keep purely local UI state, such as an open dialog flag or a transient input value, in component `useState`.
+- **Persistence**: Prefer Zustand `persist` or a dedicated helper module over direct component-level `window.localStorage` calls. If legacy code already uses direct storage, avoid expanding that pattern while migrating new behavior.
+- **Implementation checklist**: Before adding state or data fetching, search for an existing API wrapper, store, helper, or page-level pattern. If none exists, create the smallest shared abstraction in the appropriate directory instead of embedding new infrastructure inside a page component.
 
 ### Backend
 

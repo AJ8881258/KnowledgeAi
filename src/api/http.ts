@@ -1,6 +1,6 @@
 import axios from "axios";
 
-import { getAuthSession } from "@/lib/mock-auth";
+import { useAuthStore } from "@/store/auth";
 
 export const http = axios.create({
   baseURL: "/api",
@@ -8,7 +8,7 @@ export const http = axios.create({
 });
 
 http.interceptors.request.use((config) => {
-  const token = getAuthSession()?.token;
+  const token = useAuthStore.getState().session?.token;
 
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
