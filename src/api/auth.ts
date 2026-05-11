@@ -24,6 +24,15 @@ export type RegisterResponse = {
   role: string;
 };
 
+export type ResetPasswordRequest = {
+  username: string;
+  newPassword: string;
+};
+
+export type ResetPasswordResponse = {
+  message: string;
+};
+
 export async function login(request: LoginRequest) {
   const response = await http.post<LoginResponse>("/auth/login", request);
 
@@ -32,6 +41,15 @@ export async function login(request: LoginRequest) {
 
 export async function register(request: RegisterRequest) {
   const response = await http.post<RegisterResponse>("/auth/register", request);
+
+  return response.data;
+}
+
+export async function resetPassword(request: ResetPasswordRequest) {
+  const response = await http.post<ResetPasswordResponse>(
+    "/auth/reset-password",
+    request,
+  );
 
   return response.data;
 }

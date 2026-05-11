@@ -29,6 +29,14 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   InputGroup,
   InputGroupAddon,
   InputGroupButton,
@@ -43,7 +51,11 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { login, register } from "@/api/auth";
+import {
+  login,
+  register,
+  resetPassword as requestResetPassword,
+} from "@/api/auth";
 import { getAuthSession, setAuthSession } from "@/lib/mock-auth";
 import { cn } from "@/lib/utils";
 
@@ -294,6 +306,11 @@ function LoginPage() {
   const [isRegistering, setIsRegistering] = useState(false);
   const [forgotPasswordOpen, setForgotPasswordOpen] = useState(false);
   const [createAccountOpen, setCreateAccountOpen] = useState(false);
+  const [resetAccount, setResetAccount] = useState("");
+  const [resetPasswordOpen, setResetPasswordOpen] = useState(false);
+  const [resetPassword, setResetPassword] = useState("");
+  const [resetConfirmPassword, setResetConfirmPassword] = useState("");
+  const [isResettingPassword, setIsResettingPassword] = useState(false);
   const redirectPath = getRedirectPath(location.state);
 
   useEffect(() => {
@@ -343,6 +360,104 @@ function LoginPage() {
   const handleLogin = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     void submitLogin(account, password);
+  };
+
+  const resetForgotPasswordForm = () => {
+    setResetAccount("");
+    setResetPassword("");
+    setResetConfirmPassword("");
+  };
+
+  const handleForgotPasswordOpenChange = (open: boolean) => {
+    setForgotPasswordOpen(open);
+
+    if (!open) {
+      setResetPasswordOpen(false);
+      resetForgotPasswordForm();
+    }
+  };
+
+  const handleResetPasswordOpenChange = (open: boolean) => {
+    setResetPasswordOpen(open);
+
+    if (!open) {
+      setResetPassword("");
+      setResetConfirmPassword("");
+    }
+  };
+
+  const handleSendResetInstructions = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    const targetAccount = resetAccount.trim();
+
+    if (!targetAccount) {
+      toast.error("请输入需要重置的账号或邮箱");
+      return;
+    }
+
+    setResetAccount(targetAccount);
+    setResetPasswordOpen(true);
+  };
+
+  const handleResetPasswordSubmit = async (
+    event: FormEvent<HTMLFormElement>,
+  ) => {
+    event.preventDefault();
+
+    const username = resetAccount.trim();
+
+    if (!username) {
+      toast.error("请输入需要重置的账号或邮箱");
+      return;
+    }
+
+    if (!resetPassword) {
+      toast.error("请输入新密码");
+      return;
+    }
+
+    if (resetPassword !== resetConfirmPassword) {
+      toast.error("两次输入的密码不一致");
+      return;
+    }
+
+    setIsResettingPassword(true);
+
+    try {
+      await requestResetPassword({
+        username,
+        newPassword: resetPassword,
+      });
+
+      toast.success("密码修改成功");
+      setResetPasswordOpen(false);
+      setForgotPasswordOpen(false);
+      resetForgotPasswordForm();
+    } catch (error) {
+      if (isAxiosError(error)) {
+        const status = error.response?.status;
+
+        if (status === 400) {
+          toast.error("重置密码信息不完整，请检查账号和新密码");
+          return;
+        }
+
+        if (status === 404) {
+          toast.error("用户不存在，请检查账号是否正确");
+          return;
+        }
+
+        if (!error.response) {
+          toast.error("无法连接重置服务，请确认后端已启动");
+          return;
+        }
+      }
+
+      toast.error("重置密码失败，请稍后重试");
+    } finally {
+      setIsResettingPassword(false);
+    }
   };
 
   const resetRegisterForm = () => {
@@ -557,13 +672,16 @@ function LoginPage() {
             </div>
 
             <footer className="mt-9 text-center text-xs text-slate-500">
-              © 2025 KnowFlow AI · 让知识流动，让回答更可信
+              © 2026 KnowFlow AI · 让知识流动，让回答更可信
             </footer>
           </div>
         </section>
       </div>
 
-      <Sheet open={forgotPasswordOpen} onOpenChange={setForgotPasswordOpen}>
+      <Sheet
+        open={forgotPasswordOpen}
+        onOpenChange={handleForgotPasswordOpenChange}
+      >
         <SheetContent className="w-full max-w-[420px]">
           <SheetHeader>
             <SheetTitle className="normal-case tracking-normal">
@@ -574,7 +692,10 @@ function LoginPage() {
             </SheetDescription>
           </SheetHeader>
 
-          <form className="flex flex-col gap-5 px-8">
+          <form
+            className="flex flex-col gap-5 px-8"
+            onSubmit={handleSendResetInstructions}
+          >
             <FieldGroup className="gap-5">
               <Field className="gap-2">
                 <FieldLabel
@@ -590,7 +711,8 @@ function LoginPage() {
                   <InputGroupInput
                     id="reset-account"
                     type="text"
-                    defaultValue="admin"
+                    value={resetAccount}
+                    onChange={(event) => setResetAccount(event.target.value)}
                     placeholder="请输入账号或邮箱"
                     autoComplete="username"
                     className="text-base text-slate-900 placeholder:text-slate-400 md:text-sm"
@@ -600,7 +722,7 @@ function LoginPage() {
             </FieldGroup>
 
             <Button
-              type="button"
+              type="submit"
               className="h-11 rounded-md bg-blue-600 font-medium normal-case tracking-normal text-white hover:bg-blue-700"
             >
               发送重置说明
@@ -620,6 +742,107 @@ function LoginPage() {
           </SheetFooter>
         </SheetContent>
       </Sheet>
+
+      <Dialog
+        open={resetPasswordOpen}
+        onOpenChange={handleResetPasswordOpenChange}
+      >
+        <DialogContent className="rounded-[8px]">
+          <DialogHeader>
+            <DialogTitle className="font-sans text-lg normal-case tracking-normal">
+              重置密码
+            </DialogTitle>
+            <DialogDescription>
+              确认需要重置的账户并设置新密码。
+            </DialogDescription>
+          </DialogHeader>
+
+          <form className="flex flex-col gap-5" onSubmit={handleResetPasswordSubmit}>
+            <FieldGroup className="gap-5">
+              <Field className="gap-2">
+                <FieldLabel
+                  htmlFor="reset-dialog-account"
+                  className="text-sm font-medium normal-case tracking-normal"
+                >
+                  重置账户
+                </FieldLabel>
+                <InputGroup className="h-11 rounded-md border border-slate-300 bg-slate-50 px-4 shadow-sm">
+                  <InputGroupAddon>
+                    <UserRound className="size-4 text-slate-500" />
+                  </InputGroupAddon>
+                  <InputGroupInput
+                    id="reset-dialog-account"
+                    type="text"
+                    value={resetAccount}
+                    readOnly
+                    className="text-base text-slate-900 md:text-sm"
+                  />
+                </InputGroup>
+              </Field>
+
+              <Field className="gap-2">
+                <FieldLabel
+                  htmlFor="reset-new-password"
+                  className="text-sm font-medium normal-case tracking-normal"
+                >
+                  新密码
+                </FieldLabel>
+                <InputGroup className="h-11 rounded-md border border-slate-300 bg-white px-4 shadow-sm has-[[data-slot=input-group-control]:focus-visible]:border-blue-500 has-[[data-slot=input-group-control]:focus-visible]:ring-4 has-[[data-slot=input-group-control]:focus-visible]:ring-blue-500/10">
+                  <InputGroupAddon>
+                    <LockKeyhole className="size-4 text-slate-500" />
+                  </InputGroupAddon>
+                  <InputGroupInput
+                    id="reset-new-password"
+                    type="password"
+                    value={resetPassword}
+                    onChange={(event) => setResetPassword(event.target.value)}
+                    placeholder="请输入新密码"
+                    autoComplete="new-password"
+                    disabled={isResettingPassword}
+                    className="text-base text-slate-900 placeholder:text-slate-400 md:text-sm"
+                  />
+                </InputGroup>
+              </Field>
+
+              <Field className="gap-2">
+                <FieldLabel
+                  htmlFor="reset-confirm-password"
+                  className="text-sm font-medium normal-case tracking-normal"
+                >
+                  确认密码
+                </FieldLabel>
+                <InputGroup className="h-11 rounded-md border border-slate-300 bg-white px-4 shadow-sm has-[[data-slot=input-group-control]:focus-visible]:border-blue-500 has-[[data-slot=input-group-control]:focus-visible]:ring-4 has-[[data-slot=input-group-control]:focus-visible]:ring-blue-500/10">
+                  <InputGroupAddon>
+                    <LockKeyhole className="size-4 text-slate-500" />
+                  </InputGroupAddon>
+                  <InputGroupInput
+                    id="reset-confirm-password"
+                    type="password"
+                    value={resetConfirmPassword}
+                    onChange={(event) =>
+                      setResetConfirmPassword(event.target.value)
+                    }
+                    placeholder="请再次输入新密码"
+                    autoComplete="new-password"
+                    disabled={isResettingPassword}
+                    className="text-base text-slate-900 placeholder:text-slate-400 md:text-sm"
+                  />
+                </InputGroup>
+              </Field>
+            </FieldGroup>
+
+            <DialogFooter>
+              <Button
+                type="submit"
+                disabled={isResettingPassword}
+                className="h-10 rounded-md bg-blue-600 font-medium normal-case tracking-normal text-white hover:bg-blue-700"
+              >
+                {isResettingPassword ? "提交中..." : "提交"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       <Sheet
         open={createAccountOpen}

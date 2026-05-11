@@ -4,6 +4,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
+import com.knowflow.backend.common.MessageResponse;
 import com.knowflow.backend.user.User;
 import com.knowflow.backend.user.UserRepository;
 
@@ -64,4 +65,27 @@ public class AuthController {
         return new UserResponse(user.getId(), user.getUsername(), user.getRole());
     }
 
+    @PostMapping("/reset-password")
+    public MessageResponse resetPassword(@RequestBody ResetPasswordRequest request) {
+        String username = request.getUsername();
+        String newPassword = request.getNewPassword();
+
+        if (username == null || username.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Username is Null");
+        }
+        if (newPassword == null || newPassword.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "newPassword is Null");
+        }
+        User user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Username not found"));
+
+        String encodedPassword = passwordEncoder.encode(newPassword);
+        int updateRows = userRepository.updatePasswordByUsername(user.getUsername(), encodedPassword);
+
+        if (updateRows != 1) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Reset password failed");
+        }
+
+        return new MessageResponse("密码修改成功");
+    }
 }

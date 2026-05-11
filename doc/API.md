@@ -8,6 +8,7 @@
 - 当前放行接口:
   - `POST /api/auth/login`
   - `POST /api/auth/register`
+  - `POST /api/auth/reset-password`
   - `GET /api/knowledge-bases`
   - `GET /api/knowledge-bases/{id}`
 
@@ -96,6 +97,40 @@
 ```http
 Authorization: Bearer <accessToken>
 ```
+
+### 重置密码
+
+| 项目 | 内容 |
+|---|---|
+| 请求方式 | `POST` |
+| 请求路径 | `/api/auth/reset-password` |
+| 是否需要登录 | 否，当前学习阶段暂时放行 |
+
+请求示例：
+
+```json
+{
+  "username": "WuLong",
+  "newPassword": "new123"
+}
+```
+
+成功响应示例：
+
+```json
+{
+  "message": "密码修改成功"
+}
+```
+
+失败情况：
+
+| 状态码 | 原因 |
+|---|---|
+| `400` | 用户名为空 |
+| `400` | 新密码为空 |
+| `404` | 用户不存在 |
+| `500` | 密码修改失败 |
 
 ### 获取知识库列表
 

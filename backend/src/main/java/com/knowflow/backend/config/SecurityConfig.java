@@ -53,6 +53,7 @@ public class SecurityConfig {
                         // 允许所有人登录
                         .requestMatchers(HttpMethod.POST, "/api/auth/login").permitAll()
                         .requestMatchers(HttpMethod.POST,"/api/auth/register").permitAll()
+                        .requestMatchers(HttpMethod.POST,"/api/auth/reset-password").permitAll()
                         // 除了上面 接口，其他请求都必须登录
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(oauth2 -> oauth2.jwt(jwt -> {}))
