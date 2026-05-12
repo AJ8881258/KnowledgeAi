@@ -32,6 +32,14 @@ PostgreSQL
 
 这样前端代码不需要直接写死 `http://localhost:8080`，也能减少本地 CORS 问题。
 
+前端认证相关结构：
+
+- `src/api/auth.ts`：登录、注册、重置密码接口封装。
+- `src/api/http.ts`：axios 实例和 token 请求拦截器。
+- `src/store/auth.ts`：Zustand 登录态存储。
+- `src/lib/mock-auth.ts`：历史 mock auth 兼容层，后续应逐步改名或移除 mock 命名。
+- `src/components/slider-layout.tsx`：主应用页面登录守卫。
+
 ## 后端
 
 后端当前是单体 Spring Boot 应用。
@@ -48,13 +56,13 @@ com.knowflow.backend
 
 当前模块职责：
 
-| 模块 | 职责 |
-|---|---|
-| `auth` | 注册、登录、JWT 生成、请求和响应 DTO |
-| `common` | 统一错误响应 |
-| `config` | Spring Security、JWT 等配置 |
+| 模块            | 职责                                    |
+| --------------- | --------------------------------------- |
+| `auth`          | 注册、登录、JWT 生成、请求和响应 DTO    |
+| `common`        | 统一错误响应                            |
+| `config`        | Spring Security、JWT 等配置             |
 | `knowledgebase` | 知识库 POJO、MyBatis Mapper、Controller |
-| `user` | 用户 POJO 和 MyBatis Mapper |
+| `user`          | 用户 POJO 和 MyBatis Mapper             |
 
 ## 数据库
 
@@ -71,20 +79,19 @@ com.knowflow.backend
 当前真正使用中的表：
 
 - `users`
-- `knowledge_bases`
+- `knowledge_bases`，包含基础字段以及 `featured` 精选标记、`theme_id` 主题色标识。
 
 ## 安全配置
 
 当前 Spring Security 已接入，登录成功后会返回 JWT `accessToken`。
 
-当前学习阶段临时放行：
+当前放行接口：
 
 - `POST /api/auth/login`
 - `POST /api/auth/register`
-- `GET /api/knowledge-bases`
-- `GET /api/knowledge-bases/{id}`
+- `POST /api/auth/reset-password`
 
-其他请求默认需要认证。
+其他请求默认需要认证。当前 `/api/knowledge-bases/**` 已接入 JWT 认证，并按 JWT 中的 `userId` 过滤数据。
 
 ## 未来演进
 

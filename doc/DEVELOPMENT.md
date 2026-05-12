@@ -93,17 +93,85 @@ Invoke-RestMethod `
 
 登录成功后会返回 `tokenType` 和 `accessToken`。前端后续不要保存密码明文，只保存用户信息和 `accessToken`。
 
+重置密码：
+
+```powershell
+Invoke-RestMethod `
+  -Method Post `
+  -Uri http://localhost:8080/api/auth/reset-password `
+  -ContentType "application/json" `
+  -Body '{"username":"test001","newPassword":"new123"}'
+```
+
 知识库列表：
 
 ```powershell
-Invoke-RestMethod http://localhost:8080/api/knowledge-bases
+$login = Invoke-RestMethod `
+  -Method Post `
+  -Uri http://localhost:8080/api/auth/login `
+  -ContentType "application/json" `
+  -Body '{"username":"WuLong","password":"WuLong"}'
+
+$headers = @{
+  Authorization = "$($login.tokenType) $($login.accessToken)"
+}
+
+Invoke-RestMethod `
+  -Method Get `
+  -Uri http://localhost:8080/api/knowledge-bases `
+  -Headers $headers
 ```
 
 知识库详情：
 
 ```powershell
-Invoke-RestMethod http://localhost:8080/api/knowledge-bases/1
+Invoke-RestMethod `
+  -Method Get `
+  -Uri http://localhost:8080/api/knowledge-bases/1 `
+  -Headers $headers
 ```
+
+创建知识库：
+
+```powershell
+Invoke-RestMethod `
+  -Method Post `
+  -Uri http://localhost:8080/api/knowledge-bases `
+  -Headers $headers `
+  -ContentType "application/json" `
+  -Body '{"name":"测试知识库","description":"用于接口测试","featured":true,"themeId":"green"}'
+```
+
+修改知识库：
+
+```powershell
+Invoke-RestMethod `
+  -Method Patch `
+  -Uri http://localhost:8080/api/knowledge-bases/4 `
+  -Headers $headers `
+  -ContentType "application/json" `
+  -Body '{"name":"测试知识库-已修改","description":"修改后的描述","featured":false,"themeId":"blue"}'
+```
+
+删除知识库：
+
+```powershell
+curl.exe -i -X DELETE http://localhost:8080/api/knowledge-bases/4 -H "Authorization: $($headers.Authorization)"
+```
+
+## 登录态说明
+
+- 前端登录成功后保存后端返回的 `id`、`username`、`role`、`tokenType`、`accessToken`。
+- 前端不能保存密码明文。
+- 勾选“记住我”时，登录态保存到 `localStorage`。
+- 未勾选“记住我”时，登录态保存到 `sessionStorage`。
+- axios 请求拦截器会自动添加：
+
+```http
+Authorization: Bearer <accessToken>
+```
+
+- 当前 `/api/knowledge-bases/**` 已经需要登录，未携带有效 token 会返回 `401`。
 
 ## Flyway 注意事项
 

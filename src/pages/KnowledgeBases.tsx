@@ -1,11 +1,13 @@
 import {
+  useCallback,
   useEffect,
   useRef,
   useState,
   type FormEvent,
   type KeyboardEvent,
 } from "react";
-import { useNavigate, useParams } from "react-router";
+import { isAxiosError } from "axios";
+import { useLocation, useNavigate, useParams } from "react-router";
 import {
   ArrowLeft,
   ArrowRight,
@@ -15,12 +17,14 @@ import {
   ChevronDown,
   Copy,
   FileText,
+  FolderPlus,
   Grid2X2,
   Info,
   LayoutList,
   Loader2,
   MessageCircle,
   MoreVertical,
+  Pencil,
   Plus,
   Search,
   Star,
@@ -74,6 +78,16 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import {
+  createKnowledgeBase as createKnowledgeBaseApi,
+  deleteKnowledgeBase as deleteKnowledgeBaseApi,
+  getKnowledgeBases,
+  updateKnowledgeBase as updateKnowledgeBaseApi,
+  type CreateKnowledgeBaseRequest,
+  type KnowledgeBaseResponse,
+  type UpdateKnowledgeBaseRequest,
+} from "@/api/knowledge-bases";
+import { clearMockAuthSession } from "@/lib/mock-auth";
 
 type KnowledgeBase = {
   id: string;
@@ -156,7 +170,7 @@ const knowledgeBaseTabs: {
 
 const knowledgeBaseThemePresets: KnowledgeBaseThemePreset[] = [
   {
-    id: "sky",
+    id: "blue",
     label: "蓝色",
     iconClass: "bg-blue-100 text-blue-700 ring-blue-200",
     coverClass: "from-sky-50 via-white to-blue-100",
@@ -170,7 +184,7 @@ const knowledgeBaseThemePresets: KnowledgeBaseThemePreset[] = [
     coverAccent: "bg-violet-400",
   },
   {
-    id: "emerald",
+    id: "green",
     label: "绿色",
     iconClass: "bg-emerald-100 text-emerald-700 ring-emerald-200",
     coverClass: "from-emerald-50 via-white to-teal-100",
@@ -189,119 +203,6 @@ const knowledgeBaseThemePresets: KnowledgeBaseThemePreset[] = [
     iconClass: "bg-rose-100 text-rose-700 ring-rose-200",
     coverClass: "from-rose-50 via-white to-slate-100",
     coverAccent: "bg-rose-400",
-  },
-];
-
-const initialKnowledgeBases: KnowledgeBase[] = [
-  {
-    id: "kb-frontend",
-    slug: "frontend-interview",
-    name: "Frontend Interview",
-    description: "浏览器、React、工程化与常见面试题整理",
-    owner: "Google Research",
-    docs: 12,
-    chunks: 168,
-    sources: 71,
-    updatedAt: "2026年4月11日",
-    createdAt: "2026-04-02T09:00:00.000Z",
-    status: "indexed",
-    theme: {
-      icon: "FI",
-      iconClass: "bg-blue-100 text-blue-700 ring-blue-200",
-      coverClass: "from-sky-50 via-white to-blue-100",
-      coverAccent: "bg-sky-400",
-    },
-    recent: true,
-    featured: true,
-    createdByMe: true,
-  },
-  {
-    id: "kb-graduation",
-    slug: "graduation-project",
-    name: "Graduation Project",
-    description: "RAG 毕设方案、项目文档与实验记录",
-    owner: "Yahoo Sports",
-    docs: 28,
-    chunks: 326,
-    sources: 89,
-    updatedAt: "2026年2月27日",
-    createdAt: "2026-02-11T11:30:00.000Z",
-    status: "indexed",
-    theme: {
-      icon: "GP",
-      iconClass: "bg-violet-100 text-violet-700 ring-violet-200",
-      coverClass: "from-violet-50 via-white to-fuchsia-100",
-      coverAccent: "bg-violet-400",
-    },
-    recent: true,
-    featured: true,
-    createdByMe: true,
-  },
-  {
-    id: "kb-database",
-    slug: "database-notes",
-    name: "Database Notes",
-    description: "MySQL、索引、事务与数据库系统笔记",
-    owner: "Business",
-    docs: 16,
-    chunks: 214,
-    sources: 267,
-    updatedAt: "2025年4月18日",
-    createdAt: "2025-04-03T08:15:00.000Z",
-    status: "processing",
-    theme: {
-      icon: "DB",
-      iconClass: "bg-emerald-100 text-emerald-700 ring-emerald-200",
-      coverClass: "from-emerald-50 via-white to-teal-100",
-      coverAccent: "bg-emerald-400",
-    },
-    recent: true,
-    featured: true,
-    createdByMe: true,
-  },
-  {
-    id: "kb-english",
-    slug: "english-study",
-    name: "English Study",
-    description: "阅读材料、语法记录与口语表达库",
-    owner: "The Atlantic",
-    docs: 18,
-    chunks: 192,
-    sources: 36,
-    updatedAt: "2025年7月10日",
-    createdAt: "2025-06-28T14:00:00.000Z",
-    status: "indexed",
-    theme: {
-      icon: "EN",
-      iconClass: "bg-amber-100 text-amber-700 ring-amber-200",
-      coverClass: "from-amber-50 via-white to-orange-100",
-      coverAccent: "bg-amber-400",
-    },
-    recent: false,
-    featured: true,
-    createdByMe: false,
-  },
-  {
-    id: "kb-backend",
-    slug: "backend-architecture",
-    name: "Backend Architecture",
-    description: "鉴权、缓存、消息队列与系统设计资料",
-    owner: "KnowFlow AI",
-    docs: 24,
-    chunks: 301,
-    sources: 58,
-    updatedAt: "2026年3月3日",
-    createdAt: "2026-02-22T16:40:00.000Z",
-    status: "failed",
-    theme: {
-      icon: "BA",
-      iconClass: "bg-rose-100 text-rose-700 ring-rose-200",
-      coverClass: "from-rose-50 via-white to-slate-100",
-      coverAccent: "bg-rose-400",
-    },
-    recent: false,
-    featured: false,
-    createdByMe: true,
   },
 ];
 
@@ -381,6 +282,20 @@ const kbStatusCopy = {
   failed: "失败",
 };
 
+function getKnowledgeBaseStatus(status: string): KnowledgeBase["status"] {
+  const normalizedStatus = status.trim().toUpperCase();
+
+  if (normalizedStatus === "ACTIVE") {
+    return "indexed";
+  }
+
+  if (normalizedStatus === "FAILED") {
+    return "failed";
+  }
+
+  return "processing";
+}
+
 function formatDateTime(value: Date) {
   return new Intl.DateTimeFormat("zh-CN", {
     year: "numeric",
@@ -399,15 +314,51 @@ function getInitials(value: string) {
   return value.trim().slice(0, 2).toUpperCase() || "KB";
 }
 
-function slugify(value: string) {
-  const slug = value
-    .trim()
-    .toLowerCase()
-    .replace(/['"]/g, "")
-    .replace(/[^a-z0-9\u4e00-\u9fa5]+/g, "-")
-    .replace(/^-+|-+$/g, "");
+function getKnowledgeBaseTheme(themeId: string | null) {
+  const normalizedThemeId = themeId?.trim();
+  const legacyThemeId =
+    normalizedThemeId === "sky"
+      ? "blue"
+      : normalizedThemeId === "emerald"
+        ? "green"
+        : normalizedThemeId || "blue";
+  const matchedTheme = knowledgeBaseThemePresets.find(
+    (preset) => preset.id === legacyThemeId,
+  );
 
-  return slug || `knowledge-base-${Date.now()}`;
+  return matchedTheme ?? knowledgeBaseThemePresets[0];
+}
+
+function mapKnowledgeBaseResponse(
+  item: KnowledgeBaseResponse,
+): KnowledgeBase {
+  const themePreset = getKnowledgeBaseTheme(item.themeId);
+  const updatedAtDate = new Date(item.updatedAt);
+
+  return {
+    id: String(item.id),
+    slug: String(item.id),
+    name: item.name,
+    description: item.description ?? "",
+    owner: "我创建的知识库",
+    docs: 0,
+    chunks: 0,
+    sources: 0,
+    updatedAt: Number.isNaN(updatedAtDate.getTime())
+      ? item.updatedAt
+      : formatDateTime(updatedAtDate),
+    createdAt: item.createdAt,
+    status: getKnowledgeBaseStatus(item.status),
+    theme: {
+      icon: getInitials(item.name),
+      iconClass: themePreset.iconClass,
+      coverClass: themePreset.coverClass,
+      coverAccent: themePreset.coverAccent,
+    },
+    recent: true,
+    featured: item.featured,
+    createdByMe: true,
+  };
 }
 
 function getCreatedTime(item: KnowledgeBase) {
@@ -630,16 +581,72 @@ function FeaturedCard({
   );
 }
 
+function KnowledgeBaseEmptyState({
+  title,
+  description,
+  actionLabel,
+  onAction,
+}: {
+  title: string;
+  description: string;
+  actionLabel?: string;
+  onAction?: () => void;
+}) {
+  return (
+    <div className="overflow-hidden rounded-[8px] border border-dashed border-slate-300 bg-white">
+      <div className="grid gap-0 md:grid-cols-[minmax(0,1fr)_220px]">
+        <div className="flex flex-col justify-center px-6 py-10 sm:px-8">
+          <div className="flex size-12 items-center justify-center rounded-[8px] border border-blue-100 bg-blue-50 text-blue-700">
+            <FolderPlus className="size-5" />
+          </div>
+          <h3 className="mt-5 text-lg font-semibold tracking-normal text-slate-950">
+            {title}
+          </h3>
+          <p className="mt-2 max-w-xl text-sm leading-6 text-slate-600">
+            {description}
+          </p>
+          {actionLabel && onAction && (
+            <Button
+              type="button"
+              className="mt-5 h-10 w-fit rounded-[6px] bg-blue-600 px-4 text-sm tracking-normal text-white hover:bg-blue-700 normal-case"
+              onClick={onAction}
+            >
+              <Plus data-icon="inline-start" />
+              {actionLabel}
+            </Button>
+          )}
+        </div>
+        <div className="hidden border-l border-slate-100 bg-slate-50/80 p-5 md:block">
+          <div className="grid h-full content-center gap-3">
+            <div className="rounded-[8px] border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="h-3 w-24 rounded bg-slate-200" />
+              <div className="mt-3 h-2 w-full rounded bg-slate-100" />
+              <div className="mt-2 h-2 w-3/4 rounded bg-slate-100" />
+            </div>
+            <div className="rounded-[8px] border border-blue-100 bg-blue-50 p-4">
+              <div className="h-3 w-20 rounded bg-blue-200" />
+              <div className="mt-3 h-2 w-full rounded bg-blue-100" />
+              <div className="mt-2 h-2 w-2/3 rounded bg-blue-100" />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function KnowledgeBaseActionsMenu({
   item,
   onOpen,
-  onToggleFeatured,
+  onEdit,
   onDelete,
+  isSubmitting,
 }: {
   item: KnowledgeBase;
   onOpen: (slug: string) => void;
-  onToggleFeatured: (id: string) => void;
-  onDelete: (id: string) => void;
+  onEdit: (item: KnowledgeBase) => void;
+  onDelete: (item: KnowledgeBase) => void;
+  isSubmitting: boolean;
 }) {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const stopCardClick = (event: React.MouseEvent | Event) => {
@@ -679,22 +686,24 @@ function KnowledgeBaseActionsMenu({
             <DropdownMenuItem
               onSelect={(event) => {
                 stopCardClick(event);
-                onToggleFeatured(item.id);
+                onEdit(item);
               }}
             >
-              <Star />
-              {item.featured ? "取消精选知识库" : "标记为精选知识库"}
+              <Pencil />
+              编辑知识库
             </DropdownMenuItem>
-            <DropdownMenuItem
-              variant="destructive"
-              onSelect={(event) => {
-                stopCardClick(event);
-                event.preventDefault();
-                setDeleteOpen(true);
-              }}
-            >
-              <Trash2 />
-              删除知识库
+              <DropdownMenuItem
+                variant="destructive"
+                onSelect={(event) => {
+                  stopCardClick(event);
+                  event.preventDefault();
+                  if (!isSubmitting) {
+                    setDeleteOpen(true);
+                  }
+                }}
+              >
+                <Trash2 />
+                删除知识库
             </DropdownMenuItem>
           </DropdownMenuGroup>
         </DropdownMenuContent>
@@ -707,8 +716,7 @@ function KnowledgeBaseActionsMenu({
           <AlertDialogHeader>
             <AlertDialogTitle>删除知识库</AlertDialogTitle>
             <AlertDialogDescription>
-              确认删除“{item.name}”吗？当前只会从本地列表移除，刷新页面后会恢复 mock
-              数据。
+              确认删除“{item.name}”吗？删除后无法恢复。后续知识库下有文档时，相关文档也会一并删除。
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -718,7 +726,8 @@ function KnowledgeBaseActionsMenu({
             <AlertDialogAction
               variant="destructive"
               className="rounded-[6px] tracking-normal normal-case"
-              onClick={() => onDelete(item.id)}
+              disabled={isSubmitting}
+              onClick={() => onDelete(item)}
             >
               确认删除
             </AlertDialogAction>
@@ -732,13 +741,15 @@ function KnowledgeBaseActionsMenu({
 function RecentCard({
   item,
   onOpen,
-  onToggleFeatured,
+  onEdit,
   onDelete,
+  isSubmitting,
 }: {
   item: KnowledgeBase;
   onOpen: (slug: string) => void;
-  onToggleFeatured: (id: string) => void;
-  onDelete: (id: string) => void;
+  onEdit: (item: KnowledgeBase) => void;
+  onDelete: (item: KnowledgeBase) => void;
+  isSubmitting: boolean;
 }) {
   const handleCardKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === "Enter" || event.key === " ") {
@@ -760,8 +771,9 @@ function RecentCard({
           <KnowledgeBaseActionsMenu
             item={item}
             onOpen={onOpen}
-            onToggleFeatured={onToggleFeatured}
+            onEdit={onEdit}
             onDelete={onDelete}
+            isSubmitting={isSubmitting}
           />
         </div>
         <div className="mt-5 min-w-0">
@@ -784,13 +796,15 @@ function RecentCard({
 function KnowledgeBaseListItem({
   item,
   onOpen,
-  onToggleFeatured,
+  onEdit,
   onDelete,
+  isSubmitting,
 }: {
   item: KnowledgeBase;
   onOpen: (slug: string) => void;
-  onToggleFeatured: (id: string) => void;
-  onDelete: (id: string) => void;
+  onEdit: (item: KnowledgeBase) => void;
+  onDelete: (item: KnowledgeBase) => void;
+  isSubmitting: boolean;
 }) {
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === "Enter" || event.key === " ") {
@@ -847,8 +861,9 @@ function KnowledgeBaseListItem({
       <KnowledgeBaseActionsMenu
         item={item}
         onOpen={onOpen}
-        onToggleFeatured={onToggleFeatured}
+        onEdit={onEdit}
         onDelete={onDelete}
+        isSubmitting={isSubmitting}
       />
     </article>
   );
@@ -888,13 +903,18 @@ function NewKnowledgeBaseListRow({ onCreate }: { onCreate: () => void }) {
 function KnowledgeBaseListView({
   items,
   onCreate,
-  onToggleFeatured,
+  onUpdate,
   onDelete,
+  isSubmitting,
 }: {
   items: KnowledgeBase[];
-  onCreate: (item: KnowledgeBase) => void;
-  onToggleFeatured: (id: string) => void;
-  onDelete: (id: string) => void;
+  onCreate: (request: CreateKnowledgeBaseRequest) => Promise<void>;
+  onUpdate: (
+    item: KnowledgeBase,
+    request: UpdateKnowledgeBaseRequest,
+  ) => Promise<void>;
+  onDelete: (item: KnowledgeBase) => void;
+  isSubmitting: boolean;
 }) {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<KnowledgeBaseTab>("all");
@@ -905,6 +925,7 @@ function KnowledgeBaseListView({
   const [createdTimeDirection, setCreatedTimeDirection] =
     useState<SortDirection>("desc");
   const [createOpen, setCreateOpen] = useState(false);
+  const [editingItem, setEditingItem] = useState<KnowledgeBase | null>(null);
   const [form, setForm] = useState<NewKnowledgeBaseForm>({
     title: "",
     description: "",
@@ -932,6 +953,7 @@ function KnowledgeBaseListView({
       ? "最近"
       : `创建时间 ${createdTimeDirection === "desc" ? "倒序" : "正序"}`;
   const hasSearchTerm = searchTerm.trim().length > 0;
+  const isEditing = !!editingItem;
 
   const openKnowledgeBase = (slug: string) => {
     navigate(`/KnowledgeBases/${slug}`);
@@ -949,9 +971,14 @@ function KnowledgeBaseListView({
       themeId: knowledgeBaseThemePresets[0].id,
     });
     setFormErrors({});
+    setEditingItem(null);
   };
 
   const handleCreateOpenChange = (open: boolean) => {
+    if (!open && isSubmitting) {
+      return;
+    }
+
     setCreateOpen(open);
 
     if (!open) {
@@ -985,7 +1012,24 @@ function KnowledgeBaseListView({
     setCreatedTimeDirection((current) => (current === "desc" ? "asc" : "desc"));
   };
 
-  const handleCreateSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const openEditSheet = (item: KnowledgeBase) => {
+    const themePreset =
+      knowledgeBaseThemePresets.find(
+        (preset) => preset.iconClass === item.theme.iconClass,
+      ) ?? knowledgeBaseThemePresets[0];
+
+    setEditingItem(item);
+    setForm({
+      title: item.name,
+      description: item.description,
+      featured: item.featured,
+      themeId: themePreset.id,
+    });
+    setFormErrors({});
+    setCreateOpen(true);
+  };
+
+  const handleFormSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
     const title = form.title.trim();
@@ -1006,34 +1050,22 @@ function KnowledgeBaseListView({
       return;
     }
 
-    const now = new Date();
-    const themePreset =
-      knowledgeBaseThemePresets.find((item) => item.id === form.themeId) ??
-      knowledgeBaseThemePresets[0];
-    const slug = `${slugify(title)}-${now.getTime().toString(36)}`;
-
-    onCreate({
-      id: `kb-${now.getTime().toString(36)}`,
-      slug,
+    const request = {
       name: title,
       description,
-      owner: "我创建的知识库",
-      docs: 0,
-      chunks: 0,
-      sources: 0,
-      updatedAt: formatDateTime(now),
-      createdAt: now.toISOString(),
-      status: "indexed",
-      theme: {
-        icon: getInitials(title),
-        iconClass: themePreset.iconClass,
-        coverClass: themePreset.coverClass,
-        coverAccent: themePreset.coverAccent,
-      },
-      recent: true,
       featured: form.featured,
-      createdByMe: true,
-    });
+      themeId: form.themeId,
+    };
+
+    try {
+      if (editingItem) {
+        await onUpdate(editingItem, request);
+      } else {
+        await onCreate(request);
+      }
+    } catch {
+      return;
+    }
 
     setCreateOpen(false);
     resetForm();
@@ -1209,6 +1241,12 @@ function KnowledgeBaseListView({
               />
             ))}
           </div>
+          {featuredItems.length === 0 && (
+            <KnowledgeBaseEmptyState
+              title="暂无精选知识库"
+              description="在新建或编辑知识库时勾选精选，这里会展示你的常用知识库。"
+            />
+          )}
           </section>
         )}
 
@@ -1219,7 +1257,7 @@ function KnowledgeBaseListView({
           </h2>
           {viewMode === "card" ? (
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-              {activeTab !== "featured" && (
+              {activeTab !== "featured" && visibleItems.length > 0 && (
                 <NewKnowledgeBaseCard onCreate={openCreateSheet} />
               )}
               {visibleItems.map((item) => (
@@ -1227,14 +1265,15 @@ function KnowledgeBaseListView({
                   key={item.id}
                   item={item}
                   onOpen={openKnowledgeBase}
-                  onToggleFeatured={onToggleFeatured}
+                  onEdit={openEditSheet}
                   onDelete={onDelete}
+                  isSubmitting={isSubmitting}
                 />
               ))}
             </div>
           ) : (
             <div className="flex flex-col gap-3">
-              {activeTab !== "featured" && (
+              {activeTab !== "featured" && visibleItems.length > 0 && (
                 <NewKnowledgeBaseListRow onCreate={openCreateSheet} />
               )}
               {visibleItems.map((item) => (
@@ -1242,16 +1281,32 @@ function KnowledgeBaseListView({
                   key={item.id}
                   item={item}
                   onOpen={openKnowledgeBase}
-                  onToggleFeatured={onToggleFeatured}
+                  onEdit={openEditSheet}
                   onDelete={onDelete}
+                  isSubmitting={isSubmitting}
                 />
               ))}
             </div>
           )}
           {visibleItems.length === 0 && (
-            <div className="rounded-[8px] border border-dashed border-slate-300 bg-white px-6 py-12 text-center text-sm font-medium text-slate-500">
-              {hasSearchTerm ? "未找到相关知识库" : activeTabMeta.empty}
-            </div>
+            <KnowledgeBaseEmptyState
+              title={hasSearchTerm ? "没有匹配的知识库" : activeTabMeta.empty}
+              description={
+                hasSearchTerm
+                  ? "换一个关键词试试，或清空搜索条件查看全部知识库。"
+                  : "创建第一个知识库后，就可以继续上传资料、整理文档，并在后续阶段基于这些资料进行问答。"
+              }
+              actionLabel={
+                !hasSearchTerm && activeTab !== "featured"
+                  ? "新建知识库"
+                  : undefined
+              }
+              onAction={
+                !hasSearchTerm && activeTab !== "featured"
+                  ? openCreateSheet
+                  : undefined
+              }
+            />
           )}
           </section>
         </TabsContent>
@@ -1259,13 +1314,15 @@ function KnowledgeBaseListView({
       <Sheet open={createOpen} onOpenChange={handleCreateOpenChange}>
         <SheetContent side="right" className="w-full sm:max-w-md">
           <form
-            onSubmit={handleCreateSubmit}
+            onSubmit={handleFormSubmit}
             className="flex min-h-0 flex-1 flex-col"
           >
             <SheetHeader>
-              <SheetTitle>新建知识库</SheetTitle>
+              <SheetTitle>{isEditing ? "编辑知识库" : "新建知识库"}</SheetTitle>
               <SheetDescription>
-                创建后仅保存到当前页面状态，刷新页面后会恢复 mock 数据。
+                {isEditing
+                  ? "修改知识库名称和介绍，保存后会同步到后端。"
+                  : "创建后会保存到当前登录账号的知识库列表。"}
               </SheetDescription>
             </SheetHeader>
             <div className="min-h-0 flex-1 overflow-auto px-8">
@@ -1309,9 +1366,35 @@ function KnowledgeBaseListView({
                     }}
                     aria-invalid={!!formErrors.description}
                     placeholder="简要描述这个知识库包含的内容"
-                    className="min-h-24"
+                    className="min-h-16"
                   />
                   <FieldError>{formErrors.description}</FieldError>
+                </Field>
+                <Field
+                  orientation="horizontal"
+                  className="rounded-[8px] border border-slate-200 bg-slate-50 px-4 py-3"
+                >
+                  <Checkbox
+                    id="knowledge-base-featured"
+                    checked={form.featured}
+                    onCheckedChange={(checked) =>
+                      setForm((current) => ({
+                        ...current,
+                        featured: checked === true,
+                      }))
+                    }
+                  />
+                  <div className="flex min-w-0 flex-1 flex-col gap-1">
+                    <FieldLabel
+                      htmlFor="knowledge-base-featured"
+                      className="text-sm font-medium normal-case tracking-normal text-slate-700"
+                    >
+                      精选知识库
+                    </FieldLabel>
+                    <FieldDescription className="text-xs leading-5 text-slate-500">
+                      勾选后会展示在精选知识库区域，并随创建或编辑一起保存。
+                    </FieldDescription>
+                  </div>
                 </Field>
                 <FieldSet>
                   <FieldLegend>封面</FieldLegend>
@@ -1351,21 +1434,6 @@ function KnowledgeBaseListView({
                     封面使用本地预设样式，不上传图片。
                   </FieldDescription>
                 </FieldSet>
-                <Field orientation="horizontal">
-                  <Checkbox
-                    id="knowledge-base-featured"
-                    checked={form.featured}
-                    onCheckedChange={(checked) =>
-                      setForm((current) => ({
-                        ...current,
-                        featured: checked === true,
-                      }))
-                    }
-                  />
-                  <FieldLabel htmlFor="knowledge-base-featured">
-                    是否设置精选
-                  </FieldLabel>
-                </Field>
               </FieldGroup>
             </div>
             <SheetFooter>
@@ -1374,14 +1442,17 @@ function KnowledgeBaseListView({
                 variant="outline"
                 className="rounded-[6px] tracking-normal normal-case"
                 onClick={() => setCreateOpen(false)}
+                disabled={isSubmitting}
               >
                 取消
               </Button>
               <Button
                 type="submit"
                 className="rounded-[6px] tracking-normal normal-case"
+                disabled={isSubmitting}
               >
-                创建知识库
+                {isSubmitting && <Loader2 data-icon="inline-start" />}
+                {isEditing ? "保存修改" : "创建知识库"}
               </Button>
             </SheetFooter>
           </form>
@@ -1785,53 +1856,223 @@ function KnowledgeBaseChatView({
 const KnowledgeBases = () => {
   const { knowledgeBaseId } = useParams();
   const navigate = useNavigate();
-  const [items, setItems] = useState(initialKnowledgeBases);
-  const current =
-    items.find((item) => item.slug === knowledgeBaseId) ?? items[0];
+  const location = useLocation();
+  const [items, setItems] = useState<KnowledgeBase[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const toggleFeatured = (id: string) => {
-    const target = items.find((item) => item.id === id);
+  const redirectToLogin = useCallback(() => {
+    clearMockAuthSession();
+    navigate("/login", {
+      replace: true,
+      state: { from: location.pathname },
+    });
+  }, [location.pathname, navigate]);
 
-    setItems((currentItems) =>
-      currentItems.map((item) =>
-        item.id === id ? { ...item, featured: !item.featured } : item,
-      ),
-    );
+  const handleKnowledgeBaseError = useCallback(
+    (error: unknown) => {
+      if (isAxiosError(error)) {
+        const status = error.response?.status;
 
-    if (target) {
-      toast.success(
-        target.featured ? "已取消精选知识库" : "已标记为精选知识库",
-      );
+        if (status === 401) {
+          toast.error("登录状态已失效，请重新登录");
+          redirectToLogin();
+          return "登录状态已失效，请重新登录";
+        }
+
+        if (status === 400) {
+          toast.error("请输入知识库名称");
+          return "请输入知识库名称";
+        }
+
+        if (status === 404) {
+          toast.error("知识库不存在或无权访问");
+          return "知识库不存在或无权访问";
+        }
+
+        if (!error.response) {
+          toast.error("无法连接知识库服务，请确认后端已启动");
+          return "无法连接知识库服务，请确认后端已启动";
+        }
+
+        if (status && status >= 500) {
+          toast.error("知识库服务异常，请确认后端已启动");
+          return "知识库服务异常，请确认后端已启动";
+        }
+      }
+
+      toast.error("操作失败，请稍后重试");
+      return "操作失败，请稍后重试";
+    },
+    [redirectToLogin],
+  );
+
+  const loadKnowledgeBases = useCallback(async () => {
+    setIsLoading(true);
+    setLoadError("");
+
+    try {
+      const knowledgeBases = await getKnowledgeBases();
+
+      setItems(knowledgeBases.map(mapKnowledgeBaseResponse));
+    } catch (error) {
+      if (isAxiosError(error) && error.response?.status === 401) {
+        toast.error("登录状态已失效，请重新登录");
+        redirectToLogin();
+        setLoadError("登录状态已失效，请重新登录");
+      } else if (
+        isAxiosError(error) &&
+        (!error.response || (error.response.status >= 500))
+      ) {
+        toast.error("知识库服务异常，请确认后端已启动");
+        setLoadError("知识库服务异常，请确认后端已启动");
+      } else {
+        toast.error("操作失败，请稍后重试");
+        setLoadError("操作失败，请稍后重试");
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  }, [redirectToLogin]);
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      void loadKnowledgeBases();
+    }, 0);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [loadKnowledgeBases]);
+
+  const createKnowledgeBase = async (request: CreateKnowledgeBaseRequest) => {
+    setIsSubmitting(true);
+
+    try {
+      const createdKnowledgeBase = await createKnowledgeBaseApi(request);
+      const nextItem = mapKnowledgeBaseResponse(createdKnowledgeBase);
+
+      setItems((currentItems) => [nextItem, ...currentItems]);
+      toast.success(`已新建知识库：${nextItem.name}`);
+    } catch (error) {
+      handleKnowledgeBaseError(error);
+      throw error;
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
-  const createKnowledgeBase = (item: KnowledgeBase) => {
-    setItems((currentItems) => [item, ...currentItems]);
-    toast.success(`已新建知识库：${item.name}`);
+  const updateKnowledgeBase = async (
+    item: KnowledgeBase,
+    request: UpdateKnowledgeBaseRequest,
+  ) => {
+    setIsSubmitting(true);
+
+    try {
+      const updatedKnowledgeBase = await updateKnowledgeBaseApi(
+        item.id,
+        request,
+      );
+      const nextItem = mapKnowledgeBaseResponse(updatedKnowledgeBase);
+
+      setItems((currentItems) =>
+        currentItems.map((currentItem) =>
+          currentItem.id === nextItem.id ? nextItem : currentItem,
+        ),
+      );
+      toast.success(`已更新知识库：${nextItem.name}`);
+    } catch (error) {
+      handleKnowledgeBaseError(error);
+      throw error;
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const deleteKnowledgeBase = (id: string) => {
-    const target = items.find((item) => item.id === id);
+  const deleteKnowledgeBase = async (item: KnowledgeBase) => {
+    setIsSubmitting(true);
 
-    setItems((currentItems) => currentItems.filter((item) => item.id !== id));
+    try {
+      await deleteKnowledgeBaseApi(item.id);
 
-    if (target) {
-      toast.success(`已删除知识库：${target.name}`);
+      setItems((currentItems) =>
+        currentItems.filter((currentItem) => currentItem.id !== item.id),
+      );
+      toast.success(`已删除知识库：${item.name}`);
 
-      if (knowledgeBaseId === target.slug) {
+      if (knowledgeBaseId === item.id) {
         navigate("/KnowledgeBases");
       }
+    } catch (error) {
+      handleKnowledgeBaseError(error);
+    } finally {
+      setIsSubmitting(false);
     }
   };
+
+  const current = knowledgeBaseId
+    ? items.find((item) => item.id === knowledgeBaseId)
+    : undefined;
+
+  if (isLoading) {
+    return (
+      <section className="flex min-h-[calc(100svh-5rem)] items-center justify-center bg-slate-50/60 px-5 text-slate-600">
+        <div className="flex items-center gap-3 rounded-[8px] border border-slate-200 bg-white px-5 py-4 text-sm shadow-sm">
+          <Loader2 className="size-4 animate-spin text-sky-500" />
+          正在加载知识库...
+        </div>
+      </section>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <section className="flex min-h-[calc(100svh-5rem)] items-center justify-center bg-slate-50/60 px-5 text-slate-900">
+        <div className="w-full max-w-md rounded-[8px] border border-slate-200 bg-white px-6 py-8 text-center shadow-sm">
+          <TriangleAlert className="mx-auto size-8 text-orange-500" />
+          <h2 className="mt-4 text-base font-semibold">知识库加载失败</h2>
+          <p className="mt-2 text-sm leading-6 text-slate-500">{loadError}</p>
+          <Button
+            type="button"
+            className="mt-5 rounded-[6px] tracking-normal normal-case"
+            onClick={() => void loadKnowledgeBases()}
+          >
+            重新加载
+          </Button>
+        </div>
+      </section>
+    );
+  }
 
   if (!knowledgeBaseId) {
     return (
       <KnowledgeBaseListView
         items={items}
         onCreate={createKnowledgeBase}
-        onToggleFeatured={toggleFeatured}
+        onUpdate={updateKnowledgeBase}
         onDelete={deleteKnowledgeBase}
+        isSubmitting={isSubmitting}
       />
+    );
+  }
+
+  if (!current) {
+    return (
+      <section className="flex min-h-[calc(100svh-5rem)] items-center justify-center bg-slate-50/60 px-5 text-slate-900">
+        <div className="w-full max-w-md rounded-[8px] border border-slate-200 bg-white px-6 py-8 text-center shadow-sm">
+          <TriangleAlert className="mx-auto size-8 text-orange-500" />
+          <h2 className="mt-4 text-base font-semibold">知识库不存在</h2>
+          <p className="mt-2 text-sm leading-6 text-slate-500">
+            这个知识库不存在，或你没有访问权限。
+          </p>
+          <Button
+            type="button"
+            className="mt-5 rounded-[6px] tracking-normal normal-case"
+            onClick={() => navigate("/KnowledgeBases")}
+          >
+            返回知识库列表
+          </Button>
+        </div>
+      </section>
     );
   }
 

@@ -29,6 +29,14 @@ No test runner is configured. Adding shadcn components: `pnpm dlx shadcn@latest 
 - Because of context window limits, final development acceptance is performed by a human. Agents should provide concise manual verification steps instead of trying to exhaustively re-check the whole application in context.
 - Do not read, inspect, or analyze images/screenshots unless the user explicitly asks for image analysis. Prefer code, logs, terminal output, DOM text, network responses, and browser state for verification.
 
+## User Workflow Preferences
+
+- 用户是初学者，后端开发经常希望自己手动完成。遇到用户意图“后端不要直接修改”、“告诉我，我去做”、“不要编辑文件”时，除了/doc文档下文档文件意外，其他文件必须只给核心步骤、代码片段、文件路径和解释，不要直接修改文件或运行命令。
+- 用户说“收尾”时，默认含义是：检查当前功能是否完成、同步开发文档、同步 `AGENTS.md` 项目规则、更新下一步路线、生成下一轮对话交接提示。不要默认继续开发新功能。
+- 用户说“实施计划”或明确要求实现时，才可以修改文件；但如果同一句或近期上下文出现“不要编辑文件/不要运行命令”，以后者为准。
+- 后端学习阶段需要解释每个新增文件、注解、接口路径、请求体、响应体、错误处理和测试命令的作用。
+- 后端功能完成后，文档至少检查并同步：`doc/API.md`、`doc/PROJECT.md`、`doc/DEVELOPMENT.md`、`doc/ROADMAP.md`，必要时同步 `doc/ARCHITECTURE.md` 和 `AGENTS.md`。
+
 ## Architecture
 
 **Stack**: React 19 + TypeScript 6 + Vite 8 + Tailwind CSS v4 + React Router 7 + axios + Zustand + shadcn/radix-sera UI + Lucide icons + Sonner toasts.
@@ -81,3 +89,11 @@ Route-to-title mapping is defined in `headerMap` inside `slider-layout.tsx`.
 ### Backend
 
 Backend development is now active. Project documentation is split under `doc/`; start with `doc/README.md` and use `doc/API.md` as the source of truth for current and planned API contracts.
+
+Current auth status:
+
+- Backend auth APIs implemented: login, register, reset password.
+- Frontend Login page uses real backend APIs through `src/api/auth.ts`.
+- Auth session is stored in `src/store/auth.ts`.
+- Axios attaches `Authorization` in `src/api/http.ts`.
+- `src/lib/mock-auth.ts` is now a compatibility layer; do not extend mock-only auth patterns.
