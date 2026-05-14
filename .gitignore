@@ -28,3 +28,10 @@ Thumbs.db
 *.njsproj
 *.sln
 *.sw?
+
+
+### Codex ###
+.codex/
+.codex/environments/
+AGENTS.md
+CLAUDE.md

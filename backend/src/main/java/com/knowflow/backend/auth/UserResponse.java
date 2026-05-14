@@ -1,5 +1,8 @@
 package com.knowflow.backend.auth;
 
+import lombok.Data;
+
+@Data
 public class UserResponse {
 
     private Long id;
@@ -12,15 +15,15 @@ public class UserResponse {
         this.role = role;
     }
 
-    public Long getId() {
-        return id;
-    }
+    // public Long getId() {
+    // return id;
+    // }
 
-    public String getUsername() {
-        return username;
-    }
+    // public String getUsername() {
+    // return username;
+    // }
 
-    public String getRole() {
-        return role;
-    }
+    // public String getRole() {
+    // return role;
+    // }
 }

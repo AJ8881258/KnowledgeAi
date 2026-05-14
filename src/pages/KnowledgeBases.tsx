@@ -13,7 +13,6 @@ import {
   ArrowRight,
   Bot,
   Check,
-  CheckCircle2,
   ChevronDown,
   Copy,
   FileText,
@@ -26,6 +25,7 @@ import {
   MoreVertical,
   Pencil,
   Plus,
+  RefreshCw,
   Search,
   Star,
   ThumbsDown,
@@ -36,6 +36,11 @@ import {
   X,
 } from "lucide-react";
 
+import {
+  getKnowledgeBaseDocuments,
+  type DocumentResponse,
+  type DocumentStatus as BackendDocumentStatus,
+} from "@/api/documents";
 import { ChatComposer } from "@/components/chat/ChatComposer";
 import {
   AlertDialog,
@@ -116,7 +121,6 @@ type KnowledgeBaseTab = "all" | "mine" | "featured";
 type KnowledgeBaseViewMode = "card" | "list";
 type KnowledgeBaseSortMode = "recent" | "createdTime";
 type SortDirection = "asc" | "desc";
-type DetailDocumentStatus = "ready" | "processing" | "failed";
 type DetailDocumentTab = "all" | "processing" | "failed";
 
 type KnowledgeBaseThemePreset = {
@@ -134,12 +138,8 @@ type NewKnowledgeBaseForm = {
   themeId: string;
 };
 
-type DetailDocument = {
-  name: string;
-  meta: string;
+type DetailDocument = DocumentResponse & {
   type: string;
-  status: DetailDocumentStatus;
-  error?: string;
 };
 
 const knowledgeBaseTabs: {
@@ -206,40 +206,6 @@ const knowledgeBaseThemePresets: KnowledgeBaseThemePreset[] = [
   },
 ];
 
-const documents: DetailDocument[] = [
-  {
-    name: "JavaScript 高级程序设计.pdf",
-    meta: "128 页 · 4.2 MB",
-    type: "pdf",
-    status: "ready",
-  },
-  {
-    name: "React 官方文档.md",
-    meta: "256 KB",
-    type: "md",
-    status: "ready",
-  },
-  {
-    name: "浏览器工作原理.txt",
-    meta: "1.1 MB",
-    type: "txt",
-    status: "processing",
-  },
-  {
-    name: "计算机网络（谢希仁）.pdf",
-    meta: "32.8 MB",
-    type: "pdf",
-    status: "failed",
-    error: "解析失败，请检查文件格式",
-  },
-  {
-    name: "面试题汇总.md",
-    meta: "88 KB",
-    type: "md",
-    status: "ready",
-  },
-];
-
 const sources = [
   {
     id: 1,
@@ -270,10 +236,18 @@ const sources = [
   },
 ];
 
-const statusStyles = {
-  ready: "border-emerald-200 bg-emerald-50 text-emerald-700",
-  processing: "border-blue-200 bg-blue-50 text-blue-700",
-  failed: "border-orange-200 bg-orange-50 text-orange-700",
+const documentStatusStyles: Record<BackendDocumentStatus, string> = {
+  UPLOADED: "border-slate-200 bg-slate-50 text-slate-700",
+  PROCESSING: "border-blue-200 bg-blue-50 text-blue-700",
+  INDEXED: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  FAILED: "border-red-200 bg-red-50 text-red-700",
+};
+
+const documentStatusCopy: Record<BackendDocumentStatus, string> = {
+  UPLOADED: "已上传",
+  PROCESSING: "处理中",
+  INDEXED: "已索引",
+  FAILED: "失败",
 };
 
 const kbStatusCopy = {
@@ -302,6 +276,51 @@ function formatDateTime(value: Date) {
     month: "long",
     day: "numeric",
   }).format(value);
+}
+
+function formatCompactDateTime(value: string) {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value || "-";
+  }
+
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
+function formatFileSize(bytes: number) {
+  if (!Number.isFinite(bytes) || bytes < 0) {
+    return "-";
+  }
+
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function getDocumentType(filename: string) {
+  const dot = filename.lastIndexOf(".");
+  const extension = dot >= 0 ? filename.slice(dot + 1).toLowerCase() : "";
+
+  return extension || "file";
+}
+
+function mapDetailDocument(item: DocumentResponse): DetailDocument {
+  return {
+    ...item,
+    type: getDocumentType(item.originalFilename),
+  };
 }
 
 function getInitials(value: string) {
@@ -390,7 +409,13 @@ function getDocumentCountByTab(
     return items.length;
   }
 
-  return items.filter((item) => item.status === tab).length;
+  if (tab === "processing") {
+    return items.filter(
+      (item) => item.status === "PROCESSING" || item.status === "UPLOADED",
+    ).length;
+  }
+
+  return items.filter((item) => item.status === "FAILED").length;
 }
 
 function getFilteredDocuments(
@@ -401,7 +426,13 @@ function getFilteredDocuments(
     return items;
   }
 
-  return items.filter((item) => item.status === tab);
+  if (tab === "processing") {
+    return items.filter(
+      (item) => item.status === "PROCESSING" || item.status === "UPLOADED",
+    );
+  }
+
+  return items.filter((item) => item.status === "FAILED");
 }
 
 function searchKnowledgeBases(items: KnowledgeBase[], keyword: string) {
@@ -434,30 +465,30 @@ function FileBadge({ type }: { type: string }) {
   );
 }
 
-function DocumentStatus({ status }: { status: DetailDocumentStatus }) {
-  if (status === "processing") {
+function DocumentStatus({ status }: { status: BackendDocumentStatus }) {
+  if (status === "PROCESSING" || status === "UPLOADED") {
     return (
       <span
         className={cn(
           "flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px]",
-          statusStyles[status],
+          documentStatusStyles[status],
         )}
       >
-        processing
+        {documentStatusCopy[status]}
         <Loader2 className="size-3 animate-spin" />
       </span>
     );
   }
 
-  if (status === "failed") {
+  if (status === "FAILED") {
     return (
       <span
         className={cn(
           "flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px]",
-          statusStyles[status],
+          documentStatusStyles[status],
         )}
       >
-        failed
+        {documentStatusCopy[status]}
         <TriangleAlert className="size-3" />
       </span>
     );
@@ -467,11 +498,11 @@ function DocumentStatus({ status }: { status: DetailDocumentStatus }) {
     <span
       className={cn(
         "flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px]",
-        statusStyles[status],
+        documentStatusStyles[status],
       )}
     >
-      ready
-      <CheckCircle2 className="size-3" />
+      {documentStatusCopy[status]}
+      <Check className="size-3" />
     </span>
   );
 }
@@ -1546,8 +1577,63 @@ function KnowledgeBaseChatView({
   items: KnowledgeBase[];
 }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const [documentTab, setDocumentTab] = useState<DetailDocumentTab>("all");
+  const [documents, setDocuments] = useState<DetailDocument[]>([]);
+  const [isLoadingDocuments, setIsLoadingDocuments] = useState(true);
+  const [documentLoadError, setDocumentLoadError] = useState("");
   const filteredDocuments = getFilteredDocuments(documents, documentTab);
+
+  const redirectToLogin = useCallback(() => {
+    clearMockAuthSession();
+    navigate("/login", {
+      replace: true,
+      state: { from: location.pathname },
+    });
+  }, [location.pathname, navigate]);
+
+  const loadDocuments = useCallback(async () => {
+    setIsLoadingDocuments(true);
+    setDocumentLoadError("");
+
+    try {
+      const response = await getKnowledgeBaseDocuments(current.id);
+      setDocuments(response.map(mapDetailDocument));
+    } catch (error) {
+      setDocuments([]);
+
+      if (isAxiosError(error) && error.response?.status === 401) {
+        toast.error("登录状态已失效，请重新登录");
+        redirectToLogin();
+        setDocumentLoadError("登录状态已失效，请重新登录");
+      } else if (isAxiosError(error) && error.response?.status === 404) {
+        setDocumentLoadError("知识库不存在，或你没有访问权限");
+      } else if (
+        isAxiosError(error) &&
+        (!error.response || error.response.status >= 500)
+      ) {
+        setDocumentLoadError("文档服务异常，请确认后端已启动");
+      } else {
+        setDocumentLoadError("文档加载失败，请稍后重试");
+      }
+    } finally {
+      setIsLoadingDocuments(false);
+    }
+  }, [current.id, redirectToLogin]);
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      void loadDocuments();
+    }, 0);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [loadDocuments]);
+
+  const currentWithDocumentStats: KnowledgeBase = {
+    ...current,
+    docs: documents.length,
+    chunks: documents.reduce((total, document) => total + document.chunkCount, 0),
+  };
 
   const handleSendMessage = () => {
     toast.success("消息已添加到本地对话");
@@ -1569,7 +1655,7 @@ function KnowledgeBaseChatView({
               >
                 <ArrowLeft className="size-4" />
               </Button>
-              <RecentSwitcher current={current} items={items} />
+              <RecentSwitcher current={currentWithDocumentStats} items={items} />
             </div>
           </div>
 
@@ -1581,8 +1667,15 @@ function KnowledgeBaseChatView({
                 size="icon-xs"
                 className="rounded-[6px] text-slate-500"
                 aria-label="刷新"
+                disabled={isLoadingDocuments}
+                onClick={() => void loadDocuments()}
               >
-                <Loader2 className="size-4" />
+                <RefreshCw
+                  className={cn(
+                    "size-4",
+                    isLoadingDocuments && "animate-spin",
+                  )}
+                />
               </Button>
             </div>
             <Tabs
@@ -1618,23 +1711,39 @@ function KnowledgeBaseChatView({
                 className="flex min-h-0 flex-1 flex-col overflow-hidden"
               >
                 <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden pr-1">
-                  {filteredDocuments.length > 0 ? (
+                  {isLoadingDocuments ? (
+                    <div className="flex h-full min-h-[160px] flex-col items-center justify-center gap-2 rounded-[6px] border border-dashed border-slate-200 text-center">
+                      <Loader2 className="size-5 animate-spin text-blue-600" />
+                      <p className="text-xs text-slate-500">正在加载文档...</p>
+                    </div>
+                  ) : documentLoadError ? (
+                    <div className="flex h-full min-h-[160px] flex-col items-center justify-center gap-2 rounded-[6px] border border-dashed border-orange-200 bg-orange-50/40 px-3 text-center">
+                      <TriangleAlert className="size-5 text-orange-500" />
+                      <p className="text-xs leading-5 text-slate-600">
+                        {documentLoadError}
+                      </p>
+                    </div>
+                  ) : filteredDocuments.length > 0 ? (
                     filteredDocuments.map((doc) => (
                       <div
-                        key={doc.name}
+                        key={doc.id}
                         className="flex min-w-0 gap-3 border-b border-slate-100 py-3"
                       >
                         <FileBadge type={doc.type} />
                         <div className="min-w-0 flex-1">
                           <div className="truncate text-xs font-medium text-slate-800">
-                            {doc.name}
+                            {doc.originalFilename}
                           </div>
                           <div className="mt-1 text-xs text-slate-500">
-                            {doc.meta}
+                            {formatFileSize(doc.sizeBytes)} ·{" "}
+                            {doc.chunkCount} chunks
                           </div>
-                          {doc.error && (
+                          <div className="mt-1 text-xs text-slate-500">
+                            上传于 {formatCompactDateTime(doc.createdAt)}
+                          </div>
+                          {doc.errorMessage && (
                             <div className="mt-1 truncate text-xs text-orange-600">
-                              {doc.error}
+                              {doc.errorMessage}
                             </div>
                           )}
                         </div>
@@ -1661,7 +1770,7 @@ function KnowledgeBaseChatView({
               className="mt-4 h-10 rounded-[6px] border-slate-200 text-xs font-medium tracking-normal text-slate-600 normal-case"
               onClick={() => navigate(`/Documents/${current.slug}`)}
             >
-              查看全部文档
+              {documents.length > 0 ? "查看全部文档" : "上传文档"}
               <ArrowRight data-icon="inline-end" />
             </Button>
           </section>

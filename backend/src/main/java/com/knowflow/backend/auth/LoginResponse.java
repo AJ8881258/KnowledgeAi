@@ -1,5 +1,8 @@
 package com.knowflow.backend.auth;
 
+import lombok.Data;
+
+@Data
 public class LoginResponse {
 
     // Private
@@ -18,25 +21,25 @@ public class LoginResponse {
         this.accessToken = accessToken;
     }
 
-    // Getter
-    public Long getId() {
-        return id;
-    }
+    // // Getter
+    // public Long getId() {
+    //     return id;
+    // }
 
-    public String getUsername() {
-        return username;
-    }
+    // public String getUsername() {
+    //     return username;
+    // }
 
-    public String getRole() {
-        return role;
-    }
+    // public String getRole() {
+    //     return role;
+    // }
 
-    public String getTokenType() {
-        return tokenType;
-    }
+    // public String getTokenType() {
+    //     return tokenType;
+    // }
 
-    public String getAccessToken() {
-        return accessToken;
-    }
+    // public String getAccessToken() {
+    //     return accessToken;
+    // }
 
 }

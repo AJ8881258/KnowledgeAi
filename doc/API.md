@@ -15,6 +15,8 @@
 Authorization: Bearer <accessToken>
 ```
 
+- 文档上传接口使用 `multipart/form-data`，其他文档查询和删除接口仍使用普通 HTTP 请求和 JSON 响应。
+
 ## 已实现接口
 
 ### 注册
@@ -370,6 +372,136 @@ Authorization: Bearer <accessToken>
 说明：
 
 - 数据库里 `documents.knowledge_base_id` 已设置 `ON DELETE CASCADE`。后续知识库下有文档后，删除知识库会级联删除对应文档，前端需要提供明确确认提示。
+
+### Document 第一阶段接口契约
+
+> 状态：后端源码待实现。本文档先作为本轮“文档上传 + 文档解析 + 文档切片 + 文档索引状态”的接口契约。
+
+文档状态：
+
+| 状态 | 含义 |
+|---|---|
+| `UPLOADED` | 文件记录已创建 |
+| `PROCESSING` | 正在解析和切片 |
+| `INDEXED` | 已完成文本切片，chunk 已入库 |
+| `FAILED` | 解析或切片失败，失败原因写入 `errorMessage` |
+
+#### 上传文档
+
+| 项目 | 内容 |
+|---|---|
+| 请求方式 | `POST` |
+| 请求路径 | `/api/knowledge-bases/{knowledgeBaseId}/documents` |
+| 是否需要登录 | 是 |
+| 请求体格式 | `multipart/form-data` |
+
+表单字段：
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `file` | file | 是 | 第一阶段只支持 `.txt`、`.md`、`.markdown`、`.pdf` |
+
+规则：
+
+- `knowledgeBaseId` 必须属于当前登录用户，否则返回 `404`。
+- 单文件大小上限为 `10MB`。
+- 文件类型不支持时返回 `400`。
+- PDF 第一阶段只支持可提取文本的 PDF；扫描图片型 PDF 暂不做 OCR，如果无法提取文本会返回 `400` 并标记为 `FAILED`。
+- 空白文本返回 `400`，文档记录保留为 `FAILED`，不保存 chunk。
+- 上传成功后，后端读取文本内容并按固定长度切片，最终 `status` 为 `INDEXED`。
+- 如果读取或切片过程中失败，文档记录保留，`status` 更新为 `FAILED`，`errorMessage` 保存失败原因。
+
+成功响应示例：
+
+```json
+{
+  "id": 1,
+  "knowledgeBaseId": 1,
+  "originalFilename": "note.md",
+  "contentType": "text/markdown",
+  "sizeBytes": 1280,
+  "status": "INDEXED",
+  "errorMessage": null,
+  "createdBy": 1,
+  "createdAt": "2026-05-12T10:00:00Z",
+  "updatedAt": "2026-05-12T10:00:01Z",
+  "chunkCount": 2
+}
+```
+
+失败情况：
+
+| 状态码 | 原因 |
+|---|---|
+| `400` | 未上传文件、文件为空、文件超过 10MB、扩展名不支持、文本内容为空白，或 PDF 无法提取文本 |
+| `401` | 未登录或 token 无效 |
+| `404` | 知识库不存在，或不属于当前登录用户 |
+| `500` | 文件读取、解析或切片过程失败 |
+
+#### 获取知识库下的文档列表
+
+| 项目 | 内容 |
+|---|---|
+| 请求方式 | `GET` |
+| 请求路径 | `/api/knowledge-bases/{knowledgeBaseId}/documents` |
+| 是否需要登录 | 是 |
+
+说明：
+
+- 只返回当前登录用户自己的知识库文档。
+- 返回文档基础信息和 `chunkCount`，不返回 chunk 内容。
+
+#### 获取文档详情
+
+| 项目 | 内容 |
+|---|---|
+| 请求方式 | `GET` |
+| 请求路径 | `/api/documents/{documentId}` |
+| 是否需要登录 | 是 |
+
+说明：
+
+- 只能查看当前登录用户自己的文档。
+- 返回文档基础信息和 `chunkCount`。
+
+#### 获取文档切片列表
+
+| 项目 | 内容 |
+|---|---|
+| 请求方式 | `GET` |
+| 请求路径 | `/api/documents/{documentId}/chunks` |
+| 是否需要登录 | 是 |
+
+成功响应示例：
+
+```json
+[
+  {
+    "chunkIndex": 0,
+    "content": "第一段切片内容...",
+    "charCount": 1000,
+    "createdAt": "2026-05-12T10:00:01Z"
+  }
+]
+```
+
+#### 删除文档
+
+| 项目 | 内容 |
+|---|---|
+| 请求方式 | `DELETE` |
+| 请求路径 | `/api/documents/{documentId}` |
+| 是否需要登录 | 是 |
+
+成功响应：
+
+- 状态码：`204 No Content`
+- 响应体：无
+
+说明：
+
+- 只能删除当前登录用户自己的文档。
+- 数据库里 `document_chunks.document_id` 需要设置 `ON DELETE CASCADE`，删除文档时自动删除对应 chunks。
 
 ### 前端知识库页面对接说明
 

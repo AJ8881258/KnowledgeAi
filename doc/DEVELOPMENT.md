@@ -159,6 +159,51 @@ Invoke-RestMethod `
 curl.exe -i -X DELETE http://localhost:8080/api/knowledge-bases/4 -H "Authorization: $($headers.Authorization)"
 ```
 
+文档上传第一阶段手工测试：
+
+```powershell
+# 1. 登录并准备 Authorization 请求头
+$login = Invoke-RestMethod `
+  -Method Post `
+  -Uri http://localhost:8080/api/auth/login `
+  -ContentType "application/json" `
+  -Body '{"username":"admin","password":"admin"}'
+
+$headers = @{
+  Authorization = "$($login.tokenType) $($login.accessToken)"
+}
+
+# 2. 创建一个测试知识库，记录返回的 id
+$kb = Invoke-RestMethod `
+  -Method Post `
+  -Uri http://localhost:8080/api/knowledge-bases `
+  -Headers $headers `
+  -ContentType "application/json" `
+  -Body '{"name":"文档上传测试库","description":"用于测试文档上传","featured":false,"themeId":"blue"}'
+
+# 3. 准备一个本地 Markdown 文件
+Set-Content -Path .\sample.md -Encoding UTF8 -Value "# 测试文档`n`n这是第一阶段文档上传和切片测试。"
+
+# 4. 上传文件。Invoke-RestMethod 的 -Form 会自动生成 multipart/form-data
+$doc = Invoke-RestMethod `
+  -Method Post `
+  -Uri "http://localhost:8080/api/knowledge-bases/$($kb.id)/documents" `
+  -Headers $headers `
+  -Form @{ file = Get-Item .\sample.md }
+
+# 也可以把 file 换成文本型 PDF，例如：
+# -Form @{ file = Get-Item .\sample.pdf }
+# 当前阶段 PDF 只做文本提取，不做扫描图片 OCR。
+
+# 5. 查询文档列表、详情、切片
+Invoke-RestMethod -Method Get -Uri "http://localhost:8080/api/knowledge-bases/$($kb.id)/documents" -Headers $headers
+Invoke-RestMethod -Method Get -Uri "http://localhost:8080/api/documents/$($doc.id)" -Headers $headers
+Invoke-RestMethod -Method Get -Uri "http://localhost:8080/api/documents/$($doc.id)/chunks" -Headers $headers
+
+# 6. 删除文档，应该返回 204 No Content
+curl.exe -i -X DELETE "http://localhost:8080/api/documents/$($doc.id)" -H "Authorization: $($headers.Authorization)"
+```
+
 ## 登录态说明
 
 - 前端登录成功后保存后端返回的 `id`、`username`、`role`、`tokenType`、`accessToken`。
@@ -191,6 +236,14 @@ backend/src/main/resources/db/migration/V1__init_schema.sql
 V2__add_xxx.sql
 V3__update_xxx.sql
 ```
+
+文档上传第一阶段需要注意：`V1__init_schema.sql` 里已经有早期 `documents` 表，所以不要修改 `V1`，也不要再次 `CREATE TABLE documents`。应该新增：
+
+```text
+backend/src/main/resources/db/migration/V3__create_documents_and_document_chunks.sql
+```
+
+这个迁移负责把旧的 `documents.filename/file_type/file_size/uploaded_by` 字段升级为 `original_filename/content_type/size_bytes/created_by`，并新增 `error_message` 和 `document_chunks` 表。
 
 ## Git 建议
 

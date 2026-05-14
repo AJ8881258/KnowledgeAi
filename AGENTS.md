@@ -19,6 +19,14 @@ No test runner is configured. Adding shadcn components: `pnpm dlx shadcn@latest 
 
 ## Development And Verification Requirements
 
+- Stage planning source of truth:
+  - During development inside an existing stage, read `doc/ROADMAP.md` first for the current short-term direction.
+  - When entering a new stage, read `doc/STAGE_PLAN.md` first, then update `doc/ROADMAP.md` to reflect the active stage and immediate next work.
+  - Frontend and backend development should both start from `doc/ROADMAP.md` for current priority, then consult `doc/API.md`, `doc/PROJECT.md`, and nearby implementation files as needed.
+  - `doc/STAGE_PLAN.md` is the authoritative long-term stage plan. `doc/ROADMAP.md` is the short operational route for the current stage.
+  - If stage status changes, update `doc/STAGE_PLAN.md`; if next-step priority changes, update `doc/ROADMAP.md`.
+  - Before starting a stage, run a stage kickoff check: read `doc/ROADMAP.md`, confirm the active stage in `doc/STAGE_PLAN.md`, inspect relevant API contracts in `doc/API.md`, check `git status`, and verify the previous stage is committed or intentionally left in progress.
+  - After completing a stage, update all three state documents together: `doc/STAGE_PLAN.md` for phase status, `doc/ROADMAP.md` for immediate next priority, and `doc/PROJECT.md` for current project status.
 - Backend development is in progress. When implementing frontend features, prefer real API integration over extending mock-only behavior when a backend endpoint or contract exists.
 - Use axios for frontend-to-backend requests. Follow any existing axios client, API module, interceptor, error handling, and response typing patterns before adding new ones.
 - Before implementing a new feature or changing an existing one, inspect the nearest existing implementation and shared project primitives first. At minimum, check `src/api/`, `src/store/`, related page components, and `doc/API.md` when the change involves server data, authentication, persisted state, or shared UI behavior.
@@ -34,7 +42,7 @@ No test runner is configured. Adding shadcn components: `pnpm dlx shadcn@latest 
 - 用户是初学者，后端开发经常希望自己手动完成。遇到用户意图“后端不要直接修改”、“告诉我，我去做”、“不要编辑文件”时，除了/doc文档下文档文件意外，其他文件必须只给核心步骤、代码片段、文件路径和解释，不要直接修改文件或运行命令。
 - 用户说“收尾”时，默认含义是：检查当前功能是否完成、同步开发文档、同步 `AGENTS.md` 项目规则、更新下一步路线、生成下一轮对话交接提示。不要默认继续开发新功能。
 - 用户说“实施计划”或明确要求实现时，才可以修改文件；但如果同一句或近期上下文出现“不要编辑文件/不要运行命令”，以后者为准。
-- 后端学习阶段需要解释每个新增文件、注解、接口路径、请求体、响应体、错误处理和测试命令的作用。
+- 后端学习阶段不要过度教学；默认只给必要步骤、文件清单、核心代码、关键注释和测试命令。核心代码注释应解释权限校验、状态流转、事务边界、切片/检索等关键逻辑，不要逐个解释基础注解、getter/setter 或 import。
 - 后端功能完成后，文档至少检查并同步：`doc/API.md`、`doc/PROJECT.md`、`doc/DEVELOPMENT.md`、`doc/ROADMAP.md`，必要时同步 `doc/ARCHITECTURE.md` 和 `AGENTS.md`。
 
 ## Architecture

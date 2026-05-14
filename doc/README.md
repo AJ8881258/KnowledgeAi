@@ -10,13 +10,14 @@
 | [ARCHITECTURE.md](ARCHITECTURE.md) | 了解当前前后端结构、数据库、未来拆分方向 |
 | [API.md](API.md) | 前后端联调时查看接口路径、请求方式、请求示例 |
 | [DEVELOPMENT.md](DEVELOPMENT.md) | 本地启动、测试、数据库和 Flyway 注意事项 |
-| [ROADMAP.md](ROADMAP.md) | 查看后续开发顺序和阶段目标 |
+| [STAGE_PLAN.md](STAGE_PLAN.md) | 查看权威阶段计划、阶段状态和验收标准 |
+| [ROADMAP.md](ROADMAP.md) | 快速查看简版开发路线 |
 
 ## 当前项目状态
 
 KnowFlow AI 当前已经完成认证闭环：后端登录、注册、重置密码接口已实现，前端 Login 页面已接入真实后端接口，并能保存 JWT 登录态。
 
-当前后端已完成知识库 CRUD、按当前用户隔离、精选标记 `featured` 和主题色 `themeId` 字段。下一阶段重点是前端知识库页面接入真实接口，替换 mock 数据。
+当前后端已完成知识库 CRUD、按当前用户隔离、精选标记 `featured` 和主题色 `themeId` 字段。Document 阶段已按当前进度标记完成，下一阶段重点是文档检索 MVP：基于 `document_chunks` 做知识库内关键词检索，先不接大模型。
 
 后续如果功能稳定，再按业务能力拆分为 auth、knowledge-base、document、rag、chat 等模块或服务。
 

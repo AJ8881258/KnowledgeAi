@@ -50,6 +50,7 @@ PostgreSQL
 com.knowflow.backend
   auth
   config
+  document
   knowledgebase
   user
 ```
@@ -61,6 +62,7 @@ com.knowflow.backend
 | `auth`          | 注册、登录、JWT 生成、请求和响应 DTO    |
 | `common`        | 统一错误响应                            |
 | `config`        | Spring Security、JWT 等配置             |
+| `document`      | 文档上传、文本解析、切片、文档状态接口  |
 | `knowledgebase` | 知识库 POJO、MyBatis Mapper、Controller |
 | `user`          | 用户 POJO 和 MyBatis Mapper             |
 
@@ -81,6 +83,11 @@ com.knowflow.backend
 - `users`
 - `knowledge_bases`，包含基础字段以及 `featured` 精选标记、`theme_id` 主题色标识。
 
+文档上传第一阶段将启用和升级：
+
+- `documents`：记录上传文件元信息、处理状态、失败原因和创建用户。
+- `document_chunks`：保存文档切片文本。`document_id` 级联到 `documents.id`，删除文档时自动删除切片。
+
 ## 安全配置
 
 当前 Spring Security 已接入，登录成功后会返回 JWT `accessToken`。
@@ -91,7 +98,7 @@ com.knowflow.backend
 - `POST /api/auth/register`
 - `POST /api/auth/reset-password`
 
-其他请求默认需要认证。当前 `/api/knowledge-bases/**` 已接入 JWT 认证，并按 JWT 中的 `userId` 过滤数据。
+其他请求默认需要认证。当前 `/api/knowledge-bases/**` 已接入 JWT 认证，并按 JWT 中的 `userId` 过滤数据。文档接口也必须沿用同一规则：从 `@AuthenticationPrincipal Jwt jwt` 读取 `userId`，再通过 `knowledge_bases.created_by` 或 `documents.created_by` 确认资源属于当前用户。
 
 ## 未来演进
 
@@ -102,5 +109,6 @@ com.knowflow.backend
 1. 单体 Spring Boot 完成核心业务。
 2. 抽出清晰的 auth、knowledge-base、document、rag、chat 模块。
 3. 补齐 `GET /api/auth/me` 和更完整的登录态管理。
-4. 文档上传、解析、chunk、embedding、检索问答跑通。
-5. 如果需要展示微服务能力，再拆为多个 Spring Boot 服务。
+4. 文档上传、解析和 chunk 入库跑通。
+5. embedding、向量检索和 RAG 问答跑通。
+6. 如果需要展示微服务能力，再拆为多个 Spring Boot 服务。

@@ -31,6 +31,12 @@
 		<java.version>21</java.version>
 	</properties>
 	<dependencies>
+		<!-- Apache PDFBox：用于从 PDF 文件中提取文本。第一阶段只做文本型 PDF，不做 OCR。 -->
+		<dependency>
+			<groupId>org.apache.pdfbox</groupId>
+			<artifactId>pdfbox</artifactId>
+			<version>3.0.7</version>
+		</dependency>
 		<!-- MyBatis：用 SQL Mapper 操作数据库表 -->
 		<dependency>
 			<groupId>org.mybatis.spring.boot</groupId>
