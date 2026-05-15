@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -40,15 +41,17 @@ public class DocumentController {
     private static final String STATUS_INDEXED = "INDEXED";
     private static final String STATUS_FAILED = "FAILED";
 
+    // 搜索文档片段
+    private static final int DEFAULT_SEARCH_LIMIT = 5;
+    private static final int MAX_SEARCH_LIMIT = 20;
+
     // rep
     private final KnowledgeBaseRepository knowledgeBaseRepository;
     private final DocumentRepository documentRepository;
     private final DocumentChunkRepository documentChunkRepository;
 
     // 带参构造函数
-    public DocumentController(
-            KnowledgeBaseRepository knowledgeBaseRepository,
-            DocumentRepository documentRepository,
+    public DocumentController(KnowledgeBaseRepository knowledgeBaseRepository, DocumentRepository documentRepository,
             DocumentChunkRepository documentChunkRepository) {
         this.knowledgeBaseRepository = knowledgeBaseRepository;
         this.documentRepository = documentRepository;
@@ -61,8 +64,7 @@ public class DocumentController {
     @ResponseStatus(HttpStatus.CREATED)
     public DocumentResponse uploadDocument(
             // @RequestPart("file") 用来接收 multipart/form-data 里的文件字段。
-            @PathVariable Long knowledgeBaseId,
-            @RequestPart("file") MultipartFile file,
+            @PathVariable Long knowledgeBaseId, @RequestPart("file") MultipartFile file,
             @AuthenticationPrincipal Jwt jwt) {
         // 权限校验：知识库必须属于当前登录用户。
         // 如果不存在或不是自己的，统一返回 404，避免泄露别人的资源是否存在。
@@ -91,8 +93,8 @@ public class DocumentController {
             // 这样用户能在文档列表看到失败原因，也方便你学习状态流转。
 
             if (text.isBlank()) {
-                documentRepository.updateStatusByIdAndCreatedBy(
-                        document.getId(), userId, STATUS_FAILED, "Document is blank");
+                documentRepository.updateStatusByIdAndCreatedBy(document.getId(), userId, STATUS_FAILED,
+                        "Document is blank");
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Document is blank");
             }
             List<String> chunks = splitText(text);
@@ -116,32 +118,48 @@ public class DocumentController {
         } catch (ResponseStatusException exception) {
             throw exception;
         } catch (Exception exception) {
-            documentRepository.updateStatusByIdAndCreatedBy(
-                    document.getId(), userId, STATUS_FAILED, exception.getMessage());
+            documentRepository.updateStatusByIdAndCreatedBy(document.getId(), userId, STATUS_FAILED,
+                    exception.getMessage());
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Process document failed");
         }
     }
 
     // 获取某个知识库下文档列表
     @GetMapping("/knowledge-bases/{knowledgeBaseId}/documents")
-    public List<DocumentResponse> listDocuments(
-            @PathVariable Long knowledgeBaseId,
-            @AuthenticationPrincipal Jwt jwt) {
+    public List<DocumentResponse> listDocuments(@PathVariable Long knowledgeBaseId, @AuthenticationPrincipal Jwt jwt) {
         Long userId = getCurrentUserId(jwt);
         knowledgeBaseRepository.findByIdAndCreatedBy(knowledgeBaseId, userId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "knowledge base not found"));
-        return documentRepository.findAllByKnowledgeBaseIdAndCreatedBy(knowledgeBaseId, userId)
-                .stream()
-                .map(document -> new DocumentResponse(document,
-                        documentChunkRepository.countByDocumentId(document.getId())))
+        return documentRepository.findAllByKnowledgeBaseIdAndCreatedBy(knowledgeBaseId, userId).stream().map(
+                document -> new DocumentResponse(document, documentChunkRepository.countByDocumentId(document.getId())))
                 .toList();
+    }
+
+    // 搜索文档
+    @PostMapping("/knowledge-bases/{knowledgeBaseId}/search")
+    public SearchDocumentResponse searchDocuments(
+            @PathVariable Long knowledgeBaseId,
+            @RequestBody SearchDocumentRequest request,
+            @AuthenticationPrincipal Jwt jwt) {
+        Long userId = getCurrentUserId(jwt);
+
+        // 校验权限：知识库必须属于当前登录用户。
+        knowledgeBaseRepository.findByIdAndCreatedBy(knowledgeBaseId, userId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Knowledge base not found"));
+
+        String query = normalizeSearchQuery(request == null ? null : request.getQuery());
+        Integer limit = normalizeSearchLimit(request == null ? null : request.getLimit());
+
+        // 检索 SQL 必须同时限制知识库 ID 和用户 ID，避免跨用户搜索到其他人的文档片段。
+        List<SearchResultResponse> results = documentChunkRepository.searchIndexedChunks(knowledgeBaseId, userId, query,
+                limit);
+        //
+        return new SearchDocumentResponse(query, results);
     }
 
     // 获取文档详情
     @GetMapping("/documents/{documentId}")
-    public DocumentResponse getDocument(
-            @PathVariable Long documentId,
-            @AuthenticationPrincipal Jwt jwt) {
+    public DocumentResponse getDocument(@PathVariable Long documentId, @AuthenticationPrincipal Jwt jwt) {
         Long userId = getCurrentUserId(jwt);
         Document document = getDocumentOr404(documentId, userId);
         Long chunkCount = documentChunkRepository.countByDocumentId(documentId);
@@ -150,16 +168,12 @@ public class DocumentController {
 
     // 获取文档切片列表
     @GetMapping("/documents/{documentId}/chunks")
-    public List<DocumentChunkResponse> listChunks(
-            @PathVariable Long documentId,
-            @AuthenticationPrincipal Jwt jwt) {
+    public List<DocumentChunkResponse> listChunks(@PathVariable Long documentId, @AuthenticationPrincipal Jwt jwt) {
         Long userId = getCurrentUserId(jwt);
 
         // 确认文档所有人
         getDocumentOr404(documentId, userId);
-        return documentChunkRepository.findAllByDocumentId(documentId)
-                .stream()
-                .map(DocumentChunkResponse::new)
+        return documentChunkRepository.findAllByDocumentId(documentId).stream().map(DocumentChunkResponse::new)
                 .toList();
     }
 
@@ -167,9 +181,7 @@ public class DocumentController {
     // document_chunks.document_id 已设置 ON DELETE CASCADE，所以删除文档会自动删除 chunks。
     @DeleteMapping("/documents/{documentId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void deleteDocument(
-            @PathVariable Long documentId,
-            @AuthenticationPrincipal Jwt jwt) {
+    public void deleteDocument(@PathVariable Long documentId, @AuthenticationPrincipal Jwt jwt) {
 
         Long userId = getCurrentUserId(jwt);
         int rows = documentRepository.deleteByIdAndCreatedBy(documentId, userId);
@@ -194,6 +206,25 @@ public class DocumentController {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Document not found"));
     }
 
+    // 判断搜索查询是否为空
+    private String normalizeSearchQuery(String query) {
+        if (query == null || query.trim().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "query is empty");
+        }
+        return query.trim();
+    }
+
+    // 判断搜索限制是否有效
+    private Integer normalizeSearchLimit(Integer limit) {
+        if (limit == null) {
+            return DEFAULT_SEARCH_LIMIT;
+        }
+        if (limit < 1) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "limit must be >=1");
+        }
+        return Math.min(limit, MAX_SEARCH_LIMIT);
+    }
+
     private void validateFile(MultipartFile file) {
         if (file == null || file.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "File is required");
@@ -207,10 +238,8 @@ public class DocumentController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Filename is required");
         }
         String lowerName = filename.toLowerCase();
-        if (!lowerName.endsWith(".txt") &&
-                !lowerName.endsWith(".pdf") &&
-                !lowerName.endsWith(".md") &&
-                !lowerName.endsWith(".markdown")) {
+        if (!lowerName.endsWith(".txt") && !lowerName.endsWith(".pdf") && !lowerName.endsWith(".md")
+                && !lowerName.endsWith(".markdown")) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "File must be txt, pdf, md/markdown");
         }
     }

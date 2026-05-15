@@ -375,7 +375,7 @@ Authorization: Bearer <accessToken>
 
 ### Document 第一阶段接口契约
 
-> 状态：后端源码待实现。本文档先作为本轮“文档上传 + 文档解析 + 文档切片 + 文档索引状态”的接口契约。
+> 状态：文档上传、文档解析、文档切片和文档索引状态后端已进入阶段 4 完成范围。阶段 5 继续在 `document_chunks` 基础上增加关键词检索能力。
 
 文档状态：
 
@@ -503,6 +503,68 @@ Authorization: Bearer <accessToken>
 - 只能删除当前登录用户自己的文档。
 - 数据库里 `document_chunks.document_id` 需要设置 `ON DELETE CASCADE`，删除文档时自动删除对应 chunks。
 
+#### 知识库内文档关键词检索
+
+> 状态：阶段 5 已实现接口，当前进入前后端联调和真实文档检索验收。
+
+| 项目 | 内容 |
+|---|---|
+| 请求方式 | `POST` |
+| 请求路径 | `/api/knowledge-bases/{knowledgeBaseId}/search` |
+| 是否需要登录 | 是 |
+| 请求体格式 | `application/json` |
+
+请求示例：
+
+```json
+{
+  "query": "JWT 登录流程",
+  "limit": 5
+}
+```
+
+字段规则：
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `query` | string | 是 | 关键词，`trim` 后不能为空 |
+| `limit` | number | 否 | 默认 `5`；小于 `1` 返回 `400`；大于 `20` 时按 `20` 处理 |
+
+成功响应示例：
+
+```json
+{
+  "query": "JWT 登录流程",
+  "results": [
+    {
+      "chunkId": 1,
+      "documentId": 2,
+      "documentName": "note.md",
+      "chunkIndex": 0,
+      "content": "...",
+      "score": 1.0
+    }
+  ]
+}
+```
+
+说明：
+
+- 第一版是 PostgreSQL 普通关键词检索，不是语义检索。
+- 第一版不接大模型、不引入 embedding、不引入 pgvector、不新增搜索引擎。
+- 后端必须先用 `knowledgeBaseId + 当前 JWT userId` 校验知识库归属；知识库不存在或不属于当前用户时统一返回 `404`。
+- SQL 检索时必须同时限制 `knowledge_base_id` 和 `created_by`，避免通过知识库 ID 或文档 ID 搜到其他用户的数据。
+- 只检索 `status = 'INDEXED'` 的文档。
+- `score` 第一版只表示关键词命中分数，例如命中返回 `1.0`，不代表语义相似度。
+
+失败情况：
+
+| 状态码 | 原因 |
+|---|---|
+| `400` | `query` 为空，或 `limit < 1` |
+| `401` | 未登录或 token 无效 |
+| `404` | 知识库不存在，或不属于当前登录用户 |
+
 ### 前端知识库页面对接说明
 
 后端知识库响应字段当前为：
@@ -543,16 +605,6 @@ Authorization: Bearer <accessToken>
 |---|---|---|---|
 | `GET` | `/api/auth/me` | 获取当前登录用户 | 规划中 |
 | `POST` | `/api/auth/logout` | 退出登录 | 规划中 |
-
-### Document
-
-| 请求方式 | 请求路径 | 用途 | 状态 |
-|---|---|---|---|
-| `POST` | `/api/knowledge-bases/{knowledgeBaseId}/documents` | 上传文档 | 规划中 |
-| `GET` | `/api/knowledge-bases/{knowledgeBaseId}/documents` | 获取知识库文档列表 | 规划中 |
-| `GET` | `/api/documents/{id}` | 获取文档详情 | 规划中 |
-| `DELETE` | `/api/documents/{id}` | 删除文档 | 规划中 |
-| `GET` | `/api/documents/{id}/chunks` | 查看文档切片 | 规划中 |
 
 ### Chat / RAG
 

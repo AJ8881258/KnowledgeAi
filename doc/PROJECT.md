@@ -4,15 +4,15 @@
 
 KnowFlow AI 是一个智能知识库问答平台。目标是让用户上传学习资料、项目文档或产品文档后，可以基于自己的资料进行问答。
 
-当前阶段先完成基础全栈闭环：
+当前阶段是阶段 5 收尾完成后、阶段 6 正式开始前。项目已经完成基础全栈闭环，并可以在已入库的文档 chunks 上提供知识库内关键词检索能力。
 
 - 前端页面能调用真实后端接口。
 - 后端能连接 PostgreSQL。
 - 数据库结构由 Flyway 管理。
 - 用户可以注册、登录。
-- 前端可以读取后端知识库数据。
+- 前端可以读取后端知识库和文档数据。
 
-文档上传、文档解析、文档切片是下一阶段后端重点。向量检索和 AI 问答仍放在后续阶段。
+阶段 5 第一版只做 PostgreSQL 普通关键词检索，不接大模型、不引入 embedding、不引入 pgvector。向量检索和 AI 问答仍放在后续阶段。
 
 ## 当前技术栈
 
@@ -53,6 +53,9 @@ KnowFlow AI 是一个智能知识库问答平台。目标是让用户上传学�
 - 知识库列表、详情、创建、修改、删除接口。
 - 知识库接口按 JWT 当前用户隔离数据。
 - 知识库支持 `featured` 精选标记和 `themeId` 主题色字段。
+- 文档上传、文档解析、文档切片和 `INDEXED` / `FAILED` 状态流转。
+- 文档列表、详情、删除和 chunk 查询接口。
+- 知识库内文档关键词检索接口：`POST /api/knowledge-bases/{knowledgeBaseId}/search`。
 - 注册接口。
 - 登录接口，成功后返回 JWT `accessToken`。
 - Spring Security 基础配置。
@@ -68,6 +71,9 @@ KnowFlow AI 是一个智能知识库问答平台。目标是让用户上传学�
 - 已登录用户访问 `/login` 会自动跳转回目标页面。
 - 未登录用户访问主应用页面会跳转 `/login`。
 - Vite 代理用于本地转发 `/api/**` 请求。
+- 知识库详情页已接入阶段 5 “检索测试区”，通过 axios 共享客户端调用 `POST /api/knowledge-bases/{knowledgeBaseId}/search`，展示命中文档名、chunk 序号、分数和片段内容。
+- Documents、KnowledgeBases、Chat、Login、Settings、Dashboard 页面的大文件已拆分，页面组件迁移到 `src/components/*`。
+- 文档相关 UI 位于 `src/components/documents/*`，知识库相关 UI 位于 `src/components/knowledge-bases/*`。
 
 ## 当前架构选择
 
@@ -85,7 +91,7 @@ KnowFlow AI 是一个智能知识库问答平台。目标是让用户上传学�
 
 当前优先级：
 
-1. 前端知识库页面对接真实 CRUD 接口，不再依赖 mock 数据。
-2. 登录态完善：新增 `GET /api/auth/me`，让后端能根据 token 返回当前用户。
-3. 后端文档上传第一阶段：TXT / Markdown / 文本型 PDF 上传、文本读取、简单切片、`INDEXED` / `FAILED` 状态。
-4. 后续再做 embedding、向量检索和 RAG 问答。
+1. 阶段 5 已完成，先处理进入阶段 6 前的小功能。
+2. 小功能完成后，再进入阶段 6：RAG 问答 MVP。
+3. 阶段 6 将复用阶段 5 的检索结果构造 prompt，并加入模型问答、引用来源、会话和消息保存。
+4. 继续保持前端真实接口优先：axios API wrapper、必要时使用 Zustand，不扩展 mock-only 模式。

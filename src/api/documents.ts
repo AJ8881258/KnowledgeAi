@@ -23,6 +23,25 @@ export type DocumentChunkResponse = {
   createdAt: string;
 };
 
+export type SearchDocumentsRequest = {
+  query: string;
+  limit?: number;
+};
+
+export type SearchResultResponse = {
+  chunkId: number;
+  documentId: number;
+  documentName: string;
+  chunkIndex: number;
+  content: string;
+  score: number;
+};
+
+export type SearchDocumentsResponse = {
+  query: string;
+  results: SearchResultResponse[];
+};
+
 export async function getKnowledgeBaseDocuments(
   knowledgeBaseId: number | string,
 ) {
@@ -64,4 +83,16 @@ export async function getDocumentChunks(documentId: number | string) {
 
 export async function deleteDocument(documentId: number | string) {
   await http.delete(`/documents/${documentId}`);
+}
+
+export async function searchKnowledgeBaseDocuments(
+  knowledgeBaseId: number | string,
+  request: SearchDocumentsRequest,
+) {
+  const response = await http.post<SearchDocumentsResponse>(
+    `/knowledge-bases/${knowledgeBaseId}/search`,
+    request,
+  );
+
+  return response.data;
 }

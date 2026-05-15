@@ -71,8 +71,8 @@ Route-to-title mapping is defined in `headerMap` inside `slider-layout.tsx`.
 ### Key Directories
 
 - `src/components/ui/` - shadcn-generated primitives (radix-sera style, cva variants, `data-slot` attributes). Generated with base color "taupe". Export both component and variants (e.g., `Button, buttonVariants`).
-- `src/pages/` - Each page is a large file containing inline types, mock data arrays, helper functions, and sub-components. `KnowledgeBases.tsx` is 2100+ lines.
-- `src/components/` - Shared layout components (`MainHeader`, `slider-layout`, `slider-sidebar`) using kebab-case filenames.
+- `src/pages/` - Route-level page entry files. Keep these focused on route composition and page-level data flow rather than large inline UI implementations.
+- `src/components/` - Shared layout components and extracted page components. Page-specific UI is grouped by feature, for example `src/components/documents/`, `src/components/knowledge-bases/`, `src/components/chat-page/`, `src/components/login/`, `src/components/settings/`, and `src/components/dashboard/`.
 - `src/store/` - Zustand store is a placeholder (`bear` example). Most current state uses `useState` in page components.
 - `src/assets/icon/` - Custom iconfont.cn font alongside Lucide React.
 
@@ -80,7 +80,7 @@ Route-to-title mapping is defined in `headerMap` inside `slider-layout.tsx`.
 
 - **File naming**: `kebab-case.tsx` for UI/shared components, `PascalCase.tsx` for pages.
 - **Exports**: Pages use `export default`; UI components use named exports.
-- **Types**: Defined as `type` aliases (not interfaces), placed at top of page files.
+- **Types**: Defined as `type` aliases (not interfaces). API request/response types should live next to their API wrapper under `src/api/`; component-only types can live near the component that owns them.
 - **Styling**: Tailwind v4 via `@tailwindcss/vite` plugin (not PostCSS). CSS variables use oklch color space. Theme colors defined in `src/index.css`. Use `cn()` from `@/lib/utils` for className merging.
 - **Icons**: Use Lucide React for standard icons. Custom iconfont icons available via the iconfont CSS class names.
 - **Responsive**: `useIsMobile()` hook (768px breakpoint) in `src/hooks/use-mobile.ts`. Fluid typography uses `clamp()`.
@@ -93,6 +93,7 @@ Route-to-title mapping is defined in `headerMap` inside `slider-layout.tsx`.
 - **Zustand**: Use Zustand for state that is reused across components/routes, needs persistence, or represents a feature-level domain model. Keep purely local UI state, such as an open dialog flag or a transient input value, in component `useState`.
 - **Persistence**: Prefer Zustand `persist` or a dedicated helper module over direct component-level `window.localStorage` calls. If legacy code already uses direct storage, avoid expanding that pattern while migrating new behavior.
 - **Implementation checklist**: Before adding state or data fetching, search for an existing API wrapper, store, helper, or page-level pattern. If none exists, create the smallest shared abstraction in the appropriate directory instead of embedding new infrastructure inside a page component.
+- **Page component structure**: Prefer extracting repeated or bulky UI from route pages into `src/components/<feature>/`. Route pages should coordinate data and compose components; feature components should own local presentation details.
 
 ### Backend
 

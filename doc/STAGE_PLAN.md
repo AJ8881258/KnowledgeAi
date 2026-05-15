@@ -22,8 +22,8 @@
 | 阶段 2：认证闭环 | 已完成 | 注册、登录、JWT、重置密码、前端登录接入 |
 | 阶段 3：知识库 CRUD | 已完成 | 后端 CRUD、用户隔离、前端接真实接口、删除 mock 列表 |
 | 阶段 4：文档上传、解析、切片 | 已完成 | Document 阶段按当前进度标记为已完成 |
-| 阶段 5：文档检索 MVP | 下一阶段 | 基于 chunks 做关键词检索，先不接大模型 |
-| 阶段 6：RAG 问答 MVP | 未开始 | 检索完成后再做 |
+| 阶段 5：文档检索 MVP | 已完成 | 后端关键词检索接口、前端检索测试区、文档同步和构建测试已完成 |
+| 阶段 6：RAG 问答 MVP | 下一阶段 | 检索完成后再做；进入前先处理阶段间小功能 |
 | 阶段 7：前端体验完善 | 未开始 | RAG 基础闭环后统一整理 |
 | 阶段 8：项目交付整理 | 未开始 | README、演示账号、架构说明、答辩材料 |
 
@@ -196,7 +196,15 @@
 
 ### 已完成内容
 
-未开始。
+- 后端提供 `POST /api/knowledge-bases/{knowledgeBaseId}/search` 搜索接口。
+- 搜索基于 `document_chunks.content` 做 PostgreSQL 普通关键词匹配。
+- 搜索按 JWT 当前用户隔离知识库、文档和 chunks。
+- 搜索只返回当前用户自己知识库下 `INDEXED` 文档的命中片段。
+- 响应返回 `query`、`results`、命中文档名、chunk 序号、内容和 `score`。
+- 前端新增 `searchKnowledgeBaseDocuments` API wrapper 和检索类型定义。
+- 知识库详情页新增“文档检索测试区”，支持关键词、limit、搜索、清空、loading、空状态和错误状态。
+- 前端大页面按功能拆分到 `src/components/*`，文档和知识库相关 UI 分别迁移到 `src/components/documents/*` 和 `src/components/knowledge-bases/*`。
+- 同步更新 `doc/API.md`、`doc/PROJECT.md` 和 `doc/ROADMAP.md`。
 
 ### 验收标准
 
@@ -215,7 +223,7 @@
 
 ### 下一步
 
-后端优先实现搜索接口，前端再按 `doc/API.md` 接入检索测试区。
+阶段 5 已完成。阶段 6 是 RAG 问答 MVP，但进入阶段 6 前先处理阶段间小功能，不直接开始大模型问答。
 
 默认接口：
 
@@ -250,7 +258,7 @@ POST /api/knowledge-bases/{knowledgeBaseId}/search
 }
 ```
 
-第一版只做 PostgreSQL 普通关键词匹配，不上 embedding、不上 pgvector。检索接口稳定后再进入 RAG Chat。
+第一版只做 PostgreSQL 普通关键词匹配，不上 embedding、不上 pgvector。检索接口稳定后，后续再进入 RAG Chat。
 
 ## 阶段 6：RAG 问答 MVP
 
