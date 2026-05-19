@@ -608,13 +608,245 @@ Authorization: Bearer <accessToken>
 
 ### Chat / RAG
 
+> 状态：阶段 6 基础 RAG 问答接口已进入联调；本轮补齐会话管理能力。第一版做非流式 RAG 问答，流式接口暂不实现。
+
 | 请求方式 | 请求路径 | 用途 | 状态 |
 |---|---|---|---|
-| `POST` | `/api/knowledge-bases/{knowledgeBaseId}/chat/sessions` | 创建会话 | 规划中 |
-| `GET` | `/api/knowledge-bases/{knowledgeBaseId}/chat/sessions` | 获取会话列表 | 规划中 |
-| `GET` | `/api/chat/sessions/{sessionId}/messages` | 获取会话消息 | 规划中 |
-| `POST` | `/api/chat/sessions/{sessionId}/messages` | 发送问题并获取回答 | 规划中 |
-| `POST` | `/api/chat/sessions/{sessionId}/messages/stream` | 流式问答 | 规划中 |
+| `POST` | `/api/knowledge-bases/{knowledgeBaseId}/chat/sessions` | 创建会话 | 阶段 6 已实现 |
+| `GET` | `/api/knowledge-bases/{knowledgeBaseId}/chat/sessions` | 获取会话列表 | 阶段 6 已实现，本轮补充 `pinned` |
+| `PATCH` | `/api/chat/sessions/{sessionId}` | 重命名、置顶或取消置顶会话 | 本轮待实现 |
+| `DELETE` | `/api/chat/sessions/{sessionId}` | 删除会话 | 本轮待实现 |
+| `GET` | `/api/chat/sessions/{sessionId}/messages` | 获取会话消息 | 阶段 6 已实现，本轮修复 SQL 稳定性 |
+| `POST` | `/api/chat/sessions/{sessionId}/messages` | 发送问题并获取回答 | 阶段 6 已实现 |
+| `POST` | `/api/chat/sessions/{sessionId}/messages/stream` | 流式问答 | 后续规划 |
+
+#### 创建会话
+
+```http
+POST /api/knowledge-bases/{knowledgeBaseId}/chat/sessions
+Authorization: Bearer <accessToken>
+Content-Type: application/json
+```
+
+请求示例：
+
+```json
+{
+  "title": "登录流程问答"
+}
+```
+
+成功响应示例：
+
+```json
+{
+  "id": 1,
+  "knowledgeBaseId": 2,
+  "title": "登录流程问答",
+  "pinned": false,
+  "createdAt": "2026-05-16T10:00:00Z",
+  "updatedAt": "2026-05-16T10:00:00Z"
+}
+```
+
+规则：
+
+- `knowledgeBaseId` 必须属于当前登录用户。
+- `title` 为空时后端可以使用默认标题，例如“新会话”。
+
+#### 获取知识库会话列表
+
+```http
+GET /api/knowledge-bases/{knowledgeBaseId}/chat/sessions
+Authorization: Bearer <accessToken>
+```
+
+成功响应示例：
+
+```json
+[
+  {
+    "id": 1,
+    "knowledgeBaseId": 2,
+    "title": "登录流程问答",
+    "pinned": true,
+    "createdAt": "2026-05-16T10:00:00Z",
+    "updatedAt": "2026-05-16T10:05:00Z"
+  }
+]
+```
+
+排序规则：
+
+```text
+pinned desc -> updatedAt desc -> id desc
+```
+
+#### 修改会话
+
+```http
+PATCH /api/chat/sessions/{sessionId}
+Authorization: Bearer <accessToken>
+Content-Type: application/json
+```
+
+请求示例：
+
+```json
+{
+  "title": "新的会话标题",
+  "pinned": true
+}
+```
+
+字段规则：
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `title` | string | 否 | 传入时 trim 后不能为空，建议长度不超过 200 |
+| `pinned` | boolean | 否 | `true` 表示置顶，`false` 表示取消置顶 |
+
+成功响应示例：
+
+```json
+{
+  "id": 1,
+  "knowledgeBaseId": 2,
+  "title": "新的会话标题",
+  "pinned": true,
+  "createdAt": "2026-05-16T10:00:00Z",
+  "updatedAt": "2026-05-16T10:08:00Z"
+}
+```
+
+失败情况：
+
+| 状态码 | 原因 |
+|---|---|
+| `400` | 没有可更新字段，或 `title` 为空/过长 |
+| `401` | 未登录或 token 无效 |
+| `404` | 会话不存在，或不属于当前登录用户 |
+
+#### 删除会话
+
+```http
+DELETE /api/chat/sessions/{sessionId}
+Authorization: Bearer <accessToken>
+```
+
+成功响应：
+
+- 状态码：`204 No Content`
+- 响应体：无
+
+规则：
+
+- `sessionId` 必须属于当前登录用户。
+- 删除会话后，对应 `chat_messages` 和 `chat_message_sources` 通过外键级联删除。
+
+失败情况：
+
+| 状态码 | 原因 |
+|---|---|
+| `401` | 未登录或 token 无效 |
+| `404` | 会话不存在，或不属于当前登录用户 |
+
+#### 获取会话消息
+
+```http
+GET /api/chat/sessions/{sessionId}/messages
+Authorization: Bearer <accessToken>
+```
+
+成功响应示例：
+
+```json
+[
+  {
+    "id": 10,
+    "sessionId": 1,
+    "role": "USER",
+    "content": "JWT 登录流程是什么？",
+    "sources": [],
+    "createdAt": "2026-05-16T10:01:00Z"
+  },
+  {
+    "id": 11,
+    "sessionId": 1,
+    "role": "ASSISTANT",
+    "content": "根据当前知识库资料，JWT 登录流程是...",
+    "sources": [
+      {
+        "documentId": 2,
+        "documentName": "auth.md",
+        "chunkId": 8,
+        "chunkIndex": 0,
+        "content": "登录成功后生成 JWT...",
+        "score": 1.0
+      }
+    ],
+    "createdAt": "2026-05-16T10:01:10Z"
+  }
+]
+```
+
+#### 发送问题并获取回答
+
+```http
+POST /api/chat/sessions/{sessionId}/messages
+Authorization: Bearer <accessToken>
+Content-Type: application/json
+```
+
+请求示例：
+
+```json
+{
+  "content": "JWT 登录流程是什么？",
+  "limit": 5
+}
+```
+
+成功响应示例：
+
+```json
+{
+  "message": {
+    "id": 11,
+    "sessionId": 1,
+    "role": "ASSISTANT",
+    "content": "根据当前知识库资料，JWT 登录流程是...",
+    "sources": [
+      {
+        "documentId": 2,
+        "documentName": "auth.md",
+        "chunkId": 8,
+        "chunkIndex": 0,
+        "content": "登录成功后生成 JWT...",
+        "score": 1.0
+      }
+    ],
+    "createdAt": "2026-05-16T10:01:10Z"
+  }
+}
+```
+
+规则：
+
+- `sessionId` 必须属于当前登录用户。
+- 后端先基于会话所属知识库检索 chunks，再构造 prompt 调用模型。
+- 第一版 `sources` 来自阶段 5 检索结果。
+- `limit` 为空时默认 `5`，大于 `20` 时按 `20` 处理。
+- 模型调用失败时返回明确错误，不返回或泄露密钥。
+
+失败情况：
+
+| 状态码 | 原因 |
+|---|---|
+| `400` | `content` 为空，或 `limit < 1` |
+| `401` | 未登录或 token 无效 |
+| `404` | 会话不存在，或不属于当前登录用户 |
+| `500` | 模型调用或消息保存失败 |
 
 ### Health
 

@@ -20,13 +20,14 @@ No test runner is configured. Adding shadcn components: `pnpm dlx shadcn@latest 
 ## Development And Verification Requirements
 
 - Stage planning source of truth:
-  - During development inside an existing stage, read `doc/ROADMAP.md` first for the current short-term direction.
-  - When entering a new stage, read `doc/STAGE_PLAN.md` first, then update `doc/ROADMAP.md` to reflect the active stage and immediate next work.
-  - Frontend and backend development should both start from `doc/ROADMAP.md` for current priority, then consult `doc/API.md`, `doc/PROJECT.md`, and nearby implementation files as needed.
-  - `doc/STAGE_PLAN.md` is the authoritative long-term stage plan. `doc/ROADMAP.md` is the short operational route for the current stage.
-  - If stage status changes, update `doc/STAGE_PLAN.md`; if next-step priority changes, update `doc/ROADMAP.md`.
-  - Before starting a stage, run a stage kickoff check: read `doc/ROADMAP.md`, confirm the active stage in `doc/STAGE_PLAN.md`, inspect relevant API contracts in `doc/API.md`, check `git status`, and verify the previous stage is committed or intentionally left in progress.
-  - After completing a stage, update all three state documents together: `doc/STAGE_PLAN.md` for phase status, `doc/ROADMAP.md` for immediate next priority, and `doc/PROJECT.md` for current project status.
+  - Keep `doc/` low-noise. The only core project documents are `doc/STAGE_PLAN.md`, `doc/PROJECT.md`, `doc/API.md`, `doc/FRONTEND_TASK.md`, and `doc/BACKEND_TASK.md`.
+  - `doc/STAGE_PLAN.md` is the authoritative stage plan, current stage, next stage, and acceptance criteria.
+  - `doc/PROJECT.md` is the project overview, tech stack, architecture summary, local commands, and current status.
+  - `doc/API.md` is the API contract source of truth.
+  - Before starting a stage, run a stage kickoff check: read `doc/STAGE_PLAN.md`, `doc/PROJECT.md`, `doc/API.md`, the relevant task file, check `git status`, and verify the previous stage is committed or intentionally left in progress.
+  - After completing a stage, update `doc/STAGE_PLAN.md`, `doc/PROJECT.md`, `doc/API.md` when interfaces changed, and the relevant frontend/backend task files.
+  - Frontend and backend implementation tasks use the stable task files `doc/FRONTEND_TASK.md` and `doc/BACKEND_TASK.md`. The documentation/planning session updates these files for the current stage before implementation sessions begin.
+  - Documentation synchronization is handled by the documentation/planning session. Frontend and backend implementation sessions should follow the stable task files and should not independently rewrite stage planning unless the user explicitly asks.
 - Backend development is in progress. When implementing frontend features, prefer real API integration over extending mock-only behavior when a backend endpoint or contract exists.
 - Use axios for frontend-to-backend requests. Follow any existing axios client, API module, interceptor, error handling, and response typing patterns before adding new ones.
 - Before implementing a new feature or changing an existing one, inspect the nearest existing implementation and shared project primitives first. At minimum, check `src/api/`, `src/store/`, related page components, and `doc/API.md` when the change involves server data, authentication, persisted state, or shared UI behavior.
@@ -42,8 +43,10 @@ No test runner is configured. Adding shadcn components: `pnpm dlx shadcn@latest 
 - 用户是初学者，后端开发经常希望自己手动完成。遇到用户意图“后端不要直接修改”、“告诉我，我去做”、“不要编辑文件”时，除了/doc文档下文档文件意外，其他文件必须只给核心步骤、代码片段、文件路径和解释，不要直接修改文件或运行命令。
 - 用户说“收尾”时，默认含义是：检查当前功能是否完成、同步开发文档、同步 `AGENTS.md` 项目规则、更新下一步路线、生成下一轮对话交接提示。不要默认继续开发新功能。
 - 用户说“实施计划”或明确要求实现时，才可以修改文件；但如果同一句或近期上下文出现“不要编辑文件/不要运行命令”，以后者为准。
-- 后端学习阶段不要过度教学；默认只给必要步骤、文件清单、核心代码、关键注释和测试命令。核心代码注释应解释权限校验、状态流转、事务边界、切片/检索等关键逻辑，不要逐个解释基础注解、getter/setter 或 import。
-- 后端功能完成后，文档至少检查并同步：`doc/API.md`、`doc/PROJECT.md`、`doc/DEVELOPMENT.md`、`doc/ROADMAP.md`，必要时同步 `doc/ARCHITECTURE.md` 和 `AGENTS.md`。
+- 后端学习阶段不要过度教学；默认给实现顺序、文件清单、文件相对路径、除导入部分包以外的完整代码、关键注释和测试命令。关键注释应解释权限校验、状态流转、事务边界、切片/检索等关键逻辑，不要逐个解释基础注解、getter/setter 或 import。
+- 后端开发默认由用户在单独后端会话中练习实现。除非用户在该会话明确要求，否则不要直接修改后端业务代码；只提供实现顺序、文件清单、文件相对路径、除导入部分包以外的完整代码、关键注释和测试命令。后端会话必须先阅读 `doc/BACKEND_TASK.md`。
+- 前端开发默认由单独前端会话按 `doc/FRONTEND_TASK.md` 执行。前端 UI 修改应遵守 shadcn/radix-sera、Lucide、现有 Tailwind 风格，并参考 `$ui-ux-pro-max` 的专业 UI 检查项。
+- 后端或前端功能完成后，文档只同步核心文档：`doc/STAGE_PLAN.md`、`doc/PROJECT.md`、`doc/API.md`、`doc/FRONTEND_TASK.md`、`doc/BACKEND_TASK.md`，必要时同步 `AGENTS.md`。
 
 ## Architecture
 
@@ -97,7 +100,7 @@ Route-to-title mapping is defined in `headerMap` inside `slider-layout.tsx`.
 
 ### Backend
 
-Backend development is now active. Project documentation is split under `doc/`; start with `doc/README.md` and use `doc/API.md` as the source of truth for current and planned API contracts.
+Backend development is now active. Project documentation is split under `doc/`; start with `doc/STAGE_PLAN.md`, `doc/PROJECT.md`, and use `doc/API.md` as the source of truth for current and planned API contracts.
 
 Current auth status:
 

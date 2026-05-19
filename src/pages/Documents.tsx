@@ -15,12 +15,32 @@ import type { DocumentItem, PageSize, StatusFilter, TypeTab } from "@/components
 import { getApiErrorMessage, getFileValidationMessage, getPaginationItems, isAllowedFile, mapDocument } from "@/components/documents/document-utils";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { clearMockAuthSession } from "@/lib/mock-auth";
+import { useKnowledgeBaseUsageStore } from "@/store/knowledge-base-usage";
+
+function getKnowledgeBaseUpdatedTime(item: KnowledgeBaseResponse) {
+  const time = new Date(item.updatedAt).getTime();
+
+  return Number.isNaN(time) ? 0 : time;
+}
+
+function getMostRecentlyUpdatedKnowledgeBase(items: KnowledgeBaseResponse[]) {
+  return [...items].sort(
+    (first, second) =>
+      getKnowledgeBaseUpdatedTime(second) - getKnowledgeBaseUpdatedTime(first),
+  )[0];
+}
 
 const Documents = () => {
   const { knowledgeBaseId } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const recentKnowledgeBaseId = useKnowledgeBaseUsageStore(
+    (state) => state.recentKnowledgeBaseId,
+  );
+  const rememberKnowledgeBase = useKnowledgeBaseUsageStore(
+    (state) => state.rememberKnowledgeBase,
+  );
 
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBaseResponse[]>(
     [],
@@ -53,7 +73,7 @@ const Documents = () => {
   );
   const currentKnowledgeBaseLabel = hasKnowledgeBaseId
     ? currentKnowledgeBase?.name ?? `知识库 #${knowledgeBaseId}`
-    : "请选择知识库";
+    : "";
 
   const redirectToLogin = useCallback(() => {
     clearMockAuthSession();
@@ -139,6 +159,42 @@ const Documents = () => {
 
     return () => window.clearTimeout(timeoutId);
   }, [loadDocuments]);
+
+  useEffect(() => {
+    if (!knowledgeBaseId || !currentKnowledgeBase) {
+      return;
+    }
+
+    rememberKnowledgeBase(currentKnowledgeBase.id);
+  }, [currentKnowledgeBase, knowledgeBaseId, rememberKnowledgeBase]);
+
+  useEffect(() => {
+    if (
+      hasKnowledgeBaseId ||
+      isLoadingKnowledgeBases ||
+      knowledgeBaseLoadError ||
+      knowledgeBases.length === 0
+    ) {
+      return;
+    }
+
+    const recentKnowledgeBase = knowledgeBases.find(
+      (item) => String(item.id) === recentKnowledgeBaseId,
+    );
+    const targetKnowledgeBase =
+      recentKnowledgeBase ?? getMostRecentlyUpdatedKnowledgeBase(knowledgeBases);
+
+    if (targetKnowledgeBase) {
+      navigate(`/Documents/${targetKnowledgeBase.id}`, { replace: true });
+    }
+  }, [
+    hasKnowledgeBaseId,
+    isLoadingKnowledgeBases,
+    knowledgeBaseLoadError,
+    knowledgeBases,
+    navigate,
+    recentKnowledgeBaseId,
+  ]);
 
   const resetDocumentView = () => {
     setCurrentPage(1);
@@ -320,8 +376,8 @@ const Documents = () => {
     if (!hasKnowledgeBaseId) {
       return (
         <EmptyPanel
-          title="请先选择一个知识库查看文档"
-          description="当前后端没有全局文档列表接口，文档需要按知识库查询。请选择一个知识库后查看、上传或删除文档。"
+          title="暂无可用知识库"
+          description="当前账号还没有可用于管理文档的知识库。新建知识库后即可上传、查看和删除文档。"
           actionLabel="前往知识库"
           onAction={() => navigate("/KnowledgeBases")}
         />

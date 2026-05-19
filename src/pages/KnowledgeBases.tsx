@@ -11,6 +11,7 @@ import type { KnowledgeBase } from "@/components/knowledge-bases/knowledge-base-
 import { mapKnowledgeBaseResponse } from "@/components/knowledge-bases/knowledge-base-utils";
 import { Button } from "@/components/ui/button";
 import { clearMockAuthSession } from "@/lib/mock-auth";
+import { useKnowledgeBaseUsageStore } from "@/store/knowledge-base-usage";
 
 const KnowledgeBases = () => {
   const { knowledgeBaseId } = useParams();
@@ -20,6 +21,9 @@ const KnowledgeBases = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const rememberKnowledgeBase = useKnowledgeBaseUsageStore(
+    (state) => state.rememberKnowledgeBase,
+  );
 
   const redirectToLogin = useCallback(() => {
     clearMockAuthSession();
@@ -171,6 +175,12 @@ const KnowledgeBases = () => {
   const current = knowledgeBaseId
     ? items.find((item) => item.id === knowledgeBaseId)
     : undefined;
+
+  useEffect(() => {
+    if (current) {
+      rememberKnowledgeBase(current.id);
+    }
+  }, [current, rememberKnowledgeBase]);
 
   if (isLoading) {
     return (

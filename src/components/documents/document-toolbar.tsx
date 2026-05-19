@@ -56,17 +56,13 @@ export function DocumentToolbar({
                 <span className="truncate">
                   {isLoadingKnowledgeBases
                     ? "正在加载知识库..."
-                    : currentKnowledgeBaseLabel}
+                    : currentKnowledgeBaseLabel || "知识库"}
                 </span>
               </span>
               <ChevronDown className="size-4 shrink-0 text-slate-500" />
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="min-w-[230px]">
-            <DropdownMenuItem onClick={() => onNavigate("/Documents")}>
-              <FileText className="size-4 text-slate-500" />
-              选择知识库
-            </DropdownMenuItem>
             {knowledgeBases.map((kb) => (
               <DropdownMenuItem
                 key={kb.id}

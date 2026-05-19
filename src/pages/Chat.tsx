@@ -1,442 +1,200 @@
-import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams } from "react-router";
-import { ArrowDown, ArrowRight, ArrowUp, CheckCircle2, Maximize2, MessageSquarePlus, Minimize2, MoreHorizontal, SearchCheck, Star, Trash2 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { isAxiosError } from "axios";
+import { useLocation, useNavigate, useParams } from "react-router";
+import { Loader2, MessageCircle, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 
-import { ChatComposer, type ChatComposerPayload } from "@/components/chat/ChatComposer";
-import { citations, initialConversations, sources, statusMetrics } from "@/components/chat-page/chat-data";
-import { ConversationRow, EmptyConversation, MessageBubble, SourceCard } from "@/components/chat-page/chat-components";
-import type { ConversationMessage, SortDirection } from "@/components/chat-page/chat-types";
-import { createEmptyConversation, createLocalId, getLatestConversation, getNowTime } from "@/components/chat-page/chat-utils";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { getKnowledgeBases } from "@/api/knowledge-bases";
+import { RagChatWorkspace } from "@/components/chat-page/rag-chat-workspace";
+import type { KnowledgeBase } from "@/components/knowledge-bases/knowledge-base-types";
+import { mapKnowledgeBaseResponse } from "@/components/knowledge-bases/knowledge-base-utils";
 import { Button } from "@/components/ui/button";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { cn } from "@/lib/utils";
+import { clearMockAuthSession } from "@/lib/mock-auth";
+import { useKnowledgeBaseUsageStore } from "@/store/knowledge-base-usage";
 
 const Chat = () => {
   const { conversationId } = useParams();
   const navigate = useNavigate();
-  const [conversations, setConversations] = useState(initialConversations);
-  const [conversationMenuOpen, setConversationMenuOpen] = useState(false);
-  const [deleteOpen, setDeleteOpen] = useState(false);
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [sourceSortDirection, setSourceSortDirection] =
-    useState<SortDirection>("desc");
-  const sortedConversations = useMemo(
-    () =>
-      [...conversations].sort(
-        (first, second) =>
-          new Date(second.updatedAt).getTime() -
-          new Date(first.updatedAt).getTime(),
-      ),
-    [conversations],
+  const location = useLocation();
+  const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([]);
+  const [selectedKnowledgeBaseId, setSelectedKnowledgeBaseId] = useState("");
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const locationPathnameRef = useRef(location.pathname);
+  const navigateRef = useRef(navigate);
+  const recentKnowledgeBaseIdRef = useRef<string | null>(null);
+  const recentKnowledgeBaseId = useKnowledgeBaseUsageStore(
+    (state) => state.recentKnowledgeBaseId,
   );
-  const currentConversation =
-    conversations.find((item) => item.id === conversationId) ??
-    sortedConversations[0];
-  const sortedSources = useMemo(
-    () =>
-      [...sources].sort((first, second) => {
-        const firstScore = Number(first.score);
-        const secondScore = Number(second.score);
-
-        return sourceSortDirection === "desc"
-          ? secondScore - firstScore
-          : firstScore - secondScore;
-      }),
-    [sourceSortDirection],
+  const rememberKnowledgeBase = useKnowledgeBaseUsageStore(
+    (state) => state.rememberKnowledgeBase,
   );
 
   useEffect(() => {
-    if (conversationId || conversations.length === 0) {
-      return;
-    }
-
-    const latest = getLatestConversation(conversations);
-    navigate(`/Chat/${latest.id}`, { replace: true });
-  }, [conversationId, conversations, navigate]);
+    locationPathnameRef.current = location.pathname;
+  }, [location.pathname]);
 
   useEffect(() => {
-    if (
-      !conversationId ||
-      conversations.length === 0 ||
-      conversations.some((item) => item.id === conversationId)
-    ) {
+    navigateRef.current = navigate;
+  }, [navigate]);
+
+  useEffect(() => {
+    recentKnowledgeBaseIdRef.current = recentKnowledgeBaseId;
+  }, [recentKnowledgeBaseId]);
+
+  const redirectToLogin = useCallback(() => {
+    clearMockAuthSession();
+    navigateRef.current("/login", {
+      replace: true,
+      state: { from: locationPathnameRef.current },
+    });
+  }, []);
+
+  const loadKnowledgeBases = useCallback(async () => {
+    setIsLoading(true);
+    setLoadError("");
+
+    try {
+      const response = await getKnowledgeBases();
+      const nextKnowledgeBases = response.map(mapKnowledgeBaseResponse);
+      const preferredKnowledgeBaseId = recentKnowledgeBaseIdRef.current;
+      const preferredKnowledgeBase =
+        nextKnowledgeBases.find((item) => item.id === preferredKnowledgeBaseId) ??
+        nextKnowledgeBases[0] ??
+        null;
+
+      setKnowledgeBases(nextKnowledgeBases);
+      setSelectedKnowledgeBaseId(preferredKnowledgeBase?.id ?? "");
+    } catch (error) {
+      if (isAxiosError(error) && error.response?.status === 401) {
+        toast.error("登录状态已失效，请重新登录");
+        redirectToLogin();
+        setLoadError("登录状态已失效，请重新登录");
+      } else if (
+        isAxiosError(error) &&
+        (!error.response || error.response.status >= 500)
+      ) {
+        setLoadError("知识库服务异常，请确认后端已启动");
+      } else {
+        setLoadError("知识库加载失败，请稍后重试");
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  }, [redirectToLogin]);
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      void loadKnowledgeBases();
+    }, 0);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [loadKnowledgeBases]);
+
+  const selectedKnowledgeBase = useMemo(
+    () =>
+      knowledgeBases.find((item) => item.id === selectedKnowledgeBaseId) ??
+      knowledgeBases[0],
+    [knowledgeBases, selectedKnowledgeBaseId],
+  );
+
+  const handleKnowledgeBaseChange = useCallback(
+    (knowledgeBaseId: string) => {
+      if (knowledgeBaseId === selectedKnowledgeBaseId) {
+        return;
+      }
+
+      setSelectedKnowledgeBaseId(knowledgeBaseId);
+      rememberKnowledgeBase(knowledgeBaseId);
+
+      if (conversationId) {
+        navigate("/Chat", { replace: true });
+      }
+    },
+    [conversationId, navigate, rememberKnowledgeBase, selectedKnowledgeBaseId],
+  );
+
+  const handleSessionChange = useCallback(
+    (sessionId: string) => {
+      if (conversationId === sessionId) {
+        return;
+      }
+
+      navigate(`/Chat/${sessionId}`, { replace: true });
+    },
+    [conversationId, navigate],
+  );
+
+  const handleSessionCleared = useCallback(() => {
+    if (!conversationId) {
       return;
     }
 
-    const latest = getLatestConversation(conversations);
-    navigate(`/Chat/${latest.id}`, { replace: true });
-  }, [conversationId, conversations, navigate]);
+    navigate("/Chat", { replace: true });
+  }, [conversationId, navigate]);
 
-  const handleCreateConversation = () => {
-    const nextConversation = createEmptyConversation();
-
-    setConversations((currentItems) => [nextConversation, ...currentItems]);
-    navigate(`/Chat/${nextConversation.id}`);
-    toast.success("已新建会话");
-  };
-
-  const handleDeleteConversation = () => {
-    if (!currentConversation) {
-      return;
-    }
-
-    const nextConversations = conversations.filter(
-      (item) => item.id !== currentConversation.id,
+  if (isLoading) {
+    return (
+      <section className="flex min-h-[calc(100svh-5rem)] items-center justify-center bg-slate-50/60 px-5 text-slate-600">
+        <div className="flex items-center gap-3 rounded-[8px] border border-slate-200 bg-white px-5 py-4 text-sm shadow-sm">
+          <Loader2 className="size-4 animate-spin text-sky-500" />
+          正在加载知识库...
+        </div>
+      </section>
     );
+  }
 
-    if (nextConversations.length === 0) {
-      const emptyConversation = createEmptyConversation();
-      setConversations([emptyConversation]);
-      navigate(`/Chat/${emptyConversation.id}`, { replace: true });
-    } else {
-      setConversations(nextConversations);
-      navigate(`/Chat/${getLatestConversation(nextConversations).id}`, {
-        replace: true,
-      });
-    }
-
-    setConversationMenuOpen(false);
-    setDeleteOpen(false);
-    toast.success("已删除会话");
-  };
-
-  const handleToggleFavorite = () => {
-    if (!currentConversation) {
-      return;
-    }
-
-    setConversations((currentItems) =>
-      currentItems.map((item) =>
-        item.id === currentConversation.id
-          ? { ...item, favorite: !item.favorite }
-          : item,
-      ),
+  if (loadError) {
+    return (
+      <section className="flex min-h-[calc(100svh-5rem)] items-center justify-center bg-slate-50/60 px-5 text-slate-900">
+        <div className="w-full max-w-md rounded-[8px] border border-slate-200 bg-white px-6 py-8 text-center shadow-sm">
+          <TriangleAlert className="mx-auto size-8 text-orange-500" />
+          <h2 className="mt-4 text-base font-semibold">问答入口加载失败</h2>
+          <p className="mt-2 text-sm leading-6 text-slate-500">{loadError}</p>
+          <Button
+            type="button"
+            className="mt-5 cursor-pointer rounded-[6px] tracking-normal normal-case"
+            onClick={() => void loadKnowledgeBases()}
+          >
+            重新加载
+          </Button>
+        </div>
+      </section>
     );
-    toast.success(currentConversation.favorite ? "已取消常用" : "已标记常用");
-  };
+  }
 
-  const handleSubmit = (payload: ChatComposerPayload) => {
-    if (!currentConversation) {
-      return;
-    }
-
-    const now = new Date();
-    const time = getNowTime();
-    const messageTitle =
-      payload.message || payload.attachments.map((item) => item.name).join("、");
-    const userMessage: ConversationMessage = {
-      id: createLocalId("user-message"),
-      role: "user",
-      time,
-      content: messageTitle,
-    };
-    const assistantMessage: ConversationMessage = {
-      id: createLocalId("assistant-message"),
-      role: "assistant",
-      time,
-      content: `已收到你的问题。当前选择模型为 ${payload.modelId}，${
-        payload.ragEnabled ? "RAG 已启用" : "RAG 已关闭"
-      }。这里先展示本地 mock 回答，后续接入接口后可替换为真实流式生成内容。`,
-      citations: payload.ragEnabled ? citations.slice(0, 2) : [],
-    };
-
-    setConversations((currentItems) =>
-      currentItems.map((item) =>
-        item.id === currentConversation.id
-          ? {
-              ...item,
-              title:
-                item.messages.length === 0
-                  ? messageTitle.slice(0, 24) || item.title
-                  : item.title,
-              time,
-              updatedAt: now.toISOString(),
-              sourceCount: payload.ragEnabled ? Math.max(item.sourceCount, 2) : 0,
-              messages: [...item.messages, userMessage, assistantMessage],
-            }
-          : item,
-      ),
+  if (!selectedKnowledgeBase) {
+    return (
+      <section className="flex min-h-[calc(100svh-5rem)] items-center justify-center bg-slate-50/60 px-5 text-slate-900">
+        <div className="w-full max-w-md rounded-[8px] border border-dashed border-slate-300 bg-white px-6 py-8 text-center shadow-sm">
+          <MessageCircle className="mx-auto size-9 text-slate-400" />
+          <h2 className="mt-4 text-base font-semibold">暂无可问答的知识库</h2>
+          <p className="mt-2 text-sm leading-6 text-slate-500">
+            请先创建知识库并上传文档，再回到这里发起 RAG 问答。
+          </p>
+          <Button
+            type="button"
+            className="mt-5 cursor-pointer rounded-[6px] tracking-normal normal-case"
+            onClick={() => navigate("/KnowledgeBases")}
+          >
+            去创建知识库
+          </Button>
+        </div>
+      </section>
     );
-    toast.success("消息已添加到本地对话");
-  };
-
-  const currentMessages = currentConversation?.messages ?? [];
-  const sortIcon =
-    sourceSortDirection === "desc" ? (
-      <ArrowDown data-icon="inline-end" />
-    ) : (
-      <ArrowUp data-icon="inline-end" />
-    );
+  }
 
   return (
-    <section className="h-[calc(100svh-5rem)] min-h-[720px] overflow-hidden bg-white text-slate-900">
-      <div
-        className={cn(
-          "grid h-full min-h-0 grid-cols-1 overflow-hidden border border-slate-200 bg-white shadow-sm",
-          isFullscreen
-            ? "xl:grid-cols-[minmax(520px,1fr)]"
-            : "xl:grid-cols-[280px_minmax(520px,1fr)_360px]",
-        )}
-      >
-        {!isFullscreen && (
-          <aside
-            aria-label="最近会话"
-            className="flex min-h-0 flex-col border-b border-slate-200 bg-white xl:border-r xl:border-b-0"
-          >
-            <div className="shrink-0 px-4 py-4">
-              <Button
-                type="button"
-                className="h-10 w-full rounded-[6px] bg-blue-600 text-sm font-medium tracking-normal text-white normal-case shadow-sm hover:bg-blue-700"
-                onClick={handleCreateConversation}
-              >
-                <MessageSquarePlus data-icon="inline-start" />
-                新建会话
-              </Button>
-            </div>
-
-            <div className="flex min-h-0 flex-1 flex-col px-3 pb-4">
-              <div className="mb-2 px-1 text-xs font-medium text-slate-500">
-                最近会话
-              </div>
-              <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-auto pr-1">
-                {sortedConversations.map((item) => (
-                  <ConversationRow
-                    key={item.id}
-                    item={item}
-                    active={item.id === currentConversation?.id}
-                    onOpen={(id) => navigate(`/Chat/${id}`)}
-                  />
-                ))}
-              </div>
-              <button
-                type="button"
-                className="mt-3 flex h-9 items-center gap-2 px-1 text-left text-xs font-medium text-slate-500 hover:text-blue-600"
-              >
-                查看全部会话
-                <ArrowRight className="size-3.5" />
-              </button>
-            </div>
-          </aside>
-        )}
-
-        <main
-          aria-label="聊天问答"
-          className="flex min-h-0 flex-col border-b border-slate-200 bg-white xl:border-b-0"
-        >
-          <header className="flex min-h-16 shrink-0 flex-col gap-3 border-b border-slate-200 px-4 py-3 2xl:flex-row 2xl:items-center 2xl:justify-between">
-            <div className="flex min-w-0 flex-wrap items-center gap-2">
-              <span className="text-sm text-slate-600">知识库：</span>
-              <span className="flex h-8 min-w-0 max-w-[220px] items-center rounded-[5px] px-2 text-sm font-medium text-slate-700">
-                <span className="min-w-0 truncate">Frontend Interview</span>
-              </span>
-              <span className="rounded-[5px] border border-slate-200 bg-white px-2 py-1 text-xs text-slate-500">
-                12 个文档
-              </span>
-              <span className="rounded-[5px] border border-slate-200 bg-white px-2 py-1 text-xs text-slate-500">
-                168 个 chunks
-              </span>
-              <span className="inline-flex items-center gap-1 rounded-[5px] border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700">
-                <span className="size-1.5 rounded-full bg-emerald-500" />
-                RAG 已启用
-              </span>
-            </div>
-            <div className="flex shrink-0 items-center gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="icon-xs"
-                aria-label={isFullscreen ? "退出全屏" : "进入全屏"}
-                className="rounded-[5px] border-slate-200 text-slate-600"
-                onClick={() => setIsFullscreen((currentValue) => !currentValue)}
-              >
-                {isFullscreen ? <Minimize2 /> : <Maximize2 />}
-              </Button>
-              <DropdownMenu
-                open={conversationMenuOpen}
-                onOpenChange={setConversationMenuOpen}
-              >
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon-xs"
-                    aria-label="更多操作"
-                    className="rounded-[5px] border-slate-200 text-slate-600"
-                  >
-                    <MoreHorizontal />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-44 rounded-[8px]">
-                  <DropdownMenuGroup>
-                    <DropdownMenuItem onSelect={handleToggleFavorite}>
-                      <Star />
-                      {currentConversation?.favorite
-                        ? "取消常用"
-                        : "标记常用"}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      variant="destructive"
-                      onSelect={() => {
-                        setConversationMenuOpen(false);
-                        setDeleteOpen(true);
-                      }}
-                    >
-                      <Trash2 />
-                      删除会话
-                    </DropdownMenuItem>
-                  </DropdownMenuGroup>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          </header>
-
-          <div className="min-h-0 flex-1 overflow-auto bg-white px-4 py-5 lg:px-8">
-            <div className="mx-auto flex max-w-[760px] flex-col gap-5">
-              {currentMessages.length > 0 ? (
-                currentMessages.map((message) => (
-                  <MessageBubble key={message.id} message={message} />
-                ))
-              ) : (
-                <EmptyConversation />
-              )}
-
-              {currentMessages.length > 0 && (
-                <div className="ml-0 rounded-[8px] border border-emerald-200 bg-emerald-50/50 px-4 py-3 text-xs text-slate-600 sm:ml-14">
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                    <span className="inline-flex min-w-0 items-center gap-2">
-                      <CheckCircle2 className="size-4 shrink-0 text-emerald-600" />
-                      <span className="min-w-0 truncate">
-                        检索到 6 个相关片段 · 已引用{" "}
-                        {currentConversation?.sourceCount ?? 0} 个来源
-                      </span>
-                    </span>
-                    <span className="shrink-0 text-slate-500">耗时 1.23s</span>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-
-          <footer className="shrink-0 border-t border-slate-100 px-4 py-4 lg:px-6">
-            <ChatComposer
-              placeholder="继续追问这个知识库..."
-              onSubmit={handleSubmit}
-            />
-          </footer>
-        </main>
-
-        {!isFullscreen && (
-          <aside
-            aria-label="引用来源"
-            className="flex min-h-0 flex-col bg-white xl:border-l xl:border-slate-200"
-          >
-            <header className="flex min-h-14 shrink-0 items-center justify-between gap-3 border-b border-slate-100 px-5">
-              <div className="flex min-w-0 items-center gap-2">
-                <h2 className="truncate text-base font-semibold text-slate-900">
-                  引用来源
-                </h2>
-                <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs text-slate-500">
-                  {sortedSources.length}
-                </span>
-              </div>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-8 shrink-0 rounded-[5px] border-slate-200 px-3 text-xs font-medium tracking-normal text-slate-500 normal-case"
-                onClick={() =>
-                  setSourceSortDirection((currentValue) =>
-                    currentValue === "desc" ? "asc" : "desc",
-                  )
-                }
-              >
-                {sourceSortDirection === "desc" ? "相似度降序" : "相似度升序"}
-                {sortIcon}
-              </Button>
-            </header>
-
-            <div className="min-h-0 flex-1 overflow-auto px-4 py-4">
-              <div className="flex flex-col gap-3">
-                {sortedSources.map((source, index) => (
-                  <SourceCard
-                    key={source.id}
-                    source={source}
-                    rank={index + 1}
-                  />
-                ))}
-              </div>
-
-              <section className="mt-4 rounded-[8px] border border-slate-200 bg-white p-4 text-xs leading-6 text-slate-600 shadow-sm">
-                <h3 className="mb-2 text-sm font-semibold text-slate-900">
-                  选中来源详情
-                </h3>
-                <div className="font-medium text-slate-800">
-                  javascript-event-loop.pdf
-                  <span className="ml-2 font-normal text-slate-500">
-                    Chunk #03
-                  </span>
-                </div>
-                <p className="mt-2">
-                  事件循环的运行流程：先执行同步代码，遇到异步任务后将回调放入相应队列；当前宏任务执行完毕后清空微任务队列，再执行下一个宏任务。
-                </p>
-                <p className="mt-2 text-slate-500">
-                  这种机制保证了 JavaScript 的高效执行和良好的用户体验。
-                </p>
-                <div className="mt-2 text-slate-400">
-                  第 2 页 · 字符 256 - 512
-                </div>
-              </section>
-
-              <section className="mt-4 rounded-[8px] border border-slate-200 bg-white p-4 shadow-sm">
-                <div className="mb-3 flex items-center justify-between gap-3">
-                  <h3 className="text-sm font-semibold text-slate-900">
-                    检索调试
-                  </h3>
-                  <SearchCheck className="size-4 text-slate-400" />
-                </div>
-                <div className="flex flex-col gap-2">
-                  {statusMetrics.map((metric) => (
-                    <div
-                      key={metric.label}
-                      className="grid grid-cols-[88px_minmax(0,1fr)] gap-2 text-xs"
-                    >
-                      <span className="text-slate-500">{metric.label}：</span>
-                      <span className="min-w-0 truncate text-slate-700">
-                        {metric.value}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </section>
-            </div>
-          </aside>
-        )}
-      </div>
-
-      <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
-        <AlertDialogContent className="rounded-[8px]">
-          <AlertDialogHeader>
-            <AlertDialogTitle>删除会话</AlertDialogTitle>
-            <AlertDialogDescription>
-              确认删除“{currentConversation?.title ?? "当前会话"}”吗？当前只会从本地
-              mock 列表移除，刷新页面后会恢复初始数据。
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel className="rounded-[6px] tracking-normal normal-case">
-              取消
-            </AlertDialogCancel>
-            <AlertDialogAction
-              className="rounded-[6px] bg-red-600 tracking-normal text-white normal-case hover:bg-red-700"
-              onClick={handleDeleteConversation}
-            >
-              删除
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+    <section className="h-[calc(100svh-5rem)] min-h-[720px] overflow-hidden border border-slate-200 bg-white shadow-sm">
+      <RagChatWorkspace
+        knowledgeBase={selectedKnowledgeBase}
+        knowledgeBases={knowledgeBases}
+        onKnowledgeBaseChange={handleKnowledgeBaseChange}
+        initialSessionId={conversationId}
+        onSessionChange={handleSessionChange}
+        onSessionCleared={handleSessionCleared}
+        onUnauthorized={redirectToLogin}
+      />
     </section>
   );
 };

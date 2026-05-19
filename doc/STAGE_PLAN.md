@@ -1,17 +1,17 @@
 # KnowFlow AI 阶段计划书
 
-本文件是 KnowFlow AI 后续开发的权威阶段计划书。以后开发顺序、阶段状态和验收标准以这里为准；`ROADMAP.md` 只保留简版路线。
+本文件是 KnowFlow AI 后续开发的权威阶段总任务书。以后开发顺序、阶段状态和验收标准以这里为准。
 
 ## 使用规则
 
 - 每完成一个阶段，更新本文件的阶段状态和验收结果。
 - 后端接口变化必须同步 `doc/API.md`。
-- 开发命令、测试命令变化必须同步 `doc/DEVELOPMENT.md`。
 - 项目当前状态变化必须同步 `doc/PROJECT.md`。
-- 简版路线变化必须同步 `doc/ROADMAP.md`。
 - 如果改变 Agent 协作规则，再同步 `AGENTS.md`。
-- 后端学习阶段默认由用户自己写后端代码；AI 主要给文件清单、核心代码、必要注释和测试命令。
+- 后端学习阶段默认由用户自己写后端代码；AI 主要给实现顺序、文件清单、文件相对路径、除导入部分包以外的完整代码、关键注释和测试命令。
 - 前端阶段默认由 AI 根据 `doc/API.md` 接入真实接口，遵守 axios、Zustand 和现有 UI 规范。
+- `doc/` 下只保留核心文档：`STAGE_PLAN.md`、`PROJECT.md`、`API.md`、`FRONTEND_TASK.md`、`BACKEND_TASK.md`。
+- 阶段路线、阶段状态和阶段验收写在本文件；项目说明、架构和启动命令写在 `PROJECT.md`；接口写在 `API.md`；前后端执行任务写在对应任务文件。
 
 ## 当前阶段总览
 
@@ -23,7 +23,7 @@
 | 阶段 3：知识库 CRUD | 已完成 | 后端 CRUD、用户隔离、前端接真实接口、删除 mock 列表 |
 | 阶段 4：文档上传、解析、切片 | 已完成 | Document 阶段按当前进度标记为已完成 |
 | 阶段 5：文档检索 MVP | 已完成 | 后端关键词检索接口、前端检索测试区、文档同步和构建测试已完成 |
-| 阶段 6：RAG 问答 MVP | 下一阶段 | 检索完成后再做；进入前先处理阶段间小功能 |
+| 阶段 6：RAG 问答 MVP | 当前阶段 | 基于阶段 5 检索结果做最小可用问答闭环 |
 | 阶段 7：前端体验完善 | 未开始 | RAG 基础闭环后统一整理 |
 | 阶段 8：项目交付整理 | 未开始 | README、演示账号、架构说明、答辩材料 |
 
@@ -50,7 +50,6 @@
 ### 涉及文档
 
 - `doc/PROJECT.md`
-- `doc/ROADMAP.md`
 
 ### 下一步
 
@@ -78,8 +77,6 @@
 ### 涉及文档
 
 - `doc/PROJECT.md`
-- `doc/ARCHITECTURE.md`
-- `doc/DEVELOPMENT.md`
 
 ### 下一步
 
@@ -112,8 +109,6 @@
 
 - `doc/API.md`
 - `doc/PROJECT.md`
-- `doc/DEVELOPMENT.md`
-- `doc/ARCHITECTURE.md`
 
 ### 下一步
 
@@ -145,8 +140,6 @@
 
 - `doc/API.md`
 - `doc/PROJECT.md`
-- `doc/DEVELOPMENT.md`
-- `doc/ROADMAP.md`
 
 ### 下一步
 
@@ -181,8 +174,6 @@
 
 - `doc/API.md`
 - `doc/PROJECT.md`
-- `doc/DEVELOPMENT.md`
-- `doc/ARCHITECTURE.md`
 
 ### 下一步
 
@@ -204,7 +195,6 @@
 - 前端新增 `searchKnowledgeBaseDocuments` API wrapper 和检索类型定义。
 - 知识库详情页新增“文档检索测试区”，支持关键词、limit、搜索、清空、loading、空状态和错误状态。
 - 前端大页面按功能拆分到 `src/components/*`，文档和知识库相关 UI 分别迁移到 `src/components/documents/*` 和 `src/components/knowledge-bases/*`。
-- 同步更新 `doc/API.md`、`doc/PROJECT.md` 和 `doc/ROADMAP.md`。
 
 ### 验收标准
 
@@ -217,9 +207,7 @@
 ### 涉及文档
 
 - `doc/API.md`
-- `doc/DEVELOPMENT.md`
 - `doc/PROJECT.md`
-- `doc/ROADMAP.md`
 
 ### 下一步
 
@@ -268,7 +256,7 @@ POST /api/knowledge-bases/{knowledgeBaseId}/search
 
 ### 已完成内容
 
-未开始。
+阶段 6 基础问答链路已经进入前后端联调：会话、消息、检索、Prompt、模型调用、引用来源和前端 Chat 页面已形成 MVP。当前阶段内先做体验和会话管理收尾，不进入阶段 7。
 
 ### 验收标准
 
@@ -277,17 +265,20 @@ POST /api/knowledge-bases/{knowledgeBaseId}/search
 - 回答基于上传资料生成。
 - 回答能展示引用来源。
 - 会话和消息可以被保存和查询。
+- `/Chat/{sessionId}` 切换对话时只刷新消息区域，不整块刷新外层内容区。
+- 会话支持重命名、删除、置顶和取消置顶。
+- `/KnowledgeBases/{id}` 只保留检索测试区，不再承载 RAG 对话入口。
 
 ### 涉及文档
 
 - `doc/API.md`
 - `doc/PROJECT.md`
-- `doc/DEVELOPMENT.md`
-- `doc/ARCHITECTURE.md`
+- `doc/FRONTEND_TASK.md`
+- `doc/BACKEND_TASK.md`
 
 ### 下一步
 
-阶段 5 完成后再设计模型调用、prompt 结构、引用格式和会话存储。
+后端按 `doc/BACKEND_TASK.md` 补齐会话 PATCH/DELETE、置顶字段和消息查询稳定性；前端按 `doc/FRONTEND_TASK.md` 修复 Chat 切换体验、删除知识库详情页 RAG 对话入口，并接入会话编辑菜单。后续阶段继续复用这两份任务文件，由文档会话实时更新内容。
 
 ## 阶段 7：前端体验完善
 
@@ -309,7 +300,6 @@ POST /api/knowledge-bases/{knowledgeBaseId}/search
 ### 涉及文档
 
 - `doc/PROJECT.md`
-- `doc/ROADMAP.md`
 
 ### 下一步
 
@@ -335,12 +325,8 @@ RAG MVP 完成后再集中处理，不提前为未稳定的接口做大规模 UI
 
 ### 涉及文档
 
-- `README.md`
-- `doc/README.md`
 - `doc/PROJECT.md`
-- `doc/ARCHITECTURE.md`
 - `doc/API.md`
-- `doc/DEVELOPMENT.md`
 
 ### 下一步
 
@@ -366,8 +352,6 @@ RAG MVP 完成后再集中处理，不提前为未稳定的接口做大规模 UI
 
 - 功能是否达到本阶段验收标准。
 - 后端接口是否同步 `doc/API.md`。
-- 本地启动、测试、手工验证命令是否同步 `doc/DEVELOPMENT.md`。
 - 当前项目状态是否同步 `doc/PROJECT.md`。
-- 简版路线是否同步 `doc/ROADMAP.md`。
 - 是否需要更新 `AGENTS.md` 的协作规则。
 - 是否完成 git 提交，并在提交信息里分点写清楚功能变化。

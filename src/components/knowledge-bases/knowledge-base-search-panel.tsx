@@ -1,4 +1,11 @@
-import { type FormEvent, useState } from "react";
+import {
+  type FormEvent,
+  type ReactNode,
+  type Ref,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { isAxiosError } from "axios";
 import { Loader2, RotateCcw, Search, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
@@ -29,6 +36,48 @@ function formatScore(score: number) {
   return score.toFixed(2);
 }
 
+function getHighlightedContent(content: string, keyword: string): ReactNode {
+  const normalizedKeyword = keyword.trim();
+
+  if (!normalizedKeyword) {
+    return content;
+  }
+
+  const lowerContent = content.toLocaleLowerCase();
+  const lowerKeyword = normalizedKeyword.toLocaleLowerCase();
+  const highlightedContent: ReactNode[] = [];
+  let searchFrom = 0;
+  let matchIndex = lowerContent.indexOf(lowerKeyword, searchFrom);
+
+  while (matchIndex >= 0) {
+    if (matchIndex > searchFrom) {
+      highlightedContent.push(content.slice(searchFrom, matchIndex));
+    }
+
+    const matchEnd = matchIndex + normalizedKeyword.length;
+
+    highlightedContent.push(
+      <mark
+        key={`${matchIndex}-${matchEnd}`}
+        className="rounded-[3px] bg-yellow-200 px-0.5 font-semibold text-slate-950"
+      >
+        {content.slice(matchIndex, matchEnd)}
+      </mark>,
+    );
+
+    searchFrom = matchEnd;
+    matchIndex = lowerContent.indexOf(lowerKeyword, searchFrom);
+  }
+
+  if (highlightedContent.length === 0) {
+    return content;
+  }
+
+  highlightedContent.push(content.slice(searchFrom));
+
+  return highlightedContent;
+}
+
 function getSearchErrorMessage(error: unknown) {
   if (isAxiosError(error)) {
     const status = error.response?.status;
@@ -53,9 +102,26 @@ function getSearchErrorMessage(error: unknown) {
   return "检索失败，请稍后重试";
 }
 
-function SearchResultCard({ result }: { result: SearchResultResponse }) {
+function SearchResultCard({
+  result,
+  query,
+  isFocused,
+  resultRef,
+}: {
+  result: SearchResultResponse;
+  query: string;
+  isFocused: boolean;
+  resultRef?: Ref<HTMLElement>;
+}) {
   return (
-    <article className="rounded-[8px] border border-slate-200 bg-white p-4 shadow-sm">
+    <article
+      ref={resultRef}
+      tabIndex={-1}
+      className={cn(
+        "scroll-mt-4 rounded-[8px] border border-slate-200 bg-white p-4 shadow-sm outline-none transition-colors",
+        isFocused && "border-blue-400 bg-blue-50/60 ring-2 ring-blue-100",
+      )}
+    >
       <header className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <div className="truncate text-sm font-semibold text-slate-900">
@@ -74,7 +140,7 @@ function SearchResultCard({ result }: { result: SearchResultResponse }) {
         </span>
       </header>
       <p className="mt-3 max-h-36 overflow-auto whitespace-pre-wrap break-words rounded-[6px] border border-slate-200 bg-slate-50/70 p-3 text-xs leading-6 text-slate-700">
-        {result.content}
+        {getHighlightedContent(result.content, query)}
       </p>
     </article>
   );
@@ -87,9 +153,12 @@ export function KnowledgeBaseSearchPanel({
   knowledgeBaseId: number | string;
   onUnauthorized: () => void;
 }) {
+  const firstResultRef = useRef<HTMLElement | null>(null);
   const [query, setQuery] = useState("");
   const [limit, setLimit] = useState("5");
+  const [searchedQuery, setSearchedQuery] = useState("");
   const [results, setResults] = useState<SearchResultResponse[]>([]);
+  const [focusedChunkId, setFocusedChunkId] = useState<number | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
@@ -115,9 +184,13 @@ export function KnowledgeBaseSearchPanel({
       });
 
       setResults(response.results);
+      setSearchedQuery(response.query || trimmedQuery);
+      setFocusedChunkId(response.results[0]?.chunkId ?? null);
       setHasSearched(true);
     } catch (error) {
       setResults([]);
+      setSearchedQuery(trimmedQuery);
+      setFocusedChunkId(null);
       setHasSearched(true);
 
       if (isAxiosError(error) && error.response?.status === 401) {
@@ -138,10 +211,38 @@ export function KnowledgeBaseSearchPanel({
   const clearSearch = () => {
     setQuery("");
     setLimit("5");
+    setSearchedQuery("");
     setResults([]);
+    setFocusedChunkId(null);
     setHasSearched(false);
     setErrorMessage("");
   };
+
+  useEffect(() => {
+    if (!hasSearched || isSearching || results.length === 0) {
+      return;
+    }
+
+    const frameId = window.requestAnimationFrame(() => {
+      const firstResult = firstResultRef.current;
+
+      if (!firstResult) {
+        return;
+      }
+
+      const firstHighlight = firstResult.querySelector("mark");
+      const scrollTarget = firstHighlight ?? firstResult;
+
+      scrollTarget.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+        inline: "nearest",
+      });
+      firstResult.focus({ preventScroll: true });
+    });
+
+    return () => window.cancelAnimationFrame(frameId);
+  }, [hasSearched, isSearching, results]);
 
   return (
     <section className="mx-auto flex h-full max-w-[860px] flex-col gap-4">
@@ -253,11 +354,17 @@ export function KnowledgeBaseSearchPanel({
                 个片段
               </span>
               <span className={cn(isSearching && "text-blue-600")}>
-                {isSearching ? "正在刷新结果..." : `关键词：${trimmedQuery}`}
+                {isSearching ? "正在刷新结果..." : `关键词：${searchedQuery}`}
               </span>
             </div>
-            {results.map((result) => (
-              <SearchResultCard key={result.chunkId} result={result} />
+            {results.map((result, index) => (
+              <SearchResultCard
+                key={result.chunkId}
+                result={result}
+                query={searchedQuery}
+                isFocused={result.chunkId === focusedChunkId}
+                resultRef={index === 0 ? firstResultRef : undefined}
+              />
             ))}
           </div>
         )}

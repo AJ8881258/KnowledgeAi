@@ -9,11 +9,11 @@ import {
   Check,
   ChevronDown,
   FileText,
+  Loader2,
   Maximize2,
   Minimize2,
   Paperclip,
   Send,
-  Square,
   Upload,
   X,
 } from "lucide-react";
@@ -59,8 +59,14 @@ type ChatModel = {
 
 type ChatComposerProps = {
   placeholder: string;
-  onSubmit: (payload: ChatComposerPayload) => void;
+  onSubmit: (payload: ChatComposerPayload) => void | Promise<void>;
   className?: string;
+  disabled?: boolean;
+  isSubmitting?: boolean;
+  submitLabel?: string;
+  showAttachmentButton?: boolean;
+  showContextControls?: boolean;
+  helperText?: string;
 };
 
 const MAX_CHAT_MESSAGE_LENGTH = 4000;
@@ -114,18 +120,25 @@ export function ChatComposer({
   placeholder,
   onSubmit,
   className,
+  disabled = false,
+  isSubmitting = false,
+  submitLabel = "发送",
+  showAttachmentButton = true,
+  showContextControls = true,
+  helperText = "Shift + Enter 换行，Enter 发送",
 }: ChatComposerProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [chatInput, setChatInput] = useState("");
   const [ragEnabled, setRagEnabled] = useState(true);
   const [modelId, setModelId] = useState(chatModels[0].id);
   const [isInputExpanded, setIsInputExpanded] = useState(false);
-  const [isGenerating, setIsGenerating] = useState(false);
   const [attachmentSheetOpen, setAttachmentSheetOpen] = useState(false);
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   const [attachmentError, setAttachmentError] = useState("");
+  const visibleAttachments = showAttachmentButton ? attachments : [];
   const hasMessageContent =
-    chatInput.trim().length > 0 || attachments.length > 0;
+    chatInput.trim().length > 0 || visibleAttachments.length > 0;
+  const isBusy = disabled || isSubmitting;
   const selectedModel =
     chatModels.find((model) => model.id === modelId) ?? chatModels[0];
   const chatLineCount = Math.max(
@@ -189,27 +202,28 @@ export function ChatComposer({
     addFiles(event.target.files);
   };
 
-  const handleSendMessage = () => {
-    if (!hasMessageContent || isGenerating) {
+  const handleSendMessage = async () => {
+    if (!hasMessageContent || isBusy) {
       return;
     }
 
-    onSubmit({
+    const payload = {
       message: chatInput.trim(),
-      attachments,
+      attachments: visibleAttachments,
       modelId,
-      ragEnabled,
-    });
+      ragEnabled: showContextControls ? ragEnabled : true,
+    };
 
-    setChatInput("");
-    setAttachments([]);
-    setIsInputExpanded(false);
-    setIsGenerating(true);
-  };
-
-  const handleStopGenerating = () => {
-    setIsGenerating(false);
-    toast.success("已停止生成");
+    try {
+      await onSubmit(payload);
+      setChatInput("");
+      if (showAttachmentButton) {
+        setAttachments([]);
+      }
+      setIsInputExpanded(false);
+    } catch {
+      return;
+    }
   };
 
   const handleChatKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -227,7 +241,7 @@ export function ChatComposer({
           className,
         )}
       >
-        {attachments.length > 0 && (
+        {showAttachmentButton && attachments.length > 0 && (
           <div className="mb-3 flex flex-wrap gap-2">
             {attachments.map((attachment) => (
               <span
@@ -255,16 +269,19 @@ export function ChatComposer({
         )}
 
         <div className="flex items-start gap-2">
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            className="mt-1 rounded-[6px] text-slate-500 hover:bg-slate-100 hover:text-slate-700"
-            aria-label="添加附件"
-            onClick={() => setAttachmentSheetOpen(true)}
-          >
-            <Paperclip />
-          </Button>
+          {showAttachmentButton && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              className="mt-1 rounded-[6px] text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+              aria-label="添加附件"
+              onClick={() => setAttachmentSheetOpen(true)}
+              disabled={isBusy}
+            >
+              <Paperclip />
+            </Button>
+          )}
           <Textarea
             value={chatInput}
             maxLength={MAX_CHAT_MESSAGE_LENGTH}
@@ -274,7 +291,7 @@ export function ChatComposer({
             style={{ height: chatInputHeight, maxHeight: "30vh" }}
             placeholder={placeholder}
             aria-label="输入问题"
-            disabled={isGenerating}
+            disabled={isBusy}
           />
           <Button
             type="button"
@@ -283,6 +300,7 @@ export function ChatComposer({
             className="mt-1 rounded-[6px] text-slate-500 hover:bg-slate-100 hover:text-slate-700"
             aria-label={isInputExpanded ? "收起输入框" : "展开输入框"}
             onClick={() => setIsInputExpanded((currentValue) => !currentValue)}
+            disabled={isBusy}
           >
             {isInputExpanded ? <Minimize2 /> : <Maximize2 />}
           </Button>
@@ -290,91 +308,94 @@ export function ChatComposer({
 
         <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-8 rounded-[6px] border-slate-200 px-3 text-xs font-medium tracking-normal normal-case"
-              aria-pressed={ragEnabled}
-              onClick={handleRagToggle}
-            >
-              <span
-                className={cn(
-                  "size-2 rounded-full",
-                  ragEnabled ? "bg-emerald-500" : "bg-slate-300",
-                )}
-              />
-              {ragEnabled ? "RAG 已启用" : "RAG 已关闭"}
-            </Button>
-
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
+            {showContextControls && (
+              <>
                 <Button
                   type="button"
                   variant="outline"
                   size="sm"
                   className="h-8 rounded-[6px] border-slate-200 px-3 text-xs font-medium tracking-normal normal-case"
+                  aria-pressed={ragEnabled}
+                  onClick={handleRagToggle}
+                  disabled={isBusy}
                 >
-                  <Bot data-icon="inline-start" />
-                  {selectedModel.label}
-                  <ChevronDown data-icon="inline-end" />
+                  <span
+                    className={cn(
+                      "size-2 rounded-full",
+                      ragEnabled ? "bg-emerald-500" : "bg-slate-300",
+                    )}
+                  />
+                  {ragEnabled ? "RAG 已启用" : "RAG 已关闭"}
                 </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-48 rounded-[8px]">
-                <DropdownMenuGroup>
-                  {chatModels.map((model) => (
-                    <DropdownMenuItem
-                      key={model.id}
-                      onSelect={() => setModelId(model.id)}
+
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-8 rounded-[6px] border-slate-200 px-3 text-xs font-medium tracking-normal normal-case"
+                      disabled={isBusy}
                     >
-                      <Check
-                        className={cn(
-                          "opacity-0",
-                          model.id === modelId && "opacity-100",
-                        )}
-                      />
-                      {model.label}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuGroup>
-              </DropdownMenuContent>
-            </DropdownMenu>
+                      <Bot data-icon="inline-start" />
+                      {selectedModel.label}
+                      <ChevronDown data-icon="inline-end" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent
+                    align="start"
+                    className="w-48 rounded-[8px]"
+                  >
+                    <DropdownMenuGroup>
+                      {chatModels.map((model) => (
+                        <DropdownMenuItem
+                          key={model.id}
+                          onSelect={() => setModelId(model.id)}
+                        >
+                          <Check
+                            className={cn(
+                              "opacity-0",
+                              model.id === modelId && "opacity-100",
+                            )}
+                          />
+                          {model.label}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuGroup>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </>
+            )}
           </div>
 
           <div className="flex shrink-0 items-center justify-end gap-2">
             <span className="text-xs text-slate-500">
               {chatInput.length}/{MAX_CHAT_MESSAGE_LENGTH}
             </span>
-            {isGenerating && (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-8 rounded-[6px] border-red-100 bg-red-50 px-3 text-xs font-medium tracking-normal text-red-600 normal-case hover:bg-red-100"
-                onClick={handleStopGenerating}
-              >
-                <Square data-icon="inline-start" className="fill-current" />
-                停止生成
-              </Button>
-            )}
             <Button
               type="button"
               size="sm"
               className="h-8 rounded-[6px] bg-blue-600 px-3 text-xs font-medium tracking-normal text-white normal-case hover:bg-blue-700"
               aria-label="发送"
-              disabled={!hasMessageContent || isGenerating}
+              disabled={!hasMessageContent || isBusy}
               onClick={handleSendMessage}
             >
-              发送
-              <Send data-icon="inline-end" />
+              {isSubmitting ? (
+                <Loader2 data-icon="inline-start" className="animate-spin" />
+              ) : null}
+              {submitLabel}
+              {!isSubmitting && <Send data-icon="inline-end" />}
             </Button>
           </div>
         </div>
       </div>
-      <div className="mx-auto mt-2 max-w-[800px] px-1 text-xs text-slate-500">
-        Shift + Enter 换行，Enter 发送
-      </div>
+      {helperText && (
+        <div className="mx-auto mt-2 max-w-[800px] px-1 text-xs text-slate-500">
+          {helperText}
+        </div>
+      )}
 
+      {showAttachmentButton && (
       <Sheet open={attachmentSheetOpen} onOpenChange={setAttachmentSheetOpen}>
         <SheetContent side="right" className="w-full sm:max-w-md">
           <SheetHeader>
@@ -456,6 +477,7 @@ export function ChatComposer({
           </SheetFooter>
         </SheetContent>
       </Sheet>
+      )}
     </>
   );
 }

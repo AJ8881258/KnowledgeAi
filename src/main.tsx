@@ -28,8 +28,7 @@ createRoot(document.getElementById("root")!).render(
         />
         <Route path="/Documents" element={<Documents />} />
         <Route path="/Documents/:knowledgeBaseId" element={<Documents />} />
-        <Route path="/Chat" element={<Chat />} />
-        <Route path="/Chat/:conversationId" element={<Chat />} />
+        <Route path="/Chat/:conversationId?" element={<Chat />} />
         <Route path="/Settings" element={<Settings />} />
       </Route>
 

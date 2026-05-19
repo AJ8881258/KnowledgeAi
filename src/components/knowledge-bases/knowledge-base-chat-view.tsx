@@ -296,6 +296,16 @@ export function KnowledgeBaseChatView({
         </aside>
 
         <main className="flex min-h-0 flex-col bg-white">
+          <header className="shrink-0 border-b border-slate-100 px-5 py-4">
+            <div className="flex flex-col gap-1">
+              <h2 className="text-base font-semibold text-slate-900">
+                文档检索测试
+              </h2>
+              <p className="text-xs leading-5 text-slate-500">
+                在当前知识库已索引文档中验证关键词检索结果。正式问答入口请使用 Chat 页面。
+              </p>
+            </div>
+          </header>
           <div className="min-h-0 flex-1 overflow-auto bg-white px-5 py-5">
             <KnowledgeBaseSearchPanel
               knowledgeBaseId={current.id}

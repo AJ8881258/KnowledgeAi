@@ -23,6 +23,11 @@ knowflow:
     # 本地开发用密钥。正式部署时不要把生产密钥直接提交到 Git。
     secret: "dev-only-knowflow-jwt-secret-must-be-at-least-32-characters"
     expires-in-minutes: 120
+  ai:
+    base-url: ${KNOWFLOW_AI_BASE_URL:}
+    api-key: ${KNOWFLOW_AI_API_KEY:}
+    model: ${KNOWFLOW_AI_MODEL:}
+    timeout-seconds: ${KNOWFLOW_AI_TIMEOUT_SECONDS:60}
 
 server:
   port: 8080
