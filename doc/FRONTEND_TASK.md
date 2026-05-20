@@ -1,153 +1,158 @@
-# 前端任务书：Chat 体验与会话管理
+# 前端任务书：阶段 7 前端体验完善
 
 本任务书是前端会话的固定入口。后续每个阶段都复用本文件，由文档会话实时更新当前任务。前端可直接实现代码，但必须遵守 `AGENTS.md`、`doc/STAGE_PLAN.md`、`doc/PROJECT.md`、`doc/API.md` 和本任务书。
 
 ## 当前目标
 
-在阶段 6 RAG 问答基础功能已接入后，先做一轮 Chat 体验和会话管理增强：
+阶段 6：RAG 问答 MVP 已完成。当前进入阶段 7：前端体验完善。
 
-1. 修复 `/Chat/{sessionId}` 切换对话时外层内容区明显刷新的割裂感，只让聊天消息区域进入加载/刷新状态。
-2. `/KnowledgeBases/{id}` 页面删除 RAG 对话入口，只保留文档检索测试区。
-3. 给 Chat 会话增加编辑能力：删除、重命名、置顶/取消置顶。
+阶段 7 的目标不是新增大功能，而是在核心闭环跑通后，把前端整理成更稳定、更一致、更适合演示和继续开发的状态。重点是：
 
-本轮不做流式输出、不做 embedding、不做 pgvector、不做新的 mock-only 主流程。
+1. 统一主要页面的加载、错误、空状态、删除确认、上传状态和操作反馈。
+2. 清理会误导用户的 mock 文案、假数据展示和不再使用的 UI 入口。
+3. 优化 Dashboard、KnowledgeBases、Documents、Chat、Settings 的信息层级、响应式布局和交互一致性。
+4. 确保文档上传、文档检索、RAG 问答、会话管理之间的前端流程连贯。
+5. 保持阶段 6 已完成的 Chat 稳定切换体验，不回退成整块刷新。
+
+本阶段不做 embedding、不做 pgvector、不做流式输出、不做多模型选择、不做营销式重设计、不新增 mock-only 主流程。
+
+## 本轮实施状态
+
+阶段 7 前端主要实现已完成。本轮按项目规则只做代码级验收，没有主动使用浏览器工具做 UI/视觉验收；浏览器和真实交互体验由用户人工验收。
+
+已完成的前端整理：
+
+- Dashboard 改为从真实知识库、文档和会话接口汇总数据，不再展示旧静态统计。
+- KnowledgeBases 和 Chat 会使用现有文档列表接口补齐文档数、chunk 数和可检索来源数，避免继续显示误导性的 `0`。
+- `/KnowledgeBases/{id}` 保持为文档检索测试页，只引导正式问答进入 `/Chat`。
+- Documents 增加移动端卡片列表，减少表格在小屏上的横向挤压。
+- Settings 移除假 API Key、假模型测试、假导出和假删除账号流程，只保留后端配置说明、前端 RAG 偏好草稿和退出登录。
+- 删除不再使用的旧 Chat mock 组件、旧 Dashboard mock 数据和占位 store。
+- 删除、重命名、上传、发送问题等操作继续使用禁用态、确认弹窗和 toast 反馈。
+
+代码级验收结果：
+
+- `pnpm build` 通过。Vite 有 chunk 超过 500KB 的体积警告，不影响构建结果。
+- 阶段 7 前端目标文件 ESLint 通过。
+- 全量 `pnpm lint` 仍有 5 个错误，位置是未改动的 `src/components/ui/{button,combobox,sidebar,tabs}.tsx` 和 `src/hooks/use-mobile.ts`，属于基础组件/Hook 的既有 lint 规则问题，本阶段不处理。
+
+仍需用户人工验收：
+
+- 按验收标准手动检查桌面端和移动端主要路由。
+- 使用真实后端数据确认文档上传、检索、Chat 问答、引用来源和会话切换流程。
+- 如果全量 `pnpm lint` 仍出现 shadcn/ui 或旧 hook 规则问题，按历史问题单独处理。
 
 ## 开发规则
 
+- 先读 `AGENTS.md`、`doc/STAGE_PLAN.md`、`doc/PROJECT.md`、`doc/API.md` 和本文件。
 - 使用 `src/api/http.ts` 的 axios 实例。
-- Chat 相关请求统一放在 `src/api/chat.ts`，请求/响应类型和 API wrapper 放在一起。
+- 新增或调整接口调用时，把请求/响应类型和 API wrapper 放在 `src/api/` 对应文件里。
 - 不使用直接 `fetch`。
 - 不在组件里直接访问 `localStorage`。
 - 需要跨页面共享或持久化的状态才使用 Zustand；纯 UI 状态用组件内 `useState`。
 - UI 使用 shadcn/radix-sera 组件、Lucide 图标和现有 Tailwind 风格。
-- 参考 `$ui-ux-pro-max`：专业 SaaS/知识库工具风格，避免营销式页面、嵌套卡片、文字溢出、过度装饰、hover 布局位移。
+- 如涉及 UI 修改，参考 `$ui-ux-pro-max`：专业 SaaS/知识库工具风格，避免营销式页面、嵌套卡片、文字溢出、过度装饰、hover 布局位移。
+- 页面文件保持轻量，复杂 UI 拆到 `src/components/<feature>/`。
+- 不为了视觉整理改动后端接口契约；如果确实需要新接口，先记录需求并让文档会话同步 `doc/API.md` 后再开发。
+- 除非用户明确要求使用 `@chrome`、`@浏览器`、Playwright、截图或其他浏览器工具做验收，否则不要主动打开浏览器做 UI/视觉验收；默认只跑 `pnpm build`、目标 ESLint、类型检查等代码级验证，并把浏览器验收步骤交给用户。
 
-## API 封装要求
+## 任务 1：全局真实数据与 mock 痕迹清理
 
-在现有 `src/api/chat.ts` 基础上补充类型和函数。
-
-`ChatSessionResponse` 增加：
-
-```ts
-pinned: boolean;
-```
-
-新增请求类型：
-
-```ts
-export type UpdateChatSessionRequest = {
-  title?: string;
-  pinned?: boolean;
-};
-```
-
-新增 API wrapper：
-
-```ts
-export async function updateChatSession(
-  sessionId: number | string,
-  request: UpdateChatSessionRequest,
-)
-
-export async function deleteChatSession(sessionId: number | string)
-```
-
-继续保留已有函数：
-
-- `createKnowledgeBaseChatSession(knowledgeBaseId, request)`
-- `getKnowledgeBaseChatSessions(knowledgeBaseId)`
-- `getChatSessionMessages(sessionId)`
-- `sendChatSessionMessage(sessionId, request)`
-
-## 任务 1：修复 `/Chat/{sessionId}` 切换割裂感
-
-当前问题：选择不同对话时，外层内容区出现明显刷新，体验像整块页面重载。目标是让切换会话时只刷新聊天消息区域。
+目标：让用户看到的内容尽量来自真实接口或明确的空状态，不再被旧原型数据误导。
 
 实现要求：
 
-- 切换会话时不要重新加载知识库列表。
-- 切换会话时不要重新加载整个会话列表，除非用户主动刷新或执行删除/重命名/置顶后需要同步。
-- `RagChatWorkspace` 内部应保留左侧会话列表、页面外壳、输入框和布局尺寸稳定。
-- 只有消息列表区域显示 loading/skeleton。
-- URL 可以继续同步为 `/Chat/{sessionId}`，但 URL 改变不能触发整页重新拉取。
-- 如果当前选中的 `sessionId` 和目标相同，不发请求、不 navigate。
-- 如果 `/Chat/{sessionId}` 中的会话不存在或不属于当前用户，显示明确空/错误状态，并允许用户返回 `/Chat` 或新建会话。
+- 检查 Dashboard、KnowledgeBases、Documents、Chat、Settings 是否仍有会被误认为真实业务数据的 mock 文案或数字。
+- 如果已有真实接口能支撑，就改为真实数据或由真实数据计算。
+- 如果后端暂时没有对应接口，不要硬造假数据；使用清晰的空状态、占位说明或低噪声提示。
+- 保留必要的 UI 示例时，必须明确它是示例，不要混进真实业务列表。
+- 不扩展 `src/lib/mock-auth.ts` 或其他 mock-only 模式。
 
-建议方向：
+重点检查：
 
-- 把“首次从 URL 读取 sessionId”和“用户点击切换 session”分开处理。
-- `initialSessionId` 只用于初始化选中会话，不要让它在每次 URL 变化时触发 `loadSessions()`。
-- `handleOpenSession(sessionId)` 只执行：
-  - 更新当前激活会话。
-  - 加载该会话消息。
-  - 轻量同步 URL。
-- 避免因为 `navigate('/Chat/{id}')` 导致 `RagChatWorkspace` 重新加载 sessions。
+- Dashboard 的统计数字、最近知识库、最近问答。
+- KnowledgeBases 的卡片数量、文档数量、chunk 数、精选状态。
+- Documents 的上传提示、处理状态、空列表。
+- Chat 的空会话、空消息、模型不可用提示。
 
-## 任务 2：知识库详情页只保留检索测试
+## 任务 2：统一加载、错误、空状态和操作反馈
 
-`/KnowledgeBases/{id}` 页面不再放 RAG 对话功能，只保留阶段 5 的检索测试区。
+目标：主要页面的基础状态表现一致，用户知道当前是在加载、没有数据、操作失败，还是需要先完成某个动作。
 
 实现要求：
 
-- 删除知识库详情页里的 RAG 对话 Tab 或 RAG 对话面板。
-- 保留 `KnowledgeBaseSearchPanel`。
-- 保留文档处理状态、已索引文档、可检索 chunks、检索范围说明。
-- 页面文案应聚焦“文档检索测试”，不要暗示这里可以直接聊天。
-- 不删除 `/Chat` 页面。正式问答入口仍放在 `/Chat`。
-- 移除不再使用的 `RagChatWorkspace` import 和相关 props，避免死代码。
+- 统一 loading 表现：页面级加载、区域级加载、按钮提交中状态要区分清楚。
+- 统一 empty state：没有知识库、没有文档、没有检索结果、没有会话时都要有明确下一步。
+- 统一 error state：接口失败、401、404、模型不可用、上传失败要给用户可理解的提示。
+- 删除、重命名、上传、发送问题等操作要有禁用态和 toast 反馈。
+- 破坏性操作必须有确认提示，避免误删知识库、文档、会话。
+- 401 继续沿用现有跳转登录逻辑，不要在各组件里重复造一套认证逻辑。
 
-## 任务 3：会话编辑能力
+## 任务 3：梳理核心用户流程
 
-给 `/Chat` 的会话列表增加操作入口。建议在每个会话项右侧放 `MoreHorizontal` 菜单，使用 shadcn/radix-sera dropdown 或项目已有菜单组件。
+目标：让用户从创建知识库到完成问答的路径更顺。
 
-需要支持：
-
-- 重命名：
-  - 打开轻量 dialog 或 inline edit。
-  - 输入为空时不提交。
-  - 成功后更新当前会话列表和标题。
-- 删除：
-  - 必须有确认提示。
-  - 删除当前激活会话后，自动选中下一个可用会话。
-  - 如果没有剩余会话，进入空会话状态，用户首次提问时自动创建会话。
-  - 删除非当前会话时，不影响当前消息区。
-- 置顶/取消置顶：
-  - 置顶会话显示在列表顶部。
-  - 已置顶会话要有低噪声标识，例如 Pin 图标或“置顶”标签。
-  - 取消置顶后按更新时间回到普通排序。
-
-排序规则：
+推荐流程：
 
 ```text
-pinned desc -> updatedAt desc -> id desc
+创建知识库
+  -> 上传文档
+  -> 等待文档 INDEXED
+  -> 在知识库详情页做文档检索测试
+  -> 进入 /Chat 创建或选择会话
+  -> 提问并查看回答和引用来源
 ```
 
-状态要求：
+实现要求：
 
-- 操作中按钮 disabled，避免重复提交。
-- 失败时保留原状态并 toast 提示。
-- 401 继续沿用现有跳转登录逻辑。
-- 404 表示会话不存在或无权限，前端应从列表移除该会话并提示。
+- KnowledgeBases 详情页继续只保留“文档检索测试区”，不要重新加入 RAG 对话面板。
+- Chat 是正式问答入口，页面文案和入口要指向 Chat，而不是让用户以为知识库详情页也能聊天。
+- 文档未索引、无可检索 chunk、检索无结果时，给出清晰状态。
+- Chat 无会话时，支持自然创建会话或引导用户先选择知识库。
+- 会话删除、置顶、重命名后，列表和消息区状态必须稳定。
 
-## UI 质量要求
+## 任务 4：响应式布局与视觉一致性
 
-- 不做 landing page。
-- 不做营销式大 hero。
-- 不把聊天主界面做成多层嵌套卡片。
-- 聊天内容、引用来源、菜单、按钮文字在移动端和桌面端都不能溢出。
-- 会话列表项高度稳定，hover、active、置顶、菜单打开时不能造成布局跳动。
-- 点击区域要有 `cursor-pointer` 和稳定 hover 状态。
+目标：桌面端和移动端都可用，且视觉风格稳定。
+
+实现要求：
+
+- 检查主要路由：
+  - `/`
+  - `/KnowledgeBases`
+  - `/KnowledgeBases/{id}`
+  - `/Documents`
+  - `/Documents/{id}`
+  - `/Chat`
+  - `/Chat/{sessionId}`
+  - `/Settings`
+- 桌面端重点：信息密度、表格/卡片对齐、列表项高度稳定、右侧面板不挤压主内容。
+- 移动端重点：横向溢出、按钮换行、长文件名、长知识库名、长回答内容、引用来源展示。
+- 不使用大 hero、营销式布局、装饰性渐变球或多层嵌套卡片。
+- 卡片只用于独立条目、弹窗或确实需要框住的工具区；不要把整个页面区域套成卡片里的卡片。
 - 图标使用 Lucide，不用 emoji 当 UI 图标。
-- 颜色和间距沿用当前项目，不新增突兀主题。
+- 文本不能溢出按钮、卡片、列表项或对话框。
+
+## 任务 5：代码结构与死代码清理
+
+目标：阶段 6 后留下的前端结构要更好维护。
+
+实现要求：
+
+- 页面入口文件只负责路由级数据流和组合，复杂展示拆到 `src/components/<feature>/`。
+- 删除不再使用的 import、组件、props、常量和 mock 数据。
+- 保留已有 API wrapper 和类型，不在组件深处直接拼接口。
+- 检查 `src/api/`、`src/store/`、`src/components/chat-page/`、`src/components/knowledge-bases/`、`src/components/documents/` 是否有重复逻辑可以小范围整理。
+- 不做无关大重构，不改变已经稳定的接口调用行为。
 
 ## 验收标准
 
 - `pnpm build` 通过。
-- 目标文件 ESLint 通过。
-- `/Chat/{sessionId}` 切换会话时，只有消息区域显示加载状态，外层内容区不整块刷新。
-- `/KnowledgeBases/{id}` 只保留检索测试，不再出现 RAG 对话区域。
-- 会话可以重命名、删除、置顶、取消置顶。
-- 删除当前会话后，页面能进入下一个会话或空状态，不报错。
-- 置顶排序在刷新后仍保持。
-- 新增请求都走 `src/api/chat.ts` 的 axios wrapper。
+- 目标文件 ESLint 通过；如果全量 `pnpm lint` 有历史问题，要明确列出不属于本次改动的问题。
+- 主要页面在桌面端和移动端无明显文字溢出、横向滚动、按钮挤压或布局跳动；除非用户指定浏览器验收，否则这一项由用户最终验收，前端会话只提供手动验收步骤。
+- `/KnowledgeBases/{id}` 只保留文档检索测试，不出现 RAG 对话区域。
+- `/Chat/{sessionId}` 切换会话时只刷新消息区域，不整块刷新外层内容区。
+- 知识库、文档、检索、问答、会话管理的加载/错误/空状态清晰一致。
+- 新增请求都走 `src/api/` 的 axios wrapper。
 - 不新增直接 `fetch` 和组件级 `localStorage`。
+- 清理或标注会误导用户的 mock 展示，不新增 mock-only 主流程。

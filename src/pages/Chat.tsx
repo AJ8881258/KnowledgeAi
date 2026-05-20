@@ -4,6 +4,7 @@ import { useLocation, useNavigate, useParams } from "react-router";
 import { Loader2, MessageCircle, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 
+import { getKnowledgeBaseDocuments } from "@/api/documents";
 import { getKnowledgeBases } from "@/api/knowledge-bases";
 import { RagChatWorkspace } from "@/components/chat-page/rag-chat-workspace";
 import type { KnowledgeBase } from "@/components/knowledge-bases/knowledge-base-types";
@@ -11,6 +12,35 @@ import { mapKnowledgeBaseResponse } from "@/components/knowledge-bases/knowledge
 import { Button } from "@/components/ui/button";
 import { clearMockAuthSession } from "@/lib/mock-auth";
 import { useKnowledgeBaseUsageStore } from "@/store/knowledge-base-usage";
+
+async function withDocumentStats(items: KnowledgeBase[]) {
+  return Promise.all(
+    items.map(async (item) => {
+      try {
+        const documents = await getKnowledgeBaseDocuments(item.id);
+        const indexedDocuments = documents.filter(
+          (document) => document.status === "INDEXED",
+        );
+
+        return {
+          ...item,
+          docs: documents.length,
+          chunks: documents.reduce(
+            (total, document) => total + document.chunkCount,
+            0,
+          ),
+          sources: indexedDocuments.length,
+        };
+      } catch (error) {
+        if (isAxiosError(error) && error.response?.status === 404) {
+          return item;
+        }
+
+        throw error;
+      }
+    }),
+  );
+}
 
 const Chat = () => {
   const { conversationId } = useParams();
@@ -56,7 +86,9 @@ const Chat = () => {
 
     try {
       const response = await getKnowledgeBases();
-      const nextKnowledgeBases = response.map(mapKnowledgeBaseResponse);
+      const nextKnowledgeBases = await withDocumentStats(
+        response.map(mapKnowledgeBaseResponse),
+      );
       const preferredKnowledgeBaseId = recentKnowledgeBaseIdRef.current;
       const preferredKnowledgeBase =
         nextKnowledgeBases.find((item) => item.id === preferredKnowledgeBaseId) ??

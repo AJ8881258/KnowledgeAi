@@ -1,4 +1,4 @@
-package com.knowflow.backend.common;
+package com.knowflow.backend.common.dto.response;
 
 public class MessageResponse {
     private final String message;

@@ -14,7 +14,7 @@ import MainHeader from "@/components/MainHeader";
 const headerMap: Record<string, HeaderConfig> = {
   "/": {
     title: "首页",
-    description: "管理资料、索引状态和最近访问等",
+    description: "查看真实数据状态和核心演示流程",
   },
   "/KnowledgeBases": {
     title: "知识库",
@@ -26,7 +26,7 @@ const headerMap: Record<string, HeaderConfig> = {
   },
   "/Chat": {
     title: "聊天",
-    description: "和知识库进行对话",
+    description: "正式知识库问答入口",
   },
   "/Settings": {
     title: "设置",

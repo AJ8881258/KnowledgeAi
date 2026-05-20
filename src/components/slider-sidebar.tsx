@@ -21,17 +21,7 @@ import MyAvatar from "@/assets/mypic.jpg";
 import { Button } from "@/components/ui/button";
 
 // Card
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-// Progress
-import { Progress } from "@/components/ui/progress";
-// Field
-import { Field, FieldLabel } from "@/components/ui/field";
+import { Card, CardContent } from "@/components/ui/card";
 
 const navList = [
   {
@@ -148,34 +138,19 @@ export function AppSidebar() {
       <SidebarFooter className="">
         <Card
           size="sm"
-          className={`rounded-2xl ${state === "expanded" ? "" : "hidden"}`}
+          className={`rounded-[8px] border-slate-200 bg-slate-50 shadow-none ${state === "expanded" ? "" : "hidden"}`}
         >
-          <CardHeader>
-            <CardTitle className="truncate text-[clamp(0.875rem,1.1vw,1.125rem)]">
-              当前套餐
-            </CardTitle>
-            <CardDescription className="truncate text-[clamp(0.75rem,0.8vw,0.875rem)]">
-              到期时间:2026-04-27
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Field className="w-full max-w-sm">
-              <FieldLabel htmlFor="progress-upload">
-                <span className="truncate text-[clamp(0.75rem,1vw,0.875rem)]">
-                  使用情况
-                </span>
-                <span className="ml-auto shrink-0 text-[clamp(0.75rem,0.8vw,0.875rem)]">
-                  66%
-                </span>
-              </FieldLabel>
-              <Progress value={66} id="progress-upload" />
-            </Field>
+          <CardContent className="p-3">
+            <p className="text-xs font-medium text-slate-700">MVP 本地开发</p>
+            <p className="mt-1 text-xs leading-5 text-slate-500">
+              数据来自当前后端接口
+            </p>
           </CardContent>
         </Card>
         <Card
           className={`flex size-9 items-center justify-center rounded-full p-0 ${state === "expanded" ? "hidden" : ""}`}
         >
-          <span className="text-xs font-semibold leading-none">66</span>
+          <span className="text-[10px] font-semibold leading-none">MVP</span>
         </Card>
       </SidebarFooter>
     </Sidebar>

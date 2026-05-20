@@ -9,7 +9,8 @@
   - `POST /api/auth/login`
   - `POST /api/auth/register`
   - `POST /api/auth/reset-password`
-- 知识库接口均需要登录，请求头必须携带：
+  - `GET /api/health`
+- 除放行接口外，业务接口需要登录，请求头必须携带：
 
 ```http
 Authorization: Bearer <accessToken>
@@ -136,6 +137,42 @@ Authorization: Bearer <accessToken>
 | `400` | 新密码为空 |
 | `404` | 用户不存在 |
 | `500` | 密码修改失败 |
+
+### 获取当前用户
+
+| 项目 | 内容 |
+|---|---|
+| 请求方式 | `GET` |
+| 请求路径 | `/api/auth/me` |
+| 是否需要登录 | 是 |
+
+请求示例：
+
+```http
+GET /api/auth/me
+Authorization: Bearer <accessToken>
+```
+
+成功响应示例：
+
+```json
+{
+  "id": 2,
+  "username": "WuLong",
+  "role": "USER"
+}
+```
+
+说明：
+
+- 用于前端刷新页面后，从后端确认当前 token 对应的用户。
+- 如果 token 无效、缺少 token，或 token 中的用户不存在，返回 `401`。
+
+失败情况：
+
+| 状态码 | 原因 |
+|---|---|
+| `401` | 未登录、token 无效，或 token 对应用户不存在 |
 
 ### 获取知识库列表
 
@@ -433,7 +470,7 @@ Authorization: Bearer <accessToken>
 
 | 状态码 | 原因 |
 |---|---|
-| `400` | 未上传文件、文件为空、文件超过 10MB、扩展名不支持、文本内容为空白，或 PDF 无法提取文本 |
+| `400` | 未上传文件、缺少 `file` 表单字段、文件为空、文件超过 10MB、扩展名不支持、文本内容为空白，或 PDF 无法提取文本 |
 | `401` | 未登录或 token 无效 |
 | `404` | 知识库不存在，或不属于当前登录用户 |
 | `500` | 文件读取、解析或切片过程失败 |
@@ -595,6 +632,33 @@ Authorization: Bearer <accessToken>
 
 详情页路由可以继续使用 `/KnowledgeBases/:knowledgeBaseId`，但 `knowledgeBaseId` 应按后端数字 `id` 处理，不再按旧 mock `slug` 查找。
 
+### Health
+
+| 项目 | 内容 |
+|---|---|
+| 请求方式 | `GET` |
+| 请求路径 | `/api/health` |
+| 是否需要登录 | 否 |
+
+请求示例：
+
+```http
+GET /api/health
+```
+
+成功响应示例：
+
+```json
+{
+  "status": "UP"
+}
+```
+
+说明：
+
+- 用于本地开发、联调和演示前快速确认后端服务已启动。
+- 该接口已在 Spring Security 中放行，不需要携带 JWT。
+
 ## 规划中接口
 
 规划中接口单独列出，必须明确标记为“尚未实现”。
@@ -603,20 +667,19 @@ Authorization: Bearer <accessToken>
 
 | 请求方式 | 请求路径 | 用途 | 状态 |
 |---|---|---|---|
-| `GET` | `/api/auth/me` | 获取当前登录用户 | 规划中 |
 | `POST` | `/api/auth/logout` | 退出登录 | 规划中 |
 
 ### Chat / RAG
 
-> 状态：阶段 6 基础 RAG 问答接口已进入联调；本轮补齐会话管理能力。第一版做非流式 RAG 问答，流式接口暂不实现。
+> 状态：阶段 6 RAG 问答 MVP 已完成。第一版做非流式 RAG 问答，支持会话、消息、引用来源、会话重命名、删除、置顶和取消置顶。流式接口暂不实现，保留为后续规划。
 
 | 请求方式 | 请求路径 | 用途 | 状态 |
 |---|---|---|---|
 | `POST` | `/api/knowledge-bases/{knowledgeBaseId}/chat/sessions` | 创建会话 | 阶段 6 已实现 |
-| `GET` | `/api/knowledge-bases/{knowledgeBaseId}/chat/sessions` | 获取会话列表 | 阶段 6 已实现，本轮补充 `pinned` |
-| `PATCH` | `/api/chat/sessions/{sessionId}` | 重命名、置顶或取消置顶会话 | 本轮待实现 |
-| `DELETE` | `/api/chat/sessions/{sessionId}` | 删除会话 | 本轮待实现 |
-| `GET` | `/api/chat/sessions/{sessionId}/messages` | 获取会话消息 | 阶段 6 已实现，本轮修复 SQL 稳定性 |
+| `GET` | `/api/knowledge-bases/{knowledgeBaseId}/chat/sessions` | 获取会话列表 | 阶段 6 已实现，包含 `pinned` |
+| `PATCH` | `/api/chat/sessions/{sessionId}` | 重命名、置顶或取消置顶会话 | 阶段 6 已实现 |
+| `DELETE` | `/api/chat/sessions/{sessionId}` | 删除会话 | 阶段 6 已实现 |
+| `GET` | `/api/chat/sessions/{sessionId}/messages` | 获取会话消息 | 阶段 6 已实现 |
 | `POST` | `/api/chat/sessions/{sessionId}/messages` | 发送问题并获取回答 | 阶段 6 已实现 |
 | `POST` | `/api/chat/sessions/{sessionId}/messages/stream` | 流式问答 | 后续规划 |
 
@@ -847,9 +910,3 @@ Content-Type: application/json
 | `401` | 未登录或 token 无效 |
 | `404` | 会话不存在，或不属于当前登录用户 |
 | `500` | 模型调用或消息保存失败 |
-
-### Health
-
-| 请求方式 | 请求路径 | 用途 | 状态 |
-|---|---|---|---|
-| `GET` | `/api/health` | 后端健康检查 | 规划中 |

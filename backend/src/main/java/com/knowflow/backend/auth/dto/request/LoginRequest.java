@@ -1,4 +1,4 @@
-package com.knowflow.backend.auth;
+package com.knowflow.backend.auth.dto.request;
 
 import lombok.Data;
 

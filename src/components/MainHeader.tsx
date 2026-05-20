@@ -142,7 +142,7 @@ const MainHeader = ({ title, desc }: MainHeaderProps) => {
               确认退出登录？
             </AlertDialogTitle>
             <AlertDialogDescription>
-              确认后会清除本地 mock 登录态，并返回登录页。
+              确认后会清除当前登录状态，并返回登录页。
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

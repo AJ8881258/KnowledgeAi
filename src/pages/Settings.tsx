@@ -1,14 +1,13 @@
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
-import { CircleAlert, Download, Eye, EyeOff, LogOut, Pencil, ShieldAlert, Trash2, Wifi } from "lucide-react";
+import { CircleAlert, LogOut, Pencil } from "lucide-react";
 
 import MyAvatar from "@/assets/mypic.jpg";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { RagControl, ProfileEditDialog, SectionCard, SettingsSelect, StatusPill, TextField } from "@/components/settings/settings-components";
+import { RagControl, ProfileEditDialog, SectionCard, SettingsSelect, TextField } from "@/components/settings/settings-components";
 import { clampNumber, persistRagSettings, ragControlConfig, readStoredRagSettings, type RagNumberKey, type RagSettings } from "@/components/settings/settings-rag";
 import { clearMockAuthSession, getMockUserProfile, updateMockAuthProfile, type MockUserProfile } from "@/lib/mock-auth";
 
@@ -20,16 +19,10 @@ export default function Settings() {
   const [profileDialogOpen, setProfileDialogOpen] = useState(false);
   const [language, setLanguage] = useState("简体中文");
   const [timezone, setTimezone] = useState("Asia/Hong_Kong");
-  const [showApiKey, setShowApiKey] = useState(false);
-  const [connectionState, setConnectionState] = useState<
-    "Connected" | "Testing..." | "Connected just now"
-  >("Connected");
   const [modelSettings, setModelSettings] = useState({
     provider: "OpenAI Compatible",
-    baseUrl: "https://api.openai.com/v1",
-    apiKey: "sk-knowflow-local-secret",
-    chatModel: "deepseek-chat",
-    embeddingModel: "text-embedding-3-small",
+    baseUrl: "由后端环境变量配置",
+    chatModel: "由后端配置决定",
   });
   const [ragSettings, setRagSettings] = useState<RagSettings>(() =>
     readStoredRagSettings(),
@@ -44,14 +37,6 @@ export default function Settings() {
   function logout() {
     clearMockAuthSession();
     navigate("/login", { replace: true });
-  }
-
-  function testConnection() {
-    setConnectionState("Testing...");
-    window.setTimeout(() => {
-      setConnectionState("Connected just now");
-      toast.success("连接测试完成（前端模拟）");
-    }, 500);
   }
 
   function updateRagValue(key: RagNumberKey, value: number) {
@@ -84,16 +69,6 @@ export default function Settings() {
     });
   }
 
-  function confirmExportData() {
-    toast.success("数据导出已模拟完成，未生成真实文件");
-  }
-
-  function confirmDeleteAccount() {
-    clearMockAuthSession({ clearProfile: true });
-    toast.success("账号删除已模拟完成");
-    navigate("/login", { replace: true });
-  }
-
   return (
     <div className="flex w-full flex-col gap-4 p-3 text-slate-900 lg:p-4">
       <section className="flex min-w-0 flex-col gap-4">
@@ -103,7 +78,7 @@ export default function Settings() {
                   账号信息
                 </CardTitle>
                 <CardDescription>
-                  管理个人资料、语言、时区和当前前端演示登录态。
+                  管理当前登录显示资料、语言和时区偏好。
                 </CardDescription>
                 <CardAction className="hidden gap-3 sm:flex">
                   <Button
@@ -197,11 +172,11 @@ export default function Settings() {
                   模型配置
                 </CardTitle>
                 <CardDescription>
-                  当前为前端演示配置，用于展示后续模型接入表单。
+                  模型调用由后端服务配置。这里仅展示当前前端可见的配置说明，不保存真实密钥。
                 </CardDescription>
               </CardHeader>
-              <CardContent className="grid gap-6 xl:grid-cols-[1fr_1fr_auto]">
-                <div className="grid min-w-0 gap-4 md:grid-cols-2 xl:col-span-2">
+              <CardContent className="grid gap-6 xl:grid-cols-[1fr_300px]">
+                <div className="grid min-w-0 gap-4 md:grid-cols-2">
                   <SettingsSelect
                     label="LLM Provider"
                     value={modelSettings.provider}
@@ -218,7 +193,7 @@ export default function Settings() {
                   <SettingsSelect
                     label="Chat Model"
                     value={modelSettings.chatModel}
-                    options={["deepseek-chat", "gpt-4.1-mini", "qwen-plus"]}
+                    options={["由后端配置决定"]}
                     onChange={(chatModel) =>
                       setModelSettings((current) => ({
                         ...current,
@@ -230,80 +205,24 @@ export default function Settings() {
                     id="base-url"
                     label="Base URL"
                     value={modelSettings.baseUrl}
+                    readOnly
                     onChange={(baseUrl) =>
                       setModelSettings((current) => ({ ...current, baseUrl }))
-                    }
-                  />
-                  <SettingsSelect
-                    label="Embedding Model"
-                    value={modelSettings.embeddingModel}
-                    options={[
-                      "text-embedding-3-small",
-                      "text-embedding-3-large",
-                      "bge-m3",
-                    ]}
-                    onChange={(embeddingModel) =>
-                      setModelSettings((current) => ({
-                        ...current,
-                        embeddingModel,
-                      }))
                     }
                   />
                   <TextField
                     id="api-key"
                     label="API Key"
-                    value={
-                      showApiKey
-                        ? modelSettings.apiKey
-                        : "••••••••••••••••••••••••••"
-                    }
+                    value="不在前端展示或保存"
                     type="text"
-                    readOnly={!showApiKey}
-                    onChange={(apiKey) =>
-                      setModelSettings((current) => ({ ...current, apiKey }))
-                    }
-                    action={
-                      <button
-                        type="button"
-                        aria-label={showApiKey ? "隐藏 API Key" : "显示 API Key"}
-                        data-testid="api-key-visibility-toggle"
-                        onClick={() => setShowApiKey((value) => !value)}
-                        className="ml-2 text-slate-500 transition-colors hover:text-slate-900"
-                      >
-                        {showApiKey ? <EyeOff /> : <Eye />}
-                      </button>
-                    }
+                    readOnly
                   />
-                  <div className="flex flex-col gap-2">
-                    <span className="text-sm text-slate-700">连接状态</span>
-                    <div className="flex h-10 items-center">
-                      <StatusPill
-                        status={connectionState}
-                        tone={
-                          connectionState === "Testing..." ? "orange" : "green"
-                        }
-                      />
-                    </div>
-                  </div>
                 </div>
-                <div className="flex flex-col justify-end gap-3">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={testConnection}
-                    data-testid="test-connection-button"
-                    disabled={connectionState === "Testing..."}
-                    className="border-blue-200 text-blue-600 hover:bg-blue-50 hover:text-blue-700"
-                  >
-                    <Wifi data-icon="inline-start" />
-                    测试连接
-                  </Button>
-                </div>
-                <div className="xl:col-span-3">
-                  <div className="flex items-start gap-2 text-sm text-orange-500">
+                <div className="rounded-[8px] border border-orange-200 bg-orange-50/50 p-4">
+                  <div className="flex items-start gap-2 text-sm text-orange-700">
                     <CircleAlert aria-hidden="true" className="mt-0.5" />
                     <span>
-                      当前为前端演示配置，正式后端版本应由服务端环境变量管理 API Key。
+                      当前阶段没有前端模型配置保存接口。模型不可用、超时或密钥错误会在 Chat 发送问题时由后端返回错误提示。
                     </span>
                   </div>
                 </div>
@@ -316,7 +235,7 @@ export default function Settings() {
                   RAG 参数
                 </CardTitle>
                 <CardDescription>
-                  调整检索窗口、上下文重叠和引用展示数量，参数会保存到本地。
+                  本区是前端本地偏好草稿，当前后端 RAG 参数仍以服务端实现为准。
                 </CardDescription>
               </CardHeader>
               <CardContent className="grid gap-6 xl:grid-cols-[1fr_260px]">
@@ -363,72 +282,17 @@ export default function Settings() {
             <SectionCard className="border-red-200 bg-red-50/20">
               <CardHeader>
                 <CardTitle className="font-sans text-base text-red-700 normal-case tracking-normal">
-                  危险操作
+                  账号操作
                 </CardTitle>
                 <CardDescription>
-                  当前仅执行前端本地模拟，不会请求后端或删除真实数据。
+                  当前前端已接入登录态。账号删除和数据导出尚未提供后端接口，因此不在页面中模拟。
                 </CardDescription>
               </CardHeader>
               <CardContent className="flex flex-wrap gap-3">
-                <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                    <Button type="button" variant="outline" size="sm">
-                      <Download data-icon="inline-start" />
-                      导出数据
-                    </Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent className="rounded-[8px]">
-                    <AlertDialogHeader>
-                      <AlertDialogTitle className="font-sans text-lg normal-case tracking-normal">
-                        确认导出数据？
-                      </AlertDialogTitle>
-                      <AlertDialogDescription>
-                        当前仅执行前端本地模拟，不会生成真实文件，也不会请求后端服务。
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>取消</AlertDialogCancel>
-                      <AlertDialogAction
-                        type="button"
-                        onClick={confirmExportData}
-                      >
-                        确认导出
-                      </AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
-
-                <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                    <Button type="button" variant="destructive" size="sm">
-                      <Trash2 data-icon="inline-start" />
-                      删除账号
-                    </Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent className="rounded-[8px]">
-                    <AlertDialogHeader>
-                      <div className="mx-auto mb-2 flex size-12 items-center justify-center rounded-[8px] bg-red-100 text-red-600 sm:mx-0">
-                        <ShieldAlert aria-hidden="true" />
-                      </div>
-                      <AlertDialogTitle className="font-sans text-lg normal-case tracking-normal">
-                        确认删除账号？
-                      </AlertDialogTitle>
-                      <AlertDialogDescription>
-                        当前仅执行前端本地模拟。确认后会清除本地 mock 登录态和账号资料缓存，并返回登录页。
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>取消</AlertDialogCancel>
-                      <AlertDialogAction
-                        type="button"
-                        variant="destructive"
-                        onClick={confirmDeleteAccount}
-                      >
-                        确认删除
-                      </AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
+                <Button type="button" variant="outline" size="sm" onClick={logout}>
+                  <LogOut data-icon="inline-start" />
+                  退出登录
+                </Button>
               </CardContent>
             </SectionCard>
       </section>

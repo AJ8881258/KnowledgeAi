@@ -1,18 +1,26 @@
-package com.knowflow.backend.auth;
+package com.knowflow.backend.auth.controller;
 
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import com.knowflow.backend.auth.dto.request.RegisterRequest;
+import com.knowflow.backend.auth.dto.request.ResetPasswordRequest;
+import com.knowflow.backend.auth.dto.response.LoginResponse;
+import com.knowflow.backend.auth.dto.request.LoginRequest;
+import com.knowflow.backend.auth.dto.response.UserResponse;
+import com.knowflow.backend.auth.service.JwtTokenService;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
-import com.knowflow.backend.common.MessageResponse;
-import com.knowflow.backend.user.User;
-import com.knowflow.backend.user.UserRepository;
+import com.knowflow.backend.common.dto.response.MessageResponse;
+import com.knowflow.backend.user.entity.User;
+import com.knowflow.backend.user.repository.UserRepository;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
 
+/**
+ * 认证控制器
+ */
 @RestController
 @RequestMapping("/api/auth")
 public class AuthController {
@@ -29,12 +37,31 @@ public class AuthController {
         this.jwtTokenService = jwtTokenService;
     }
 
+    /**
+     * @Desc 获取当前用户信息
+     * @param jwt
+     * @return
+     */
+    @GetMapping("/me")
+    public UserResponse me(@AuthenticationPrincipal Jwt jwt) {
+        Long userId = getCurrentId(jwt);
+
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User not found"));
+        return new UserResponse(user.getId(), user.getUsername(), user.getRole());
+    }
+
+
     @PostMapping("/login")
     public LoginResponse login(@RequestBody LoginRequest request) {
-        User user = userRepository.findByUsername(request.getUsername())
+        String username = getRequiredText(request == null ? null : request.getUsername(), "username is required");
+        String password = getRequiredText(request == null ? null : request.getPassword(), "password is required");
+
+
+        User user = userRepository.findByUsername(username)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED,
                         "用户名或密码不正确"));
-        if (!passwordEncoder.matches(request.getPassword(), user.getPasswordHash())) {
+        if (!passwordEncoder.matches(password, user.getPasswordHash())) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "用户名或密码不正确");
         }
 
@@ -85,7 +112,38 @@ public class AuthController {
         if (updateRows != 1) {
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Reset password failed");
         }
-
         return new MessageResponse("密码修改成功");
+    }
+
+
+    /**
+     * 从JWT中获取当前用户ID
+     *
+     * @param jwt
+     * @return
+     */
+    private Long getCurrentId(Jwt jwt) {
+        if (jwt == null) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Must be Login");
+        }
+        Number userId = jwt.getClaim("userId");
+        if (userId == null) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "userId is Null");
+        }
+        return userId.longValue();
+    }
+
+    /**
+     * 获取必填文本
+     *
+     * @param value
+     * @param message
+     * @return
+     */
+    private String getRequiredText(String value, String message) {
+        if (value == null || value.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, message);
+        }
+        return value.trim();
     }
 }

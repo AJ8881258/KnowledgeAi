@@ -1,4 +1,4 @@
-package com.knowflow.backend.auth;
+package com.knowflow.backend.auth.service;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -11,7 +11,7 @@ import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
 import org.springframework.stereotype.Service;
 
 import com.knowflow.backend.config.JwtProperties;
-import com.knowflow.backend.user.User;
+import com.knowflow.backend.user.entity.User;
 
 @Service
 public class JwtTokenService {

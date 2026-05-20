@@ -34,8 +34,8 @@ export type MockUserProfile = {
 };
 
 export const DEFAULT_MOCK_USER_PROFILE: MockUserProfile = {
-  displayName: "Oya",
-  email: "oya@example.com",
+  displayName: "KnowFlow User",
+  email: "",
 };
 
 type AuthPersistedState = {

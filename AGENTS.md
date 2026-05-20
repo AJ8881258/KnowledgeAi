@@ -36,6 +36,7 @@ No test runner is configured. Adding shadcn components: `pnpm dlx shadcn@latest 
 - Treat existing mock data, hardcoded auth, direct `localStorage`, and local-only page state as legacy migration areas unless the task is explicitly to maintain that mock behavior. Do not copy those patterns into new backend-integrated features.
 - Verify changes one by one against real behavior where possible: run the relevant command, inspect the actual route/component/API response, and confirm the specific behavior changed.
 - Because of context window limits, final development acceptance is performed by a human. Agents should provide concise manual verification steps instead of trying to exhaustively re-check the whole application in context.
+- Frontend implementation sessions must not proactively use Chrome, Browser, Playwright, screenshots, or other browser-based visual acceptance tools unless the user explicitly asks for browser acceptance with tools such as `@chrome` or `@浏览器`. Run code-level checks such as `pnpm build`, targeted ESLint, and type checks when relevant; leave browser/UI acceptance to the user by default.
 - Do not read, inspect, or analyze images/screenshots unless the user explicitly asks for image analysis. Prefer code, logs, terminal output, DOM text, network responses, and browser state for verification.
 
 ## User Workflow Preferences
@@ -46,6 +47,7 @@ No test runner is configured. Adding shadcn components: `pnpm dlx shadcn@latest 
 - 后端学习阶段不要过度教学；默认给实现顺序、文件清单、文件相对路径、除导入部分包以外的完整代码、关键注释和测试命令。关键注释应解释权限校验、状态流转、事务边界、切片/检索等关键逻辑，不要逐个解释基础注解、getter/setter 或 import。
 - 后端开发默认由用户在单独后端会话中练习实现。除非用户在该会话明确要求，否则不要直接修改后端业务代码；只提供实现顺序、文件清单、文件相对路径、除导入部分包以外的完整代码、关键注释和测试命令。后端会话必须先阅读 `doc/BACKEND_TASK.md`。
 - 前端开发默认由单独前端会话按 `doc/FRONTEND_TASK.md` 执行。前端 UI 修改应遵守 shadcn/radix-sera、Lucide、现有 Tailwind 风格，并参考 `$ui-ux-pro-max` 的专业 UI 检查项。
+- 除非用户明确要求使用 `@chrome`、`@浏览器`、Playwright、截图或其他浏览器工具做验收，否则前端会话不要主动打开浏览器做 UI/视觉验收；默认只跑 `pnpm build`、目标 ESLint、类型检查等代码级验证，并把浏览器验收步骤交给用户。
 - 后端或前端功能完成后，文档只同步核心文档：`doc/STAGE_PLAN.md`、`doc/PROJECT.md`、`doc/API.md`、`doc/FRONTEND_TASK.md`、`doc/BACKEND_TASK.md`，必要时同步 `AGENTS.md`。
 
 ## Architecture

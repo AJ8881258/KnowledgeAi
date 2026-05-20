@@ -4,14 +4,44 @@ import { useLocation, useNavigate, useParams } from "react-router";
 import { Loader2, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 
+import { getKnowledgeBaseDocuments } from "@/api/documents";
 import { createKnowledgeBase as createKnowledgeBaseApi, deleteKnowledgeBase as deleteKnowledgeBaseApi, getKnowledgeBases, updateKnowledgeBase as updateKnowledgeBaseApi, type CreateKnowledgeBaseRequest, type UpdateKnowledgeBaseRequest } from "@/api/knowledge-bases";
-import { KnowledgeBaseChatView } from "@/components/knowledge-bases/knowledge-base-chat-view";
+import { KnowledgeBaseDetailView } from "@/components/knowledge-bases/knowledge-base-detail-view";
 import { KnowledgeBaseListView } from "@/components/knowledge-bases/knowledge-base-list-view";
 import type { KnowledgeBase } from "@/components/knowledge-bases/knowledge-base-types";
 import { mapKnowledgeBaseResponse } from "@/components/knowledge-bases/knowledge-base-utils";
 import { Button } from "@/components/ui/button";
 import { clearMockAuthSession } from "@/lib/mock-auth";
 import { useKnowledgeBaseUsageStore } from "@/store/knowledge-base-usage";
+
+async function withDocumentStats(items: KnowledgeBase[]) {
+  return Promise.all(
+    items.map(async (item) => {
+      try {
+        const documents = await getKnowledgeBaseDocuments(item.id);
+        const indexedDocuments = documents.filter(
+          (document) => document.status === "INDEXED",
+        );
+
+        return {
+          ...item,
+          docs: documents.length,
+          chunks: documents.reduce(
+            (total, document) => total + document.chunkCount,
+            0,
+          ),
+          sources: indexedDocuments.length,
+        };
+      } catch (error) {
+        if (isAxiosError(error) && error.response?.status === 404) {
+          return item;
+        }
+
+        throw error;
+      }
+    }),
+  );
+}
 
 const KnowledgeBases = () => {
   const { knowledgeBaseId } = useParams();
@@ -77,8 +107,11 @@ const KnowledgeBases = () => {
 
     try {
       const knowledgeBases = await getKnowledgeBases();
+      const nextItems = await withDocumentStats(
+        knowledgeBases.map(mapKnowledgeBaseResponse),
+      );
 
-      setItems(knowledgeBases.map(mapKnowledgeBaseResponse));
+      setItems(nextItems);
     } catch (error) {
       if (isAxiosError(error) && error.response?.status === 401) {
         toast.error("登录状态已失效，请重新登录");
@@ -138,9 +171,18 @@ const KnowledgeBases = () => {
       const nextItem = mapKnowledgeBaseResponse(updatedKnowledgeBase);
 
       setItems((currentItems) =>
-        currentItems.map((currentItem) =>
-          currentItem.id === nextItem.id ? nextItem : currentItem,
-        ),
+        currentItems.map((currentItem) => {
+          if (currentItem.id !== nextItem.id) {
+            return currentItem;
+          }
+
+          return {
+            ...nextItem,
+            docs: currentItem.docs,
+            chunks: currentItem.chunks,
+            sources: currentItem.sources,
+          };
+        }),
       );
       toast.success(`已更新知识库：${nextItem.name}`);
     } catch (error) {
@@ -245,7 +287,7 @@ const KnowledgeBases = () => {
     );
   }
 
-  return <KnowledgeBaseChatView current={current} items={items} />;
+  return <KnowledgeBaseDetailView current={current} items={items} />;
 };
 
 export default KnowledgeBases;

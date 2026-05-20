@@ -206,7 +206,7 @@ export function ProfileEditDialog({
     }
 
     onSave({
-      displayName: displayName || "Oya",
+      displayName: displayName || profile.displayName,
       email,
     });
     onOpenChange(false);
@@ -220,7 +220,7 @@ export function ProfileEditDialog({
             编辑资料
           </DialogTitle>
           <DialogDescription>
-            修改当前前端演示账号的显示名称和邮箱。
+            修改当前账号在前端显示的名称和邮箱。
           </DialogDescription>
         </DialogHeader>
 

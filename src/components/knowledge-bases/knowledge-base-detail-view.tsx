@@ -14,7 +14,7 @@ import { KnowledgeBaseSearchPanel } from "./knowledge-base-search-panel";
 import type { DetailDocument, DetailDocumentTab, KnowledgeBase } from "./knowledge-base-types";
 import { formatCompactDateTime, formatFileSize, getDocumentCountByTab, getFilteredDocuments, mapDetailDocument } from "./knowledge-base-utils";
 
-function RecentSwitcher({
+function KnowledgeBaseSwitcher({
   current,
   items,
 }: {
@@ -23,7 +23,7 @@ function RecentSwitcher({
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const navigate = useNavigate();
-  const recentItems = items.filter((item) => item.recent).slice(0, 3);
+  const availableItems = items.slice(0, 8);
 
   return (
     <div className="relative z-20 min-w-0 flex-1">
@@ -38,7 +38,7 @@ function RecentSwitcher({
             {current.name}
           </span>
           <span className="block truncate text-xs text-slate-500">
-            最近使用
+            切换知识库
           </span>
         </span>
         <ChevronDown
@@ -58,12 +58,12 @@ function RecentSwitcher({
       >
         <div className="min-h-0 overflow-hidden">
           <div className="flex flex-col gap-1 p-2">
-            {recentItems.map((item) => (
+            {availableItems.map((item) => (
               <button
                 key={item.id}
                 type="button"
                 onClick={() => {
-                  navigate(`/KnowledgeBases/${item.slug}`);
+                  navigate(`/KnowledgeBases/${item.id}`);
                   setIsOpen(false);
                 }}
                 className={cn(
@@ -78,7 +78,7 @@ function RecentSwitcher({
                     {item.name}
                   </span>
                   <span className="block truncate text-xs text-slate-500">
-                    {item.docs} 个文档 · {item.chunks} 个 Chunk
+                    {item.description || "暂无描述"}
                   </span>
                 </span>
               </button>
@@ -90,7 +90,7 @@ function RecentSwitcher({
   );
 }
 
-export function KnowledgeBaseChatView({
+export function KnowledgeBaseDetailView({
   current,
   items,
 }: {
@@ -159,8 +159,8 @@ export function KnowledgeBaseChatView({
   const indexedDocuments = documents.filter((document) => document.status === "INDEXED");
 
   return (
-    <section className="h-[calc(100svh-5rem)] min-h-[720px] overflow-hidden bg-white text-slate-900">
-      <div className="grid h-full grid-cols-1 overflow-hidden border border-slate-200 bg-white shadow-sm xl:grid-cols-[280px_minmax(520px,1fr)_360px]">
+    <section className="min-h-[calc(100svh-5rem)] bg-white text-slate-900 xl:h-[calc(100svh-5rem)] xl:min-h-[720px] xl:overflow-hidden">
+      <div className="grid min-h-0 grid-cols-1 border border-slate-200 bg-white shadow-sm xl:h-full xl:overflow-hidden xl:grid-cols-[280px_minmax(520px,1fr)_360px]">
         <aside className="flex min-h-0 flex-col border-b border-slate-200 bg-white xl:border-r xl:border-b-0">
           <div className="shrink-0 border-b border-slate-200 px-3 py-3">
             <div className="flex items-center gap-2">
@@ -174,7 +174,7 @@ export function KnowledgeBaseChatView({
               >
                 <ArrowLeft className="size-4" />
               </Button>
-              <RecentSwitcher current={currentWithDocumentStats} items={items} />
+              <KnowledgeBaseSwitcher current={currentWithDocumentStats} items={items} />
             </div>
           </div>
 

@@ -51,7 +51,85 @@ export function DocumentTable({
 }: DocumentTableProps) {
   return (
       <section className="overflow-hidden rounded-[6px] border border-slate-200 bg-white shadow-sm">
-        <div className="overflow-x-auto">
+        <div className="flex flex-col divide-y divide-slate-100 md:hidden">
+          {documents.length > 0 ? (
+            documents.map((doc) => (
+              <article
+                key={doc.id}
+                className={cn(
+                  "flex min-w-0 flex-col gap-3 p-4",
+                  doc.id === selectedDocumentId && "bg-blue-50/40",
+                )}
+              >
+                <button
+                  type="button"
+                  className="flex min-w-0 items-start gap-3 text-left"
+                  onClick={() => void onSelectDocument(doc)}
+                >
+                  <FileBadge type={doc.type} />
+                  <span className="min-w-0 flex-1">
+                    <span className="block break-words text-sm font-semibold leading-5 text-slate-900">
+                      {doc.originalFilename}
+                    </span>
+                    <span className="mt-1 block break-words text-xs leading-5 text-slate-500">
+                      {knowledgeBaseLabel}
+                    </span>
+                  </span>
+                </button>
+                <div className="grid grid-cols-2 gap-3 text-xs text-slate-500">
+                  <div>
+                    <span className="block text-slate-400">状态</span>
+                    <div className="mt-1">
+                      <StatusText status={doc.status} error={doc.errorMessage} />
+                    </div>
+                  </div>
+                  <div>
+                    <span className="block text-slate-400">Chunks</span>
+                    <span className="mt-1 block text-slate-700">
+                      {doc.chunkCount}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="block text-slate-400">大小</span>
+                    <span className="mt-1 block text-slate-700">
+                      {formatFileSize(doc.sizeBytes)}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="block text-slate-400">上传时间</span>
+                    <span className="mt-1 block text-slate-700">
+                      {formatDateTime(doc.createdAt)}
+                    </span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <IconButton
+                    label={`查看 ${doc.originalFilename}`}
+                    onClick={() => void onSelectDocument(doc)}
+                  >
+                    <Eye />
+                  </IconButton>
+                  <IconButton label="重新索引待后端支持" disabled>
+                    <RefreshCw />
+                  </IconButton>
+                  <IconButton
+                    label={`删除 ${doc.originalFilename}`}
+                    disabled={isDeleting}
+                    onClick={() => onDeleteDocument(doc)}
+                  >
+                    <Trash2 />
+                  </IconButton>
+                </div>
+              </article>
+            ))
+          ) : (
+            <div className="px-4 py-16 text-center text-sm text-slate-500">
+              当前知识库暂无文档
+            </div>
+          )}
+        </div>
+
+        <div className="hidden overflow-x-auto md:block">
           <table className="w-full min-w-[920px] border-collapse text-left text-sm">
             <thead className="bg-white text-slate-600">
               <tr className="border-b border-slate-200">

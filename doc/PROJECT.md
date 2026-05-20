@@ -4,7 +4,7 @@
 
 KnowFlow AI 是一个智能知识库问答平台。目标是让用户上传学习资料、项目文档或产品文档后，可以基于自己的资料进行问答。
 
-当前阶段是阶段 6：RAG 问答 MVP。项目已经完成基础全栈闭环，并可以在已入库的文档 chunks 上提供知识库内关键词检索能力；阶段 6 基础问答链路已经进入前后端联调，当前收尾重点是 Chat 切换体验和会话管理。
+当前阶段 7：前端体验完善已完成代码级验收，下一阶段是阶段 8：项目交付整理。项目已经具备文档上传、切片、关键词检索、RAG 问答、引用来源、会话保存、会话管理、前端体验整理和后端稳定性测试能力。浏览器/UI 体验按项目规则由用户人工验收。
 
 - 前端页面能调用真实后端接口。
 - 后端能连接 PostgreSQL。
@@ -12,7 +12,7 @@ KnowFlow AI 是一个智能知识库问答平台。目标是让用户上传学�
 - 用户可以注册、登录。
 - 前端可以读取后端知识库和文档数据。
 
-阶段 6 第一版复用阶段 5 的 PostgreSQL 关键词检索结果构造 prompt，先完成非流式问答、引用来源、会话和消息保存。当前补齐会话重命名、删除、置顶/取消置顶，并让 `/Chat/{sessionId}` 切换只刷新消息区域。embedding、pgvector、流式输出和多模型选择仍放在后续扩展。
+阶段 6 第一版复用阶段 5 的 PostgreSQL 关键词检索结果构造 prompt，已完成非流式问答、引用来源、会话和消息保存，并补齐会话重命名、删除、置顶/取消置顶。`/Chat/{sessionId}` 切换会话时只刷新消息区域，`/KnowledgeBases/{id}` 只保留文档检索测试区。embedding、pgvector、流式输出和多模型选择仍放在后续扩展。
 
 ## 当前技术栈
 
@@ -56,9 +56,13 @@ KnowFlow AI 是一个智能知识库问答平台。目标是让用户上传学�
 - 文档上传、文档解析、文档切片和 `INDEXED` / `FAILED` 状态流转。
 - 文档列表、详情、删除和 chunk 查询接口。
 - 知识库内文档关键词检索接口：`POST /api/knowledge-bases/{knowledgeBaseId}/search`。
+- RAG/Chat 接口：创建会话、会话列表、修改会话、删除会话、消息列表、发送问题并保存引用来源。
 - 注册接口。
 - 登录接口，成功后返回 JWT `accessToken`。
+- 当前用户接口：`GET /api/auth/me`。
+- 健康检查接口：`GET /api/health`。
 - Spring Security 基础配置。
+- 阶段 7 稳定性测试覆盖 401、400、404、缺少上传文件字段、级联删除和模型错误脱敏。
 
 前端已经开始接入真实后端：
 
@@ -74,6 +78,11 @@ KnowFlow AI 是一个智能知识库问答平台。目标是让用户上传学�
 - 知识库详情页已接入阶段 5 “检索测试区”，通过 axios 共享客户端调用 `POST /api/knowledge-bases/{knowledgeBaseId}/search`，展示命中文档名、chunk 序号、分数和片段内容。
 - Documents、KnowledgeBases、Chat、Login、Settings、Dashboard 页面的大文件已拆分，页面组件迁移到 `src/components/*`。
 - 文档相关 UI 位于 `src/components/documents/*`，知识库相关 UI 位于 `src/components/knowledge-bases/*`。
+- Chat 页面已接入阶段 6 RAG 问答接口，支持会话列表、消息展示、发送问题、引用来源、会话重命名、删除、置顶和取消置顶。
+- `/KnowledgeBases/{id}` 当前只保留文档检索测试区，不再承载 RAG 对话入口。
+- Dashboard 已改为从真实知识库、文档和会话接口汇总当前账号状态，不再使用旧静态 mock 统计。
+- KnowledgeBases 和 Chat 会通过现有文档列表接口补齐文档数、chunk 数和可检索来源数。
+- Settings 已移除假模型测试、假 API Key、假导出和假删除账号入口，只保留当前后端能力能支撑的设置说明和退出登录。
 
 ## 当前架构选择
 
@@ -93,8 +102,8 @@ Browser -> Vite Dev Server -> Spring Boot Backend -> PostgreSQL
 - `config`：Spring Security、JWT 配置。
 - `knowledgebase`：知识库 CRUD。
 - `document`：文档上传、解析、切片、关键词检索。
-- `chat`：阶段 6 会话、消息、引用来源接口。
-- `rag`：阶段 6 检索结果转 Prompt、模型调用适配。
+- `chat`：会话、消息、引用来源接口。
+- `rag`：检索结果转 Prompt、模型调用适配。
 - `user`：用户数据访问。
 
 数据库由 Flyway 管理。当前已使用或即将使用：
@@ -103,11 +112,11 @@ Browser -> Vite Dev Server -> Spring Boot Backend -> PostgreSQL
 - `knowledge_bases`
 - `documents`
 - `document_chunks`
-- `chat_sessions`：阶段 6 需要支持 `pinned` 字段，用于会话置顶排序。
+- `chat_sessions`：支持 `pinned` 字段，用于会话置顶排序。
 - `chat_messages`
 - `chat_message_sources`：阶段 6 建议新增，用于保存回答引用来源。
 
-阶段 6 RAG 问答链路：
+当前 RAG 问答链路：
 
 ```text
 Frontend Chat UI
@@ -131,10 +140,11 @@ Frontend Chat UI
 
 当前优先级：
 
-1. 阶段 6 已开始，后端和前端分别按 `doc/BACKEND_TASK.md`、`doc/FRONTEND_TASK.md` 执行。
-2. 后端当前优先修复会话消息查询 SQL，补齐会话重命名、删除、置顶/取消置顶接口。
-3. 前端当前优先修复 `/Chat/{sessionId}` 切换割裂感，只刷新消息区域；`/KnowledgeBases/{id}` 删除 RAG 对话入口，只保留检索测试区。
-4. 阶段 6 不做 embedding、pgvector、流式输出、多模型选择和复杂 Agent 工作流。
+1. 阶段 7 已完成代码级验收，浏览器/UI 体验由用户人工验收。
+2. 当前代码级验收结果：`pnpm build` 通过，后端 Maven 测试通过，阶段 7 前端目标文件 ESLint 通过。
+3. 全量 `pnpm lint` 仍有 5 个基础组件/Hook 的既有 lint 规则错误，未在阶段 7 处理。
+4. 下一阶段是阶段 8：项目交付整理。
+5. 阶段 8 不做新的 RAG 核心能力，重点整理 README、演示账号、架构说明、启动复现和答辩材料。
 
 ## 本地开发命令
 

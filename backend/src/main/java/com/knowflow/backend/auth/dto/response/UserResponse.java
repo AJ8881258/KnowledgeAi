@@ -1,4 +1,4 @@
-package com.knowflow.backend.auth;
+package com.knowflow.backend.auth.dto.response;
 
 import lombok.Data;
 
@@ -14,16 +14,4 @@ public class UserResponse {
         this.username = username;
         this.role = role;
     }
-
-    // public Long getId() {
-    // return id;
-    // }
-
-    // public String getUsername() {
-    // return username;
-    // }
-
-    // public String getRole() {
-    // return role;
-    // }
 }
