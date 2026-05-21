@@ -1,4 +1,4 @@
-package com.knowflow.backend.document;
+package com.knowflow.backend.document.entity;
 
 import java.time.OffsetDateTime;
 

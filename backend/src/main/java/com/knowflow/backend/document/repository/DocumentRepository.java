@@ -1,8 +1,9 @@
-package com.knowflow.backend.document;
+package com.knowflow.backend.document.repository;
 
 import java.util.List;
 import java.util.Optional;
 
+import com.knowflow.backend.document.entity.Document;
 import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;

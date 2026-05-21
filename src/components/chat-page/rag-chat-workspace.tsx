@@ -311,7 +311,7 @@ function SourceCard({
           <div className="mt-1 flex flex-wrap gap-2 text-xs text-slate-500">
             <span>Chunk #{source.chunkIndex}</span>
             <span className="text-slate-300">/</span>
-            <span>score {formatScore(source.score)}</span>
+            <span>相关度 {formatScore(source.score)}</span>
           </div>
         </div>
         <ChevronsUpDown className="mt-0.5 size-4 shrink-0 text-slate-400" />

@@ -1,7 +1,8 @@
-package com.knowflow.backend.document;
+package com.knowflow.backend.document.dto.response;
 
 import java.time.OffsetDateTime;
 
+import com.knowflow.backend.document.entity.Document;
 import lombok.Data;
 
 @Data

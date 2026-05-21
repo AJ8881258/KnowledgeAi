@@ -1,7 +1,10 @@
-package com.knowflow.backend.document;
+package com.knowflow.backend.document.repository;
 
 import java.util.List;
 
+import com.knowflow.backend.document.dto.response.SearchResultResponse;
+import com.knowflow.backend.document.entity.Document;
+import com.knowflow.backend.document.entity.DocumentChunk;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -58,24 +61,46 @@ public interface DocumentChunkRepository {
             @Param("documentId") Long documentId,
             @Param("userId") Long userId);
 
-    // 搜索文档片段
+
+    /**
+     * 搜索文档片段
+     *
+     * @param knowledgeBaseId
+     * @param userId
+     * @param query
+     * @param limit
+     * @return
+     */
     @Select("""
-            select
-            c.id AS chunk_id,
-            c.document_id,
-            d.original_filename AS document_name,
-            c.chunk_index,
-            c.content,
-            CAST(1.0 AS double precision) AS score from
-            document_chunks c
-            join documents d on d.id  = c.document_id
-            where
-            c.knowledge_base_id = #{knowledgeBaseId} and
-            d.created_by = #{userId} and
-            d.status = 'INDEXED' and
-            position(lower(#{query}) in lower(c.content))>0
-            order by score desc, d.updated_at desc,c.id asc
-            limit #{limit}
+            WITH search_query AS (
+                SELECT websearch_to_tsquery('simple', #{query}) AS ts_query
+            )
+            SELECT
+                c.id AS chunk_id,
+                c.document_id,
+                d.original_filename AS document_name,
+                c.chunk_index,
+                c.content,
+                CAST(
+                    CASE
+                        WHEN to_tsvector('simple', c.content) @@ search_query.ts_query
+                            THEN ts_rank_cd(to_tsvector('simple', c.content), search_query.ts_query)
+                        ELSE 0.0
+                    END AS double precision
+                ) AS score
+            FROM document_chunks c
+            JOIN documents d ON d.id = c.document_id
+            CROSS JOIN search_query
+            WHERE c.knowledge_base_id = #{knowledgeBaseId}
+              AND d.knowledge_base_id = #{knowledgeBaseId}
+              AND d.created_by = #{userId}
+              AND d.status = 'INDEXED'
+              AND (
+                    to_tsvector('simple', c.content) @@ search_query.ts_query
+                    OR position(lower(#{query}) in lower(c.content)) > 0
+              )
+            ORDER BY score DESC, d.updated_at DESC, c.id ASC
+            LIMIT #{limit}
             """)
     List<SearchResultResponse> searchIndexedChunks(
             @Param("knowledgeBaseId") Long knowledgeBaseId,

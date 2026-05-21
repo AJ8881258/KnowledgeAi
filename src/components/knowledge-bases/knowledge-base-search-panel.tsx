@@ -83,7 +83,7 @@ function getSearchErrorMessage(error: unknown) {
     const status = error.response?.status;
 
     if (status === 400) {
-      return "请输入检索关键词，并确认结果数量不少于 1。";
+      return "请输入检索内容，并确认结果数量不少于 1。";
     }
 
     if (status === 404) {
@@ -136,7 +136,7 @@ function SearchResultCard({
           </div>
         </div>
         <span className="w-fit shrink-0 rounded-[5px] border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700">
-          score {formatScore(result.score)}
+          相关度 {formatScore(result.score)}
         </span>
       </header>
       <p className="mt-3 max-h-36 overflow-auto whitespace-pre-wrap break-words rounded-[6px] border border-slate-200 bg-slate-50/70 p-3 text-xs leading-6 text-slate-700">
@@ -170,7 +170,7 @@ export function KnowledgeBaseSearchPanel({
     event.preventDefault();
 
     if (!trimmedQuery) {
-      setErrorMessage("请输入检索关键词");
+      setErrorMessage("请输入检索内容");
       return;
     }
 
@@ -252,7 +252,7 @@ export function KnowledgeBaseSearchPanel({
             文档检索测试区
           </h2>
           <p className="text-xs leading-5 text-slate-500">
-            在当前知识库的已索引文档 chunks 中测试关键词检索，不调用大模型。
+            在当前知识库的已索引文档 chunks 中测试检索效果，不调用大模型。
           </p>
         </div>
 
@@ -265,7 +265,7 @@ export function KnowledgeBaseSearchPanel({
             <Input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="输入关键词测试文档检索"
+              placeholder="输入查询内容测试文档检索"
               className="h-10 rounded-[6px] border border-slate-200 bg-white pl-9 pr-3 text-sm focus-visible:border-blue-400"
             />
           </div>
@@ -324,10 +324,10 @@ export function KnowledgeBaseSearchPanel({
             <Search className="size-8 text-slate-300" />
             <div>
               <h3 className="text-sm font-semibold text-slate-800">
-                输入关键词开始测试
+                输入查询内容开始测试
               </h3>
               <p className="mt-1 max-w-md text-xs leading-5 text-slate-500">
-                建议先确认当前知识库下已有 INDEXED 文档，再输入文档中出现过的关键词。
+                建议先确认当前知识库下已有 INDEXED 文档，再输入要检索的内容。
               </p>
             </div>
           </div>
@@ -339,7 +339,7 @@ export function KnowledgeBaseSearchPanel({
                 没有找到匹配片段
               </h3>
               <p className="mt-1 max-w-md text-xs leading-5 text-slate-500">
-                可以换一个更具体的关键词，或确认文档已经完成索引。
+                可以换一个更具体的查询内容，或确认文档已经完成索引。
               </p>
             </div>
           </div>
@@ -354,7 +354,7 @@ export function KnowledgeBaseSearchPanel({
                 个片段
               </span>
               <span className={cn(isSearching && "text-blue-600")}>
-                {isSearching ? "正在刷新结果..." : `关键词：${searchedQuery}`}
+                {isSearching ? "正在刷新结果..." : `查询：${searchedQuery}`}
               </span>
             </div>
             {results.map((result, index) => (

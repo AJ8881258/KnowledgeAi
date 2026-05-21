@@ -625,9 +625,9 @@ Authorization: Bearer <accessToken>
 - 只能删除当前登录用户自己的文档。
 - 数据库里 `document_chunks.document_id` 需要设置 `ON DELETE CASCADE`，删除文档时自动删除对应 chunks。
 
-#### 知识库内文档关键词检索
+#### 知识库内文档检索
 
-> 状态：阶段 5 已实现接口，当前作为阶段 6 RAG 问答和后续检索质量升级的基础能力。
+> 状态：阶段 9 已完成。该接口继续沿用原路径，后端检索实现已从普通关键词匹配升级为 PostgreSQL 全文检索。
 
 | 项目 | 内容 |
 |---|---|
@@ -664,7 +664,7 @@ Authorization: Bearer <accessToken>
       "documentName": "note.md",
       "chunkIndex": 0,
       "content": "...",
-      "score": 1.0
+      "score": 0.42
     }
   ]
 }
@@ -672,12 +672,13 @@ Authorization: Bearer <accessToken>
 
 说明：
 
-- 第一版是 PostgreSQL 普通关键词检索，不是语义检索。
-- 第一版不接大模型、不引入 embedding、不引入 pgvector、不新增搜索引擎。
+- 阶段 9 已使用 PostgreSQL 全文检索，不是语义向量检索。
+- 阶段 9 未接新大模型、未引入 embedding、未引入 pgvector、未新增搜索引擎。
 - 后端必须先用 `knowledgeBaseId + 当前 JWT userId` 校验知识库归属；知识库不存在或不属于当前用户时统一返回 `404`。
 - SQL 检索时必须同时限制 `knowledge_base_id` 和 `created_by`，避免通过知识库 ID 或文档 ID 搜到其他用户的数据。
 - 只检索 `status = 'INDEXED'` 的文档。
-- `score` 第一版只表示关键词命中分数，例如命中返回 `1.0`，不代表语义相似度。
+- `score` 表示 PostgreSQL 全文检索相关度分数，用于结果排序和 RAG 引用来源排序；它不是语义相似度，也不保证不同知识库之间可直接比较。
+- `query`、`results`、`chunkId`、`documentId`、`documentName`、`chunkIndex`、`content`、`score` 字段保持兼容。
 
 失败情况：
 
@@ -898,7 +899,7 @@ Content-Type: application/json
 | `DELETE` | `/api/chat/sessions/{sessionId}` | 删除会话 | 阶段 6 已实现 |
 | `GET` | `/api/chat/sessions/{sessionId}/messages` | 获取会话消息 | 阶段 6 已实现 |
 | `POST` | `/api/chat/sessions/{sessionId}/messages` | 发送问题并获取回答 | 阶段 6 已实现 |
-| `POST` | `/api/chat/sessions/{sessionId}/messages/stream` | 流式问答 | 后续规划 |
+| `POST` | `/api/chat/sessions/{sessionId}/messages/stream` | 流式问答 | 阶段 10 可选规划，尚未实现 |
 
 #### 创建会话
 
@@ -1062,7 +1063,7 @@ Authorization: Bearer <accessToken>
         "chunkId": 8,
         "chunkIndex": 0,
         "content": "登录成功后生成 JWT...",
-        "score": 1.0
+        "score": 0.42
       }
     ],
     "createdAt": "2026-05-16T10:01:10Z"
@@ -1103,7 +1104,7 @@ Content-Type: application/json
         "chunkId": 8,
         "chunkIndex": 0,
         "content": "登录成功后生成 JWT...",
-        "score": 1.0
+        "score": 0.42
       }
     ],
     "createdAt": "2026-05-16T10:01:10Z"
@@ -1115,9 +1116,10 @@ Content-Type: application/json
 
 - `sessionId` 必须属于当前登录用户。
 - 后端先基于会话所属知识库检索 chunks，再构造 prompt 调用模型。
-- 第一版 `sources` 来自阶段 5 检索结果。
+- 当前 `sources` 来自阶段 9 PostgreSQL 全文检索结果，`score` 表示全文检索相关度分数。
 - `limit` 为空时默认 `5`，大于 `20` 时按 `20` 处理。
 - 模型调用失败时返回明确错误，不返回或泄露密钥。
+- 阶段 10 将增强多轮上下文、空检索降级提示和引用来源展示；如新增流式接口，必须先补充 SSE 契约。
 
 失败情况：
 

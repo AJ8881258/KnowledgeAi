@@ -1,6 +1,6 @@
 package com.knowflow.backend.chat.model;
 
-import com.knowflow.backend.document.SearchResultResponse;
+import com.knowflow.backend.document.dto.response.SearchResultResponse;
 import org.springframework.stereotype.Component;
 
 import java.util.List;

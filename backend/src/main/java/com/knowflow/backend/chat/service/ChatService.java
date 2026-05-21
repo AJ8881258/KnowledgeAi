@@ -15,8 +15,8 @@ import com.knowflow.backend.chat.model.PromptBuilder;
 import com.knowflow.backend.chat.repository.ChatMessageRepository;
 import com.knowflow.backend.chat.repository.ChatMessageSourceRepository;
 import com.knowflow.backend.chat.repository.ChatSessionRepository;
-import com.knowflow.backend.document.DocumentChunkRepository;
-import com.knowflow.backend.document.SearchResultResponse;
+import com.knowflow.backend.document.repository.DocumentChunkRepository;
+import com.knowflow.backend.document.dto.response.SearchResultResponse;
 import com.knowflow.backend.knowledgebase.KnowledgeBaseRepository;
 import com.knowflow.backend.settings.entity.UserRagSettings;
 import com.knowflow.backend.settings.service.SettingsService;
@@ -43,7 +43,7 @@ public class ChatService {
 
     private final SettingsService settingsService;
 
-    public ChatService(KnowledgeBaseRepository knowledgeBaseRepository, DocumentChunkRepository documentChunkRepository, ChatSessionRepository chatSessionRepository, ChatMessageRepository chatMessageRepository, ChatMessageSourceRepository chatMessageSourceRepository, PromptBuilder promptBuilder, ChatModelClient chatModelClient,SettingsService settingsService) {
+    public ChatService(KnowledgeBaseRepository knowledgeBaseRepository, DocumentChunkRepository documentChunkRepository, ChatSessionRepository chatSessionRepository, ChatMessageRepository chatMessageRepository, ChatMessageSourceRepository chatMessageSourceRepository, PromptBuilder promptBuilder, ChatModelClient chatModelClient, SettingsService settingsService) {
         this.knowledgeBaseRepository = knowledgeBaseRepository;
         this.documentChunkRepository = documentChunkRepository;
         this.chatSessionRepository = chatSessionRepository;
@@ -135,11 +135,11 @@ public class ChatService {
     }
 
     /**
-     * @Des 更新会话
      * @param sessionId
      * @param userId
      * @param request
      * @return
+     * @Des 更新会话
      */
     @Transactional
     public ChatSessionResponse updateSession(Long sessionId, Long userId, UpdateChatSessionRequest request) {
@@ -171,25 +171,25 @@ public class ChatService {
                 normalizedTitle,
                 pinned
         );
-        if(updatedRows != 1){
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Chat Session not found");
+        if (updatedRows != 1) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Chat Session not found");
         }
         return new ChatSessionResponse(getSessionOr404(session.getId(), userId));
     }
 
 
     /**
-     * @Des 删除会话
      * @param sessionId
      * @param userId
+     * @Des 删除会话
      */
     @Transactional
     public void deleteSession(Long sessionId, Long userId) {
         getSessionOr404(sessionId, userId);
 
         int deletedRows = chatSessionRepository.deleteByIdAndUserId(sessionId, userId);
-        if(deletedRows != 1){
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Chat Session not found");
+        if (deletedRows != 1) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Chat Session not found");
         }
     }
 
@@ -213,8 +213,11 @@ public class ChatService {
         userMessage.setContent(question);
         chatMessageRepository.insert(userMessage);
 
-        // 检索必须限制 knowledgeBaseId + 当前 JWT userId，只读取当前用户自己的 INDEXED chunks。
-        List<SearchResultResponse> retrievedChunks  = documentChunkRepository.searchIndexedChunks(
+
+        /**
+         * @Des 搜索文档片段
+         */
+        List<SearchResultResponse> retrievedChunks = documentChunkRepository.searchIndexedChunks(
                 session.getKnowledgeBaseId(),
                 userId,
                 question,
@@ -231,7 +234,7 @@ public class ChatService {
         } else {
             String prompt = promptBuilder.build(question, contextChunks);
             try {
-                answer = chatModelClient.chat(prompt,ragSettings.getTemperature());
+                answer = chatModelClient.chat(prompt, ragSettings.getTemperature());
             } catch (IllegalStateException exception) {
                 // 不把 API key、请求头或模型供应商的原始敏感错误暴露给前端。
                 throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "AI model call failed");
@@ -305,9 +308,9 @@ public class ChatService {
     private List<SearchResultResponse> limitContextChunks(
             List<SearchResultResponse> chunks,
             int maxContextChunks
-    ){
-        if(chunks.size()<=maxContextChunks){
-            return  chunks;
+    ) {
+        if (chunks.size() <= maxContextChunks) {
+            return chunks;
         }
         return chunks.stream().limit(maxContextChunks).toList();
     }

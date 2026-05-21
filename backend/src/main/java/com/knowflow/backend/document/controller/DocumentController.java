@@ -1,10 +1,19 @@
-package com.knowflow.backend.document;
+package com.knowflow.backend.document.controller;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
+import com.knowflow.backend.document.dto.request.SearchDocumentRequest;
+import com.knowflow.backend.document.dto.response.DocumentChunkResponse;
+import com.knowflow.backend.document.dto.response.DocumentResponse;
+import com.knowflow.backend.document.dto.response.SearchDocumentResponse;
+import com.knowflow.backend.document.dto.response.SearchResultResponse;
+import com.knowflow.backend.document.entity.Document;
+import com.knowflow.backend.document.entity.DocumentChunk;
+import com.knowflow.backend.document.repository.DocumentChunkRepository;
+import com.knowflow.backend.document.repository.DocumentRepository;
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.text.PDFTextStripper;
