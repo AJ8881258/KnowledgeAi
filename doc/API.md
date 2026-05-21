@@ -159,13 +159,15 @@ Authorization: Bearer <accessToken>
 {
   "id": 2,
   "username": "WuLong",
-  "role": "USER"
+  "role": "USER",
+  "email": "wulong@example.com"
 }
 ```
 
 说明：
 
 - 用于前端刷新页面后，从后端确认当前 token 对应的用户。
+- `email` 可以为 `null`，表示当前账号尚未设置邮箱。
 - 如果 token 无效、缺少 token，或 token 中的用户不存在，返回 `401`。
 
 失败情况：
@@ -173,6 +175,89 @@ Authorization: Bearer <accessToken>
 | 状态码 | 原因 |
 |---|---|
 | `401` | 未登录、token 无效，或 token 对应用户不存在 |
+
+### 修改当前用户资料
+
+| 项目 | 内容 |
+|---|---|
+| 请求方式 | `PATCH` |
+| 请求路径 | `/api/auth/me` |
+| 是否需要登录 | 是 |
+
+请求示例：
+
+```http
+PATCH /api/auth/me
+Authorization: Bearer <accessToken>
+Content-Type: application/json
+```
+
+```json
+{
+  "email": "wulong@example.com"
+}
+```
+
+成功响应示例：
+
+```json
+{
+  "id": 2,
+  "username": "WuLong",
+  "role": "USER",
+  "email": "wulong@example.com"
+}
+```
+
+说明：
+
+- 阶段 8 已实现，用于 `/Settings` 页面保存当前用户邮箱。
+- 当前阶段邮箱只是资料字段，不包含邮箱验证码、邮件发送或换绑验证流程。
+- 传入 `null` 或空字符串会清空邮箱。
+- 邮箱会做基础格式校验和长度校验。
+- 只能修改当前 JWT 用户自己的资料，不能传 userId 修改其他用户。
+
+失败情况：
+
+| 状态码 | 原因 |
+|---|---|
+| `400` | 请求体为空、邮箱格式错误、邮箱过长，或邮箱已被其他用户使用 |
+| `401` | 未登录、token 无效，或 token 对应用户不存在 |
+
+### 删除当前账号
+
+| 项目 | 内容 |
+|---|---|
+| 请求方式 | `DELETE` |
+| 请求路径 | `/api/auth/me` |
+| 是否需要登录 | 是 |
+
+请求示例：
+
+```http
+DELETE /api/auth/me
+Authorization: Bearer <accessToken>
+```
+
+成功响应：
+
+```http
+204 No Content
+```
+
+说明：
+
+- 阶段 8 已实现，用于 `/Settings` 危险区删除当前账号。
+- 后端只根据当前 JWT 用户删除账号，不接收 userId 参数。
+- 删除范围包括当前用户、知识库、文档、chunks、会话、消息和引用来源。
+- 删除操作在事务内完成；前端必须做二次确认，但后端仍负责权限边界。
+
+失败情况：
+
+| 状态码 | 原因 |
+|---|---|
+| `401` | 未登录、token 无效，或 token 对应用户不存在 |
+| `500` | 删除账号失败 |
 
 ### 获取知识库列表
 
@@ -542,7 +627,7 @@ Authorization: Bearer <accessToken>
 
 #### 知识库内文档关键词检索
 
-> 状态：阶段 5 已实现接口，当前进入前后端联调和真实文档检索验收。
+> 状态：阶段 5 已实现接口，当前作为阶段 6 RAG 问答和后续检索质量升级的基础能力。
 
 | 项目 | 内容 |
 |---|---|
@@ -659,6 +744,125 @@ GET /api/health
 - 用于本地开发、联调和演示前快速确认后端服务已启动。
 - 该接口已在 Spring Security 中放行，不需要携带 JWT。
 
+### 获取模型配置状态
+
+| 项目 | 内容 |
+|---|---|
+| 请求方式 | `GET` |
+| 请求路径 | `/api/settings/model` |
+| 是否需要登录 | 是 |
+
+请求示例：
+
+```http
+GET /api/settings/model
+Authorization: Bearer <accessToken>
+```
+
+成功响应示例：
+
+```json
+{
+  "configured": true,
+  "mode": "ENVIRONMENT",
+  "model": "gpt-4.1-mini",
+  "baseUrlConfigured": true,
+  "apiKeyConfigured": true,
+  "timeoutSeconds": 60,
+  "editable": false
+}
+```
+
+说明：
+
+- 阶段 8 已实现，用于 `/Settings` 页面只读展示模型配置状态。
+- 当前学习版模型配置由后端环境变量管理，`mode` 为 `ENVIRONMENT`。
+- 不返回 API key 明文，也不返回 base URL 明文。
+- `editable` 当前为 `false`，前端不提供模型配置保存入口。
+
+### 获取 RAG 参数
+
+| 项目 | 内容 |
+|---|---|
+| 请求方式 | `GET` |
+| 请求路径 | `/api/settings/rag` |
+| 是否需要登录 | 是 |
+
+请求示例：
+
+```http
+GET /api/settings/rag
+Authorization: Bearer <accessToken>
+```
+
+成功响应示例：
+
+```json
+{
+  "topK": 5,
+  "maxContextChunks": 5,
+  "temperature": 0.2
+}
+```
+
+说明：
+
+- 阶段 8 已实现，返回当前 JWT 用户的 RAG 参数。
+- 如果用户从未保存过参数，后端返回默认值。
+- 当前后端 Chat/RAG 流程会读取这些参数：
+  - `topK` 控制检索阶段最多取多少个 chunk。
+  - `maxContextChunks` 控制进入 prompt 和引用来源保存的 chunk 数量。
+  - `temperature` 传给模型调用。
+
+### 更新 RAG 参数
+
+| 项目 | 内容 |
+|---|---|
+| 请求方式 | `PATCH` |
+| 请求路径 | `/api/settings/rag` |
+| 是否需要登录 | 是 |
+
+请求示例：
+
+```http
+PATCH /api/settings/rag
+Authorization: Bearer <accessToken>
+Content-Type: application/json
+```
+
+```json
+{
+  "topK": 5,
+  "maxContextChunks": 5,
+  "temperature": 0.2
+}
+```
+
+成功响应示例：
+
+```json
+{
+  "topK": 5,
+  "maxContextChunks": 5,
+  "temperature": 0.2
+}
+```
+
+说明：
+
+- 阶段 8 已实现，用于 `/Settings` 页面保存当前用户级 RAG 参数。
+- 请求体可以只传部分字段，未传字段沿用当前值。
+- `topK` 和 `maxContextChunks` 范围为 `1-20`。
+- `temperature` 范围为 `0-2`。
+- 保存后的参数会被后续 RAG 问答使用。
+
+失败情况：
+
+| 状态码 | 原因 |
+|---|---|
+| `400` | 请求体为空、参数为空，或参数超出范围 |
+| `401` | 未登录、token 无效，或 token 中缺少 userId |
+
 ## 规划中接口
 
 规划中接口单独列出，必须明确标记为“尚未实现”。
@@ -668,6 +872,19 @@ GET /api/health
 | 请求方式 | 请求路径 | 用途 | 状态 |
 |---|---|---|---|
 | `POST` | `/api/auth/logout` | 退出登录 | 规划中 |
+
+### Settings
+
+> 状态：阶段 8 只实现模型配置状态读取；用户级模型配置保存后续再做。
+
+| 请求方式 | 请求路径 | 用途 | 状态 |
+|---|---|---|---|
+| `PATCH` | `/api/settings/model` | 保存用户级模型配置 | 后续规划 |
+
+说明：
+
+- 如果未来实现用户级模型配置，必须明确密钥保存方式、脱敏返回规则和作用域。
+- API key 不能以明文返回前端。
 
 ### Chat / RAG
 

@@ -28,6 +28,13 @@ export type BackendUserSession = {
   accessToken: string;
 };
 
+export type BackendCurrentUser = {
+  id: number | null;
+  username: string;
+  role: string;
+  email: string | null;
+};
+
 export type MockUserProfile = {
   displayName: string;
   email: string;
@@ -57,6 +64,7 @@ type ClearSessionOptions = {
 
 type AuthStore = AuthState & {
   setSession: (user: BackendUserSession, options?: SetSessionOptions) => void;
+  syncCurrentUser: (user: BackendCurrentUser) => void;
   clearSession: (options?: ClearSessionOptions) => void;
   setProfile: (profile: MockUserProfile) => void;
   getProfile: () => MockUserProfile;
@@ -342,6 +350,32 @@ export const useAuthStore = create<AuthStore>()(
         set({
           ...nextAuthState,
           persistMode: nextMode,
+        });
+        dispatchAuthSessionChange();
+      },
+      syncCurrentUser: (user) => {
+        const currentSession = get().session;
+        const username = user.username.trim();
+        const email = user.email?.trim() ?? "";
+        const nextProfile = normalizeProfile({
+          displayName: username,
+          email,
+        });
+
+        writeLegacyProfile(nextProfile);
+        set({
+          profile: nextProfile,
+          session: currentSession
+            ? {
+                ...currentSession,
+                id: user.id,
+                username,
+                account: username,
+                role: user.role,
+                displayName: username,
+                email,
+              }
+            : null,
         });
         dispatchAuthSessionChange();
       },

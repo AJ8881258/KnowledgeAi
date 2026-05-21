@@ -2,9 +2,11 @@ package com.knowflow.backend.auth.controller;
 
 import com.knowflow.backend.auth.dto.request.RegisterRequest;
 import com.knowflow.backend.auth.dto.request.ResetPasswordRequest;
+import com.knowflow.backend.auth.dto.request.UpdateCurrentUserRequest;
 import com.knowflow.backend.auth.dto.response.LoginResponse;
 import com.knowflow.backend.auth.dto.request.LoginRequest;
 import com.knowflow.backend.auth.dto.response.UserResponse;
+import com.knowflow.backend.auth.service.AuthService;
 import com.knowflow.backend.auth.service.JwtTokenService;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -27,28 +29,56 @@ public class AuthController {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenService jwtTokenService;
+    private final AuthService authService;
 
     public AuthController(
             UserRepository userRepository,
             PasswordEncoder passwordEncoder,
-            JwtTokenService jwtTokenService) {
+            JwtTokenService jwtTokenService,
+            AuthService authService) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtTokenService = jwtTokenService;
+        this.authService = authService;
+
+
     }
 
     /**
-     * @Desc 获取当前用户信息
      * @param jwt
      * @return
+     * @Desc 获取当前用户信息
      */
     @GetMapping("/me")
     public UserResponse me(@AuthenticationPrincipal Jwt jwt) {
-        Long userId = getCurrentId(jwt);
+        return authService.getCurrentUser(getCurrentId(jwt));
+    }
 
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User not found"));
-        return new UserResponse(user.getId(), user.getUsername(), user.getRole());
+    /**
+     * @param request
+     * @param jwt
+     * @return
+     * @Desc 更新当前用户信息
+     */
+    @PatchMapping("/me")
+    public UserResponse updateMe(
+            @RequestBody(required = false) UpdateCurrentUserRequest request,
+            @AuthenticationPrincipal Jwt jwt
+    ) {
+        return authService.updateCurrentUser(getCurrentId(jwt), request);
+    }
+
+    /**
+     * @param jwt
+     * @Desc 删除当前用户账号，
+     * 包括所有关联的会话、消息、引用来源、文档和 chunks、知识库
+     */
+    @DeleteMapping("/me")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteMe(
+            @AuthenticationPrincipal Jwt jwt
+    ) {
+        authService.deleteCurrentUser(getCurrentId(jwt));
     }
 
 
@@ -89,7 +119,9 @@ public class AuthController {
         user.setPasswordHash(passwordEncoder.encode(password));
         user.setRole("USER");
         userRepository.save(user);
-        return new UserResponse(user.getId(), user.getUsername(), user.getRole());
+
+
+        return new UserResponse(user.getId(), user.getUsername(), user.getRole(), user.getEmail());
     }
 
     @PostMapping("/reset-password")

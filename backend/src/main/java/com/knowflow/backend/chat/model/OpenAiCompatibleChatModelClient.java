@@ -7,6 +7,10 @@ import org.springframework.web.client.RestClient;
 
 import java.util.List;
 
+
+/**
+ * OpenAI 兼容的聊天模型客户端
+ */
 @Component
 public class OpenAiCompatibleChatModelClient implements ChatModelClient {
     private final AiProperties properties; //AI配置
@@ -19,12 +23,12 @@ public class OpenAiCompatibleChatModelClient implements ChatModelClient {
     }
 
     @Override
-    public String chat(String prompt) {
+    public String chat(String prompt,double temperature) {
         if (properties.getBaseUrl() == null || properties.getBaseUrl().isBlank() || properties.getModel() == null || properties.getModel().isBlank()) {
             throw new IllegalStateException("AI Model config is incomplete");
         }
         try {
-            ChatCompletionResponse response = restClient.post().uri("/chat/completions").body(new ChatCompletionRequest(properties.getModel(), List.of(new ChatCompletionMessage("user", prompt)), 0.2)).retrieve().body(ChatCompletionResponse.class);
+            ChatCompletionResponse response = restClient.post().uri("/chat/completions").body(new ChatCompletionRequest(properties.getModel(), List.of(new ChatCompletionMessage("user", prompt)), temperature)).retrieve().body(ChatCompletionResponse.class);
             if (response == null || response.choices() == null || response.choices().isEmpty()) {
                 throw new IllegalStateException("AI Model response is empty");
             }

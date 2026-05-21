@@ -28,6 +28,7 @@ No test runner is configured. Adding shadcn components: `pnpm dlx shadcn@latest 
   - After completing a stage, update `doc/STAGE_PLAN.md`, `doc/PROJECT.md`, `doc/API.md` when interfaces changed, and the relevant frontend/backend task files.
   - Frontend and backend implementation tasks use the stable task files `doc/FRONTEND_TASK.md` and `doc/BACKEND_TASK.md`. The documentation/planning session updates these files for the current stage before implementation sessions begin.
   - Documentation synchronization is handled by the documentation/planning session. Frontend and backend implementation sessions should follow the stable task files and should not independently rewrite stage planning unless the user explicitly asks.
+  - Any future change to project rules, collaboration rules, verification rules, frontend/backend workflow, or stage workflow must be synchronized into `AGENTS.md` immediately. If the rule affects planning, APIs, project status, or implementation tasks, also update the relevant core doc files in `doc/`; do not keep rule changes only in chat history.
 - Backend development is in progress. When implementing frontend features, prefer real API integration over extending mock-only behavior when a backend endpoint or contract exists.
 - Use axios for frontend-to-backend requests. Follow any existing axios client, API module, interceptor, error handling, and response typing patterns before adding new ones.
 - Before implementing a new feature or changing an existing one, inspect the nearest existing implementation and shared project primitives first. At minimum, check `src/api/`, `src/store/`, related page components, and `doc/API.md` when the change involves server data, authentication, persisted state, or shared UI behavior.
@@ -45,9 +46,13 @@ No test runner is configured. Adding shadcn components: `pnpm dlx shadcn@latest 
 - 用户说“收尾”时，默认含义是：检查当前功能是否完成、同步开发文档、同步 `AGENTS.md` 项目规则、更新下一步路线、生成下一轮对话交接提示。不要默认继续开发新功能。
 - 用户说“实施计划”或明确要求实现时，才可以修改文件；但如果同一句或近期上下文出现“不要编辑文件/不要运行命令”，以后者为准。
 - 后端学习阶段不要过度教学；默认给实现顺序、文件清单、文件相对路径、除导入部分包以外的完整代码、关键注释和测试命令。关键注释应解释权限校验、状态流转、事务边界、切片/检索等关键逻辑，不要逐个解释基础注解、getter/setter 或 import。
+- 后端会话输出新增或修改功能代码时，必须在新增字段、DTO、接口方法、Service 分支、事务删除、配置读取、RAG 参数应用等功能点旁附上简短注释，说明这段代码实现的业务目的或与旧代码的区别，方便用户不用逐行 diff 也能理解改动；不要给基础 import、注解、getter/setter 写噪声注释。
 - 后端开发默认由用户在单独后端会话中练习实现。除非用户在该会话明确要求，否则不要直接修改后端业务代码；只提供实现顺序、文件清单、文件相对路径、除导入部分包以外的完整代码、关键注释和测试命令。后端会话必须先阅读 `doc/BACKEND_TASK.md`。
+- 后端学习阶段的“不要直接修改后端源码”不限制测试类；`backend/src/test/**` 下的后端测试文件可以由 Agent 直接新增或修改，用来补充验收覆盖、复现问题和验证用户手写的业务代码。
 - 前端开发默认由单独前端会话按 `doc/FRONTEND_TASK.md` 执行。前端 UI 修改应遵守 shadcn/radix-sera、Lucide、现有 Tailwind 风格，并参考 `$ui-ux-pro-max` 的专业 UI 检查项。
 - 除非用户明确要求使用 `@chrome`、`@浏览器`、Playwright、截图或其他浏览器工具做验收，否则前端会话不要主动打开浏览器做 UI/视觉验收；默认只跑 `pnpm build`、目标 ESLint、类型检查等代码级验证，并把浏览器验收步骤交给用户。
+- 以后只要用户调整项目规则、协作规则、验收规则、前后端开发规则或阶段推进规则，必须立刻同步到 `AGENTS.md`；如果该规则影响阶段计划、接口、项目状态或任务书，还必须同步 `doc/STAGE_PLAN.md`、`doc/PROJECT.md`、`doc/API.md`、`doc/FRONTEND_TASK.md`、`doc/BACKEND_TASK.md` 中相关文件，不能只停留在聊天记录里。
+- 以后如果任务涉及 `/Settings` 页面里的“邮箱”、“模型配置”、“RAG 参数”、“删除账号/删除数据”等功能点，必须先提醒用户这些功能是否需要接入后端，并确认实现范围；不要默认把 Settings 里的展示项当成已生效功能，也不要静默新增假保存或 mock-only 设置。
 - 后端或前端功能完成后，文档只同步核心文档：`doc/STAGE_PLAN.md`、`doc/PROJECT.md`、`doc/API.md`、`doc/FRONTEND_TASK.md`、`doc/BACKEND_TASK.md`，必要时同步 `AGENTS.md`。
 
 ## Architecture

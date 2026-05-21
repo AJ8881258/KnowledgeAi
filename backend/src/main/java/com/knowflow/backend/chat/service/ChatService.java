@@ -18,6 +18,8 @@ import com.knowflow.backend.chat.repository.ChatSessionRepository;
 import com.knowflow.backend.document.DocumentChunkRepository;
 import com.knowflow.backend.document.SearchResultResponse;
 import com.knowflow.backend.knowledgebase.KnowledgeBaseRepository;
+import com.knowflow.backend.settings.entity.UserRagSettings;
+import com.knowflow.backend.settings.service.SettingsService;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -39,8 +41,9 @@ public class ChatService {
     private final PromptBuilder promptBuilder;
     private final ChatModelClient chatModelClient;
 
+    private final SettingsService settingsService;
 
-    public ChatService(KnowledgeBaseRepository knowledgeBaseRepository, DocumentChunkRepository documentChunkRepository, ChatSessionRepository chatSessionRepository, ChatMessageRepository chatMessageRepository, ChatMessageSourceRepository chatMessageSourceRepository, PromptBuilder promptBuilder, ChatModelClient chatModelClient) {
+    public ChatService(KnowledgeBaseRepository knowledgeBaseRepository, DocumentChunkRepository documentChunkRepository, ChatSessionRepository chatSessionRepository, ChatMessageRepository chatMessageRepository, ChatMessageSourceRepository chatMessageSourceRepository, PromptBuilder promptBuilder, ChatModelClient chatModelClient,SettingsService settingsService) {
         this.knowledgeBaseRepository = knowledgeBaseRepository;
         this.documentChunkRepository = documentChunkRepository;
         this.chatSessionRepository = chatSessionRepository;
@@ -48,6 +51,7 @@ public class ChatService {
         this.chatMessageSourceRepository = chatMessageSourceRepository;
         this.promptBuilder = promptBuilder;
         this.chatModelClient = chatModelClient;
+        this.settingsService = settingsService;
     }
 
     /**
@@ -201,9 +205,8 @@ public class ChatService {
     public SendMessageResponse sendMessage(Long sessionId, Long userId, SendMessageRequest request) {
         ChatSession session = getSessionOr404(sessionId, userId);
         String question = normalizeContent(request == null ? null : request.getContent());
-        int limit = normalizeLimit(request == null ? null : request.getLimit());
+        UserRagSettings ragSettings = settingsService.getEffectiveRagSettings(userId);
 
-        //Entity
         ChatMessage userMessage = new ChatMessage();
         userMessage.setSessionId(session.getId());
         userMessage.setRole("USER");
@@ -211,19 +214,24 @@ public class ChatService {
         chatMessageRepository.insert(userMessage);
 
         // 检索必须限制 knowledgeBaseId + 当前 JWT userId，只读取当前用户自己的 INDEXED chunks。
-        List<SearchResultResponse> chunks = documentChunkRepository.searchIndexedChunks(
+        List<SearchResultResponse> retrievedChunks  = documentChunkRepository.searchIndexedChunks(
                 session.getKnowledgeBaseId(),
                 userId,
                 question,
-                limit);
+                ragSettings.getTopK());
+
+        List<SearchResultResponse> contextChunks = limitContextChunks(
+                retrievedChunks,
+                ragSettings.getMaxContextChunks()
+        );
 
         String answer;
-        if (chunks.isEmpty()) {
+        if (contextChunks.isEmpty()) {
             answer = "当前知识库未检索到相关资料，无法从当前资料确认。";
         } else {
-            String prompt = promptBuilder.build(question, chunks);
+            String prompt = promptBuilder.build(question, contextChunks);
             try {
-                answer = chatModelClient.chat(prompt);
+                answer = chatModelClient.chat(prompt,ragSettings.getTemperature());
             } catch (IllegalStateException exception) {
                 // 不把 API key、请求头或模型供应商的原始敏感错误暴露给前端。
                 throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "AI model call failed");
@@ -236,7 +244,7 @@ public class ChatService {
         assistantMessage.setContent(answer);
         chatMessageRepository.insert(assistantMessage);
 
-        List<ChatSourceResponse> sources = saveSources(assistantMessage.getId(), chunks);
+        List<ChatSourceResponse> sources = saveSources(assistantMessage.getId(), contextChunks);
         chatSessionRepository.touch(session.getId(), userId);
 
         // 事务边界：一次问答里的用户消息、助手消息、引用来源一起写入，避免只保存一半数据。
@@ -293,6 +301,17 @@ public class ChatService {
         }
         return Math.min(limit, MAX_LIMIT);
     }
+
+    private List<SearchResultResponse> limitContextChunks(
+            List<SearchResultResponse> chunks,
+            int maxContextChunks
+    ){
+        if(chunks.size()<=maxContextChunks){
+            return  chunks;
+        }
+        return chunks.stream().limit(maxContextChunks).toList();
+    }
+
 
     /**
      * @param messageId

@@ -1,6 +1,9 @@
 package com.knowflow.backend.chat.model;
 
 
+/**
+ * 聊天模型客户端接口
+ */
 public interface ChatModelClient {
-    String chat(String prompt);
+    String chat(String prompt,double temperature);
 }
