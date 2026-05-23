@@ -32,6 +32,11 @@ import java.util.List;
 public class ChatService {
     private static final int DEFAULT_LIMIT = 5;
     private static final int MAX_LIMIT = 20;
+    private static final int MAX_HISTORY_MESSAGES = 6;
+    private static final int MAX_HISTORY_TOTAL_CHARS = 3000;
+    private static final int MAX_HISTORY_SINGLE_MESSAGE_CHARS = 800;
+    private static final String EMPTY_RETRIEVAL_FALLBACK_MESSAGE =
+            "当前知识库中没有检索到足够相关的资料，请换个问法或上传更多文档。";
 
     private final KnowledgeBaseRepository knowledgeBaseRepository;
     private final DocumentChunkRepository documentChunkRepository;
@@ -207,6 +212,8 @@ public class ChatService {
         String question = normalizeContent(request == null ? null : request.getContent());
         UserRagSettings ragSettings = settingsService.getEffectiveRagSettings(userId);
 
+        List<ChatMessage> historyMessages = loadPromptHistory(session, userId);
+
         ChatMessage userMessage = new ChatMessage();
         userMessage.setSessionId(session.getId());
         userMessage.setRole("USER");
@@ -228,18 +235,28 @@ public class ChatService {
                 ragSettings.getMaxContextChunks()
         );
 
-        String answer;
         if (contextChunks.isEmpty()) {
-            answer = "当前知识库未检索到相关资料，无法从当前资料确认。";
-        } else {
-            String prompt = promptBuilder.build(question, contextChunks);
-            try {
-                answer = chatModelClient.chat(prompt, ragSettings.getTemperature());
-            } catch (IllegalStateException exception) {
-                // 不把 API key、请求头或模型供应商的原始敏感错误暴露给前端。
-                throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "AI model call failed");
-            }
+            ChatMessage assistantMessage = new ChatMessage();
+            assistantMessage.setSessionId(session.getId());
+            assistantMessage.setRole("ASSISTANT");
+            assistantMessage.setContent(EMPTY_RETRIEVAL_FALLBACK_MESSAGE);
+            chatMessageRepository.insert(assistantMessage);
+
+            chatSessionRepository.touch(session.getId(), userId);
+            return new SendMessageResponse(new ChatMessageResponse(assistantMessage, List.of()));
         }
+
+        //
+        String prompt = promptBuilder.build(question, contextChunks, historyMessages);
+
+        String answer;
+        try {
+            answer = chatModelClient.chat(prompt, ragSettings.getTemperature());
+        } catch (IllegalStateException exception) {
+            // 不把 API key、请求头或模型供应商的原始敏感错误暴露给前端。
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "AI model call failed");
+        }
+
         //Entity
         ChatMessage assistantMessage = new ChatMessage();
         assistantMessage.setSessionId(session.getId());
@@ -347,7 +364,95 @@ public class ChatService {
 
             responses.add(response);
         }
-
         return responses;
+    }
+
+
+    /**
+     * @param session
+     * @param userId
+     * @return
+     * @Desc 加载历史消息
+     */
+    private List<ChatMessage> loadPromptHistory(ChatSession session, Long userId) {
+        List<ChatMessage> recentMessages = chatMessageRepository.findRecentBySessionIdAndUserIdAndKnowledgeBaseId(
+                session.getId(),
+                userId, session.getKnowledgeBaseId(),
+                MAX_HISTORY_MESSAGES
+        );
+        return limitHistoryMessages(recentMessages);
+    }
+
+
+    /**
+     * @param messages
+     * @return
+     * @Desc 限制历史消息字符数
+     */
+    private List<ChatMessage> limitHistoryMessages(List<ChatMessage> messages) {
+        List<ChatMessage> selected = new ArrayList<>();
+        int remainingChars = MAX_HISTORY_TOTAL_CHARS;
+
+        for (int index = messages.size() - 1;
+             index >= 0 && remainingChars > 0 && selected.size() < MAX_HISTORY_MESSAGES;
+             index--) {
+            ChatMessage message = messages.get(index);
+            String content = normalizeHistoryContent(message.getContent());
+
+            if (content.isBlank()) {
+                continue;
+            }
+            content = trimToMaxLength(content, MAX_HISTORY_SINGLE_MESSAGE_CHARS);
+
+            if (content.length() > remainingChars) {
+                if (selected.isEmpty()) {
+                    selected.add(0, copyMessageWithContent(message, content));
+                }
+                break;
+            }
+
+            selected.add(0, copyMessageWithContent(message, content));
+            remainingChars -= content.length();
+        }
+        return selected;
+    }
+
+    private String normalizeHistoryContent(String content) {
+        return content == null ? "" : content.trim();
+    }
+
+    /**
+     * @param value
+     * @param maxLength
+     * @return
+     * @Desc 截断字符串
+     */
+    private String trimToMaxLength(String value, int maxLength) {
+        if (maxLength <= 0) {
+            return "";
+        }
+        if (value.length() <= maxLength) {
+            return value;
+        }
+        if (maxLength <= 3) {
+            return value.substring(0, maxLength);
+        }
+        return value.substring(0, maxLength - 3) + "...";
+    }
+
+    /**
+     * @param message
+     * @param content
+     * @return
+     * @Desc entity类复制
+     */
+    private ChatMessage copyMessageWithContent(ChatMessage message, String content) {
+        ChatMessage copy = new ChatMessage();
+        copy.setId(message.getId());
+        copy.setSessionId(message.getSessionId());
+        copy.setRole(message.getRole());
+        copy.setContent(content);
+        copy.setCreatedAt(message.getCreatedAt());
+        return copy;
     }
 }

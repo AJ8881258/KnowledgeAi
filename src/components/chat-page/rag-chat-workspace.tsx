@@ -3,8 +3,9 @@ import { isAxiosError } from "axios";
 import {
   Bot,
   CheckCircle2,
-  ChevronsUpDown,
+  ChevronDown,
   FileText,
+  Info,
   Loader2,
   MessageSquarePlus,
   MoreHorizontal,
@@ -81,6 +82,7 @@ import { cn } from "@/lib/utils";
 import type { KnowledgeBase } from "@/components/knowledge-bases/knowledge-base-types";
 
 const DEFAULT_CHAT_LIMIT = 5;
+const SOURCE_PREVIEW_LENGTH = 180;
 
 function getTimeValue(value: string) {
   const time = new Date(value).getTime();
@@ -150,15 +152,54 @@ function getSourceKey(source: ChatMessageSourceResponse) {
   return `${source.documentId}-${source.chunkId}-${source.chunkIndex}`;
 }
 
+function getSourcePreview(content: string) {
+  const normalizedContent = content.trim().replace(/\s+/g, " ");
+
+  if (normalizedContent.length <= SOURCE_PREVIEW_LENGTH) {
+    return normalizedContent;
+  }
+
+  return `${normalizedContent.slice(0, SOURCE_PREVIEW_LENGTH)}...`;
+}
+
 function getDefaultSessionTitle(content: string) {
   const title = content.trim().replace(/\s+/g, " ");
 
   return title.slice(0, 24) || "新会话";
 }
 
+function getBackendErrorMessage(error: unknown) {
+  if (!isAxiosError(error)) {
+    return "";
+  }
+
+  const responseData = error.response?.data;
+
+  if (
+    typeof responseData !== "object" ||
+    responseData === null ||
+    !("message" in responseData)
+  ) {
+    return "";
+  }
+
+  const message = (responseData as { message?: unknown }).message;
+
+  return typeof message === "string" ? message.trim() : "";
+}
+
 function getChatErrorMessage(error: unknown) {
   if (isAxiosError(error)) {
     const status = error.response?.status;
+    const backendMessage = getBackendErrorMessage(error);
+
+    if (backendMessage) {
+      return backendMessage;
+    }
+
+    if (error.code === "ECONNABORTED" || status === 408 || status === 504) {
+      return "回答生成超时，请稍后重试，或缩短问题后再次发送。";
+    }
 
     if (status === 400) {
       return "请输入问题内容，并确认引用片段数量不少于 1。";
@@ -173,7 +214,7 @@ function getChatErrorMessage(error: unknown) {
     }
 
     if (status && status >= 500) {
-      return "问答服务暂时不可用，可能是模型调用或消息保存失败。";
+      return "回答生成失败，模型调用或消息保存没有完成，请稍后重试。";
     }
   }
 
@@ -182,6 +223,7 @@ function getChatErrorMessage(error: unknown) {
 
 function MessageBubble({ message }: { message: ChatMessageResponse }) {
   const isUser = message.role === "USER";
+  const messageSources = message.sources ?? [];
 
   if (isUser) {
     return (
@@ -221,9 +263,9 @@ function MessageBubble({ message }: { message: ChatMessageResponse }) {
             </p>
           ))}
         </div>
-        {message.sources.length > 0 && (
+        {messageSources.length > 0 ? (
           <div className="mt-4 flex flex-wrap gap-2">
-            {message.sources.map((source, index) => (
+            {messageSources.map((source, index) => (
               <span
                 key={getSourceKey(source)}
                 className="inline-flex max-w-full items-center gap-1 rounded-[5px] border border-blue-100 bg-blue-50 px-2 py-1 text-xs text-blue-700"
@@ -233,8 +275,16 @@ function MessageBubble({ message }: { message: ChatMessageResponse }) {
                   {source.documentName}
                 </span>
                 <span className="shrink-0">Chunk #{source.chunkIndex}</span>
+                <span className="shrink-0 text-blue-500">
+                  相关度 {formatScore(source.score)}
+                </span>
               </span>
             ))}
+          </div>
+        ) : (
+          <div className="mt-4 flex items-start gap-2 rounded-[6px] border border-slate-200 bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-500">
+            <Info className="mt-0.5 size-3.5 shrink-0 text-slate-400" />
+            <span>当前回答没有可展示的引用来源。</span>
           </div>
         )}
       </article>
@@ -291,12 +341,22 @@ function SourceCard({
   expanded: boolean;
   onToggle: () => void;
 }) {
+  const hasContent = source.content.trim().length > 0;
+  const isLongContent = source.content.trim().length > SOURCE_PREVIEW_LENGTH;
+  const displayContent = hasContent
+    ? expanded || !isLongContent
+      ? source.content
+      : getSourcePreview(source.content)
+    : "这个引用来源没有返回片段摘要。";
+
   return (
     <article className="rounded-[8px] border border-slate-200 bg-white p-3 shadow-sm">
       <button
         type="button"
-        className="flex w-full cursor-pointer items-start gap-2 text-left"
+        className="flex w-full cursor-pointer items-start gap-2 rounded-[6px] text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200"
         onClick={onToggle}
+        aria-expanded={expanded}
+        aria-label={`${expanded ? "收起片段" : "展开片段"}：${source.documentName} Chunk #${source.chunkIndex}`}
       >
         <span className="flex size-5 shrink-0 items-center justify-center rounded-[4px] bg-blue-600 text-xs font-semibold text-white">
           {index + 1}
@@ -314,12 +374,25 @@ function SourceCard({
             <span>相关度 {formatScore(source.score)}</span>
           </div>
         </div>
-        <ChevronsUpDown className="mt-0.5 size-4 shrink-0 text-slate-400" />
+        <ChevronDown
+          className={cn(
+            "mt-0.5 size-4 shrink-0 text-slate-400 transition-transform duration-200",
+            expanded && "rotate-180",
+          )}
+        />
       </button>
-      {expanded && (
-        <p className="mt-3 max-h-44 overflow-auto whitespace-pre-wrap break-words rounded-[6px] border border-slate-200 bg-slate-50/70 p-3 text-xs leading-5 text-slate-600">
-          {source.content || "这个引用来源没有返回片段摘要。"}
-        </p>
+      <p
+        className={cn(
+          "mt-3 whitespace-pre-wrap break-words rounded-[6px] border border-slate-200 bg-slate-50/70 p-3 text-xs leading-5 text-slate-600",
+          expanded ? "max-h-52 overflow-auto" : "max-h-24 overflow-hidden",
+        )}
+      >
+        {displayContent}
+      </p>
+      {isLongContent && (
+        <div className="mt-2 text-right text-[11px] font-medium text-blue-600">
+          {expanded ? "收起片段" : "展开查看完整片段"}
+        </div>
       )}
     </article>
   );
@@ -482,6 +555,7 @@ export function RagChatWorkspace({
   const onSessionClearedRef = useRef(onSessionCleared);
   const onUnauthorizedRef = useRef(onUnauthorized);
   const messageRequestSeqRef = useRef(0);
+  const isSendingRef = useRef(false);
   const activeSession = sessions.find((session) => session.id === activeSessionId);
   const latestAssistantMessage = [...messages]
     .reverse()
@@ -493,6 +567,7 @@ export function RagChatWorkspace({
       ),
     [latestAssistantMessage],
   );
+  const hasLatestSources = latestSources.length > 0;
   const canChooseKnowledgeBase =
     knowledgeBases.length > 0 && !!onKnowledgeBaseChange;
   const isEmbedded = layout === "embedded";
@@ -520,6 +595,10 @@ export function RagChatWorkspace({
   useEffect(() => {
     onUnauthorizedRef.current = onUnauthorized;
   }, [onUnauthorized]);
+
+  useEffect(() => {
+    isSendingRef.current = isSending;
+  }, [isSending]);
 
   const handleRequestError = useCallback(
     (error: unknown) => {
@@ -879,6 +958,10 @@ export function RagChatWorkspace({
   }, [handleOpenSession, initialSessionId, isLoadingSessions]);
 
   const handleSubmit = async (payload: ChatComposerPayload) => {
+    if (isSendingRef.current) {
+      return;
+    }
+
     const content = payload.message.trim();
 
     if (!content) {
@@ -886,6 +969,7 @@ export function RagChatWorkspace({
       return;
     }
 
+    isSendingRef.current = true;
     setIsSending(true);
     setErrorMessage("");
 
@@ -937,6 +1021,7 @@ export function RagChatWorkspace({
       setErrorMessage(handleRequestError(error));
       throw error;
     } finally {
+      isSendingRef.current = false;
       setIsSending(false);
     }
   };
@@ -1114,7 +1199,7 @@ export function RagChatWorkspace({
               </Button>
             )}
             <SearchCheck className="size-4" />
-            非流式回答 · 引用来自检索片段
+            非流式回答 · 会结合当前会话上下文
           </div>
         </header>
 
@@ -1151,12 +1236,25 @@ export function RagChatWorkspace({
             )}
 
             {latestAssistantMessage && !isSending && (
-              <div className="rounded-[8px] border border-emerald-200 bg-emerald-50/50 px-4 py-3 text-xs text-slate-600">
+              <div
+                className={cn(
+                  "rounded-[8px] border px-4 py-3 text-xs text-slate-600",
+                  hasLatestSources
+                    ? "border-emerald-200 bg-emerald-50/50"
+                    : "border-slate-200 bg-slate-50",
+                )}
+              >
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <span className="inline-flex min-w-0 items-center gap-2">
-                    <CheckCircle2 className="size-4 shrink-0 text-emerald-600" />
+                    {hasLatestSources ? (
+                      <CheckCircle2 className="size-4 shrink-0 text-emerald-600" />
+                    ) : (
+                      <Info className="size-4 shrink-0 text-slate-500" />
+                    )}
                     <span className="min-w-0 truncate">
-                      本次回答引用 {latestSources.length} 个来源
+                      {hasLatestSources
+                        ? `本次回答引用 ${latestSources.length} 个来源`
+                        : "当前回答没有可展示的引用来源"}
                     </span>
                   </span>
                   <span className="shrink-0 text-slate-500">
@@ -1172,12 +1270,12 @@ export function RagChatWorkspace({
           <ChatComposer
             placeholder="向当前知识库提问..."
             onSubmit={handleSubmit}
-            disabled={isLoadingSessions}
+            disabled={isLoadingSessions || isLoadingMessages}
             isSubmitting={isSending}
             submitLabel={isSending ? "生成中" : "发送"}
             showAttachmentButton={false}
             showContextControls={false}
-            helperText="Enter 发送，Shift + Enter 换行。第一版不做流式输出。"
+            helperText="Enter 发送，Shift + Enter 换行。会结合当前会话上下文回答，非流式输出。"
           />
         </footer>
       </main>
@@ -1207,6 +1305,16 @@ export function RagChatWorkspace({
                   onToggle={() => toggleSource(source)}
                 />
               ))}
+            </div>
+          ) : latestAssistantMessage ? (
+            <div className="rounded-[8px] border border-dashed border-slate-200 px-4 py-8 text-center">
+              <Info className="mx-auto size-7 text-slate-300" />
+              <h3 className="mt-3 text-sm font-semibold text-slate-800">
+                当前回答没有可展示的引用来源
+              </h3>
+              <p className="mt-1 text-xs leading-5 text-slate-500">
+                后端返回了助手回答，但 sources 为空；这通常表示当前问题没有匹配到足够可展示的文档片段。
+              </p>
             </div>
           ) : (
             <div className="rounded-[8px] border border-dashed border-slate-200 px-4 py-8 text-center">

@@ -899,7 +899,7 @@ Content-Type: application/json
 | `DELETE` | `/api/chat/sessions/{sessionId}` | 删除会话 | 阶段 6 已实现 |
 | `GET` | `/api/chat/sessions/{sessionId}/messages` | 获取会话消息 | 阶段 6 已实现 |
 | `POST` | `/api/chat/sessions/{sessionId}/messages` | 发送问题并获取回答 | 阶段 6 已实现 |
-| `POST` | `/api/chat/sessions/{sessionId}/messages/stream` | 流式问答 | 阶段 10 可选规划，尚未实现 |
+| `POST` | `/api/chat/sessions/{sessionId}/messages/stream` | 流式问答 | 后续规划，尚未实现 |
 
 #### 创建会话
 
@@ -1119,7 +1119,10 @@ Content-Type: application/json
 - 当前 `sources` 来自阶段 9 PostgreSQL 全文检索结果，`score` 表示全文检索相关度分数。
 - `limit` 为空时默认 `5`，大于 `20` 时按 `20` 处理。
 - 模型调用失败时返回明确错误，不返回或泄露密钥。
-- 阶段 10 将增强多轮上下文、空检索降级提示和引用来源展示；如新增流式接口，必须先补充 SSE 契约。
+- 阶段 10 已增强多轮上下文、空检索降级提示和引用来源展示；默认使用当前会话最近 6 条以内历史消息进入 prompt，并限制总长度。
+- 阶段 10 空检索默认不调用模型，返回助手降级消息，`sources` 为空数组，不伪造引用来源。
+- 阶段 10 模型调用失败继续返回脱敏错误，不泄露 API key、base URL、model 或供应商敏感错误。
+- 如新增流式接口，必须先补充 SSE 契约。
 
 失败情况：
 

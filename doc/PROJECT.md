@@ -4,7 +4,7 @@
 
 KnowFlow AI 是一个智能知识库问答平台。目标是让用户上传学习资料、项目文档或产品文档后，可以基于自己的资料进行问答。
 
-阶段 9：检索质量升级已完成。项目已经具备文档上传、切片、PostgreSQL 全文检索、RAG 问答、引用来源、会话保存、会话管理、Settings 真实接后端、前端体验整理和后端稳定性测试能力。下一阶段是阶段 10：RAG 体验增强，优先提升多轮上下文、引用来源展示、空检索/模型失败降级提示；流式输出作为可选增量能力。
+阶段 10：RAG 体验增强已完成。项目已经具备文档上传、切片、PostgreSQL 全文检索、非流式 RAG 问答、最近 6 条以内多轮上下文、空检索降级、引用来源、会话保存、会话管理、Settings 真实接后端、前端体验整理和后端稳定性测试能力。下一阶段是阶段 11：文档处理增强，优先评估 Word、PPT、Excel、HTML、更多 PDF 场景和 OCR 是否进入当前 MVP。
 
 - 前端页面能调用真实后端接口。
 - 后端能连接 PostgreSQL。
@@ -12,7 +12,7 @@ KnowFlow AI 是一个智能知识库问答平台。目标是让用户上传学�
 - 用户可以注册、登录。
 - 前端可以读取后端知识库和文档数据。
 
-阶段 6 第一版复用阶段 5 的 PostgreSQL 关键词检索结果构造 prompt，已完成非流式问答、引用来源、会话和消息保存，并补齐会话重命名、删除、置顶/取消置顶。`/Chat/{sessionId}` 切换会话时只刷新消息区域，`/KnowledgeBases/{id}` 只保留文档检索测试区。阶段 9 已将普通关键词匹配升级为 PostgreSQL 全文检索；embedding、pgvector 和多模型选择仍放在后续扩展。
+阶段 6 第一版复用阶段 5 的 PostgreSQL 关键词检索结果构造 prompt，已完成非流式问答、引用来源、会话和消息保存，并补齐会话重命名、删除、置顶/取消置顶。`/Chat/{sessionId}` 切换会话时只刷新消息区域，`/KnowledgeBases/{id}` 只保留文档检索测试区。阶段 9 已将普通关键词匹配升级为 PostgreSQL 全文检索；阶段 10 已补齐非流式多轮上下文、空检索降级和引用来源体验；embedding、pgvector、流式输出和多模型选择仍放在后续扩展。
 
 ## 当前技术栈
 
@@ -57,6 +57,7 @@ KnowFlow AI 是一个智能知识库问答平台。目标是让用户上传学�
 - 文档列表、详情、删除和 chunk 查询接口。
 - 知识库内文档关键词检索接口：`POST /api/knowledge-bases/{knowledgeBaseId}/search`。
 - RAG/Chat 接口：创建会话、会话列表、修改会话、删除会话、消息列表、发送问题并保存引用来源。
+- RAG 体验增强：发送问题时默认加入当前会话最近 6 条以内历史消息；空检索不调用模型并返回助手降级消息；引用来源与实际 prompt 上下文保持一致。
 - 注册接口。
 - 登录接口，成功后返回 JWT `accessToken`。
 - 当前用户接口：`GET /api/auth/me`。
@@ -79,6 +80,7 @@ KnowFlow AI 是一个智能知识库问答平台。目标是让用户上传学�
 - Documents、KnowledgeBases、Chat、Login、Settings、Dashboard 页面的大文件已拆分，页面组件迁移到 `src/components/*`。
 - 文档相关 UI 位于 `src/components/documents/*`，知识库相关 UI 位于 `src/components/knowledge-bases/*`。
 - Chat 页面已接入阶段 6 RAG 问答接口，支持会话列表、消息展示、发送问题、引用来源、会话重命名、删除、置顶和取消置顶。
+- Chat 页面已接入阶段 10 RAG 体验增强，支持发送中状态、防重复提交、空引用来源提示、引用片段截断/展开和更明确的失败提示。
 - `/KnowledgeBases/{id}` 当前只保留文档检索测试区，不再承载 RAG 对话入口。
 - Dashboard 已改为从真实知识库、文档和会话接口汇总当前账号状态，不再使用旧静态 mock 统计。
 - KnowledgeBases 和 Chat 会通过现有文档列表接口补齐文档数、chunk 数和可检索来源数。
@@ -141,10 +143,10 @@ Frontend Chat UI
 
 当前优先级：
 
-1. 阶段 9 已完成：检索从普通关键词匹配升级为 PostgreSQL 全文检索，搜索结果和 RAG 引用来源使用相关度分数排序。
-2. 当前代码级验收结果：`cd backend && .\mvnw.cmd test` 通过，共 22 个测试通过；`pnpm build` 通过；阶段 9 前端目标文件 ESLint 通过。
-3. 全量 `pnpm lint` 仍有基础组件/Hook 的既有 lint 规则问题，未在阶段 9 处理。
-4. 下一阶段是阶段 10：RAG 体验增强，优先做多轮上下文控制、引用来源体验、空检索/模型失败降级提示；流式输出作为可选增量，不默认引入 embedding 或 pgvector。
+1. 阶段 10 已完成：非流式 RAG 问答已支持当前会话最近 6 条以内多轮上下文、空检索降级、引用来源一致性和前端引用体验增强。
+2. 当前代码级验收结果：`cd backend && .\mvnw.cmd test` 通过，共 27 个测试通过；`pnpm build` 通过；阶段 10 前端目标文件 ESLint 通过。
+3. `pnpm build` 仍有 Vite 主 chunk 超过 500KB 的体积警告，不是构建失败。
+4. 下一阶段是阶段 11：文档处理增强，优先评估更多文档格式、OCR、失败重试和是否需要后台处理队列；不默认引入 embedding、pgvector 或复杂 Agent 工作流。
 
 ## 本地开发命令
 

@@ -10,7 +10,7 @@ import { RagChatWorkspace } from "@/components/chat-page/rag-chat-workspace";
 import type { KnowledgeBase } from "@/components/knowledge-bases/knowledge-base-types";
 import { mapKnowledgeBaseResponse } from "@/components/knowledge-bases/knowledge-base-utils";
 import { Button } from "@/components/ui/button";
-import { clearMockAuthSession } from "@/lib/mock-auth";
+import { useAuthStore } from "@/store/auth";
 import { useKnowledgeBaseUsageStore } from "@/store/knowledge-base-usage";
 
 async function withDocumentStats(items: KnowledgeBase[]) {
@@ -59,6 +59,7 @@ const Chat = () => {
   const rememberKnowledgeBase = useKnowledgeBaseUsageStore(
     (state) => state.rememberKnowledgeBase,
   );
+  const clearSession = useAuthStore((state) => state.clearSession);
 
   useEffect(() => {
     locationPathnameRef.current = location.pathname;
@@ -73,12 +74,12 @@ const Chat = () => {
   }, [recentKnowledgeBaseId]);
 
   const redirectToLogin = useCallback(() => {
-    clearMockAuthSession();
+    clearSession();
     navigateRef.current("/login", {
       replace: true,
       state: { from: locationPathnameRef.current },
     });
-  }, []);
+  }, [clearSession]);
 
   const loadKnowledgeBases = useCallback(async () => {
     setIsLoading(true);
