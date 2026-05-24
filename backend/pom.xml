@@ -31,42 +31,60 @@
 		<java.version>21</java.version>
 	</properties>
 	<dependencies>
-		<!-- Apache PDFBox：用于从 PDF 文件中提取文本。第一阶段只做文本型 PDF，不做 OCR。 -->
+		<!-- Apache POI: extract paragraph and table text from DOCX files. -->
+		<dependency>
+			<groupId>org.apache.poi</groupId>
+			<artifactId>poi-ooxml</artifactId>
+			<version>5.5.1</version>
+		</dependency>
+		<!-- jsoup: parse HTML/HTM and keep visible body text only. -->
+		<dependency>
+			<groupId>org.jsoup</groupId>
+			<artifactId>jsoup</artifactId>
+			<version>1.22.2</version>
+		</dependency>
+		<!-- Apache PDFBox: extract text from text-based PDFs; Stage 11 still does not do OCR. -->
 		<dependency>
 			<groupId>org.apache.pdfbox</groupId>
 			<artifactId>pdfbox</artifactId>
 			<version>3.0.7</version>
 		</dependency>
-		<!-- MyBatis：用 SQL Mapper 操作数据库表 -->
+		<!-- MyBatis: SQL mapper based database access. -->
 		<dependency>
 			<groupId>org.mybatis.spring.boot</groupId>
 			<artifactId>mybatis-spring-boot-starter</artifactId>
 			<version>4.0.1</version>
 		</dependency>
-		<!-- Flyway：数据库版本管理，用 SQL 脚本建表、改表 -->
+		<!-- Flyway: database migration management. -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-flyway</artifactId>
 		</dependency>
-		<!-- Spring Security：后端安全、登录、权限控制 -->
+		<!-- Spring Security: backend authentication and authorization. -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-security</artifactId>
 		</dependency>
-		<!-- OAuth2 Resource Server：后面做 JWT token 鉴权会用到 -->
+		<!-- OAuth2 Resource Server: JWT token validation. -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-security-oauth2-resource-server</artifactId>
 		</dependency>
-		<!-- Validation：后面做请求参数校验，比如用户名不能为空 -->
+		<!-- Validation: request parameter validation support. -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-validation</artifactId>
 		</dependency>
-		<!-- Spring Web MVC：写 REST API，例如 GET /api/knowledge-bases -->
+		<!-- Spring Web MVC: REST API support. -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-webmvc</artifactId>
+		</dependency>
+		<!-- springdoc-openapi: Swagger UI and OpenAPI JSON for local API debugging. -->
+		<dependency>
+			<groupId>org.springdoc</groupId>
+			<artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+			<version>3.0.3</version>
 		</dependency>
 		<dependency>
 			<groupId>org.flywaydb</groupId>
@@ -84,13 +102,13 @@
 			<scope>runtime</scope>
 			<optional>true</optional>
 		</dependency>
-		<!-- PostgreSQL 驱动：让 Java 后端可以连接 PostgreSQL 数据库 -->
+		<!-- PostgreSQL driver. -->
 		<dependency>
 			<groupId>org.postgresql</groupId>
 			<artifactId>postgresql</artifactId>
 			<scope>runtime</scope>
 		</dependency>
-		<!-- Lombok：减少 getter/setter 等样板代码，当前还没真正用 -->
+		<!-- Lombok: existing project helper for boilerplate getters/setters. -->
 		<dependency>
 			<groupId>org.projectlombok</groupId>
 			<artifactId>lombok</artifactId>
@@ -175,5 +193,4 @@
 			</plugin>
 		</plugins>
 	</build>
-
 </project>

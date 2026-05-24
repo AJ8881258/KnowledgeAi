@@ -4,7 +4,7 @@
 
 KnowFlow AI 是一个智能知识库问答平台。目标是让用户上传学习资料、项目文档或产品文档后，可以基于自己的资料进行问答。
 
-阶段 10：RAG 体验增强已完成。项目已经具备文档上传、切片、PostgreSQL 全文检索、非流式 RAG 问答、最近 6 条以内多轮上下文、空检索降级、引用来源、会话保存、会话管理、Settings 真实接后端、前端体验整理和后端稳定性测试能力。下一阶段是阶段 11：文档处理增强，优先评估 Word、PPT、Excel、HTML、更多 PDF 场景和 OCR 是否进入当前 MVP。
+阶段 11：文档处理增强已完成。项目已经具备文档上传、切片、PostgreSQL 全文检索、非流式 RAG 问答、最近 6 条以内多轮上下文、空检索降级、引用来源、会话保存、会话管理、Settings 真实接后端、前端体验整理和后端稳定性测试能力。当前已支持 TXT、Markdown、文本型 PDF、DOCX、HTML/HTM 文本提取；暂不做 OCR、PPT、Excel、异步队列或复杂重试中心。
 
 - 前端页面能调用真实后端接口。
 - 后端能连接 PostgreSQL。
@@ -53,7 +53,7 @@ KnowFlow AI 是一个智能知识库问答平台。目标是让用户上传学�
 - 知识库列表、详情、创建、修改、删除接口。
 - 知识库接口按 JWT 当前用户隔离数据。
 - 知识库支持 `featured` 精选标记和 `themeId` 主题色字段。
-- 文档上传、文档解析、文档切片和 `INDEXED` / `FAILED` 状态流转。
+- 文档上传、文档解析、文档切片和 `INDEXED` / `FAILED` 状态流转；阶段 11 已从 TXT、Markdown、文本型 PDF 扩展到 `.docx` 和 `.html/.htm`。
 - 文档列表、详情、删除和 chunk 查询接口。
 - 知识库内文档关键词检索接口：`POST /api/knowledge-bases/{knowledgeBaseId}/search`。
 - RAG/Chat 接口：创建会话、会话列表、修改会话、删除会话、消息列表、发送问题并保存引用来源。
@@ -143,10 +143,10 @@ Frontend Chat UI
 
 当前优先级：
 
-1. 阶段 10 已完成：非流式 RAG 问答已支持当前会话最近 6 条以内多轮上下文、空检索降级、引用来源一致性和前端引用体验增强。
-2. 当前代码级验收结果：`cd backend && .\mvnw.cmd test` 通过，共 27 个测试通过；`pnpm build` 通过；阶段 10 前端目标文件 ESLint 通过。
-3. `pnpm build` 仍有 Vite 主 chunk 超过 500KB 的体积警告，不是构建失败。
-4. 下一阶段是阶段 11：文档处理增强，优先评估更多文档格式、OCR、失败重试和是否需要后台处理队列；不默认引入 embedding、pgvector 或复杂 Agent 工作流。
+1. 阶段 11 已完成：文档上传解析已支持 `.docx` 和 `.html/.htm`，并继续保留 `.txt`、`.md`、`.markdown` 和文本型 `.pdf`。
+2. 阶段 11 当前不支持旧版 `.doc`、PPT、Excel、扫描版 PDF OCR、后台队列或自动重试中心。
+3. 当前代码级验收结果：`cd backend && .\mvnw.cmd test` 通过，共 41 个测试通过；`pnpm build` 通过；Documents 目标文件 ESLint 通过。
+4. 下一阶段是阶段 12：权限与团队协作，先设计共享知识库、成员角色和权限边界，再决定最小可用实现范围。
 
 ## 本地开发命令
 

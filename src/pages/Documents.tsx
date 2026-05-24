@@ -11,6 +11,7 @@ import { DocumentTable } from "@/components/documents/document-table";
 import { DocumentToolbar } from "@/components/documents/document-toolbar";
 import { DocumentUploadZone } from "@/components/documents/document-upload-zone";
 import { ErrorPanel, EmptyPanel, LoadingPanel } from "@/components/documents/document-common";
+import { documentUploadAccept } from "@/components/documents/document-data";
 import type { DocumentItem, PageSize, StatusFilter, TypeTab } from "@/components/documents/document-types";
 import { getApiErrorMessage, getFileValidationMessage, getPaginationItems, isAllowedFile, mapDocument } from "@/components/documents/document-utils";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
@@ -424,7 +425,7 @@ const Documents = () => {
       <input
         ref={fileInputRef}
         type="file"
-        accept=".txt,.md,.markdown,.pdf,text/plain,text/markdown,text/x-markdown,application/pdf"
+        accept={documentUploadAccept}
         multiple
         className="hidden"
         onChange={handleFileChange}

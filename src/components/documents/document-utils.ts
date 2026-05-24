@@ -24,6 +24,14 @@ export function getDocumentType(filename: string): DocumentType {
     return "TXT";
   }
 
+  if (ext === ".docx") {
+    return "DOCX";
+  }
+
+  if (ext === ".html" || ext === ".htm") {
+    return "HTML";
+  }
+
   return "Unknown";
 }
 
@@ -47,11 +55,11 @@ export function getFileValidationMessage(file: File) {
   const ext = getExtension(file.name);
 
   if (!allowedExtensions.includes(ext)) {
-    return "仅支持 TXT、Markdown（.md/.markdown）和文本型 PDF 文件";
+    return "仅支持 TXT、Markdown、文本型 PDF、DOCX、HTML；暂不支持 .doc、PPT、Excel 和扫描版 PDF OCR";
   }
 
   if (file.size === 0) {
-    return "文件为空，请选择有内容的文本文件";
+    return "文件为空，请选择有内容的文档";
   }
 
   if (file.size > maxFileSize) {
@@ -106,7 +114,7 @@ export function getApiErrorMessage(error: unknown) {
     if (error.response?.status === 400) {
       return (
         backendMessage ||
-        "请求错误，请检查文件类型、大小、文本内容，或确认 PDF 可提取文本"
+        "请求错误，请检查文件类型、大小、文本内容，或确认 PDF/DOCX/HTML 可提取有效文本；扫描版 PDF 暂不支持 OCR"
       );
     }
 

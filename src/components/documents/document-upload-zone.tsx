@@ -48,10 +48,10 @@ export function DocumentUploadZone({
           />
           <div>
             <div className="text-base font-medium text-slate-900">
-              拖拽 TXT、Markdown、PDF 到这里
+              拖拽 TXT、Markdown、PDF、DOCX、HTML 到这里
             </div>
             <div className="mt-1 text-sm text-slate-500">
-              支持 .txt、.md、.markdown、文本型 PDF，单文件最大 10MB
+              支持 TXT、Markdown、文本型 PDF、DOCX、HTML，单文件最大 10MB
             </div>
           </div>
         </div>

@@ -1,7 +1,5 @@
 package com.knowflow.backend.document.controller;
 
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -14,9 +12,8 @@ import com.knowflow.backend.document.entity.Document;
 import com.knowflow.backend.document.entity.DocumentChunk;
 import com.knowflow.backend.document.repository.DocumentChunkRepository;
 import com.knowflow.backend.document.repository.DocumentRepository;
-import org.apache.pdfbox.Loader;
-import org.apache.pdfbox.pdmodel.PDDocument;
-import org.apache.pdfbox.text.PDFTextStripper;
+import com.knowflow.backend.document.service.DocumentTextExtractor;
+import com.knowflow.backend.knowledgebase.KnowledgeBaseRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -32,59 +29,57 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
-import com.knowflow.backend.knowledgebase.KnowledgeBaseRepository;
-
-// @RestController 表示这是 REST API 控制器，返回对象会自动转成 JSON。
 @RestController
 @RequestMapping("/api")
 public class DocumentController {
 
-    // 文件大小、切片长度、状态
     private static final long MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
     private static final int CHUNK_SIZE = 1000;
     private static final int CHUNK_OVERLAP = 150;
+    private static final int CONTENT_TYPE_MAX_LENGTH = 64;
 
-    // 文档状态（上传中、处理中、已索引、处理失败）
     private static final String STATUS_UPLOADED = "UPLOADED";
     private static final String STATUS_PROCESSING = "PROCESSING";
     private static final String STATUS_INDEXED = "INDEXED";
     private static final String STATUS_FAILED = "FAILED";
 
-    // 搜索文档片段
     private static final int DEFAULT_SEARCH_LIMIT = 5;
     private static final int MAX_SEARCH_LIMIT = 20;
 
-    // rep
     private final KnowledgeBaseRepository knowledgeBaseRepository;
     private final DocumentRepository documentRepository;
     private final DocumentChunkRepository documentChunkRepository;
+    private final DocumentTextExtractor documentTextExtractor;
 
-    // 带参构造函数
-    public DocumentController(KnowledgeBaseRepository knowledgeBaseRepository, DocumentRepository documentRepository,
-            DocumentChunkRepository documentChunkRepository) {
+    public DocumentController(
+            KnowledgeBaseRepository knowledgeBaseRepository,
+            DocumentRepository documentRepository,
+            DocumentChunkRepository documentChunkRepository,
+            DocumentTextExtractor documentTextExtractor) {
         this.knowledgeBaseRepository = knowledgeBaseRepository;
         this.documentRepository = documentRepository;
         this.documentChunkRepository = documentChunkRepository;
+        this.documentTextExtractor = documentTextExtractor;
     }
 
-    // 路径里的 knowledgeBaseId 表示上传到哪个知识库。
-    // @RequestPart("file") 用来接收 multipart/form-data 里的文件字段。
     @PostMapping("/knowledge-bases/{knowledgeBaseId}/documents")
     @ResponseStatus(HttpStatus.CREATED)
     public DocumentResponse uploadDocument(
-            // @RequestPart("file") 用来接收 multipart/form-data 里的文件字段。
-            @PathVariable Long knowledgeBaseId, @RequestPart("file") MultipartFile file,
+            @PathVariable Long knowledgeBaseId,
+            @RequestPart("file") MultipartFile file,
             @AuthenticationPrincipal Jwt jwt) {
-        // 权限校验：知识库必须属于当前登录用户。
-        // 如果不存在或不是自己的，统一返回 404，避免泄露别人的资源是否存在。
         Long userId = getCurrentUserId(jwt);
+
+        // Ownership is checked before processing so another user's KB cannot be probed through uploads.
         knowledgeBaseRepository.findByIdAndCreatedBy(knowledgeBaseId, userId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "knowledge base not found"));
-        validateFile(file);
+
+        validateBasicFile(file);
+
         Document document = new Document();
         document.setKnowledgeBaseId(knowledgeBaseId);
         document.setOriginalFilename(file.getOriginalFilename());
-        document.setContentType(file.getContentType());
+        document.setContentType(safeContentType(file.getContentType()));
         document.setSizeBytes(file.getSize());
         document.setStatus(STATUS_UPLOADED);
         document.setErrorMessage(null);
@@ -94,57 +89,64 @@ public class DocumentController {
         if (insertedRows != 1) {
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "document upload failed");
         }
+
+        // Keep the existing synchronous state flow: UPLOADED -> PROCESSING -> INDEXED/FAILED.
         documentRepository.updateStatusByIdAndCreatedBy(document.getId(), userId, STATUS_PROCESSING, null);
 
         try {
-            String text = readText(file);
-            // 空白文本推荐保留 FAILED 记录：
-            // 这样用户能在文档列表看到失败原因，也方便你学习状态流转。
-
+            String text = documentTextExtractor.extract(file);
             if (text.isBlank()) {
-                documentRepository.updateStatusByIdAndCreatedBy(document.getId(), userId, STATUS_FAILED,
-                        "Document is blank");
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Document is blank");
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Document content is blank");
             }
-            List<String> chunks = splitText(text);
-            for (int i = 0; i < chunks.size(); i++) {
 
-                String content = chunks.get(i);
+            // DOCX/HTML only extend text extraction; chunks still feed existing full-text search and RAG.
+            List<String> chunks = splitText(text);
+            for (int index = 0; index < chunks.size(); index++) {
+                String content = chunks.get(index);
+
                 DocumentChunk chunk = new DocumentChunk();
                 chunk.setDocumentId(document.getId());
                 chunk.setKnowledgeBaseId(knowledgeBaseId);
-                chunk.setChunkIndex(i);
+                chunk.setChunkIndex(index);
                 chunk.setContent(content);
                 chunk.setCharCount(content.length());
 
                 documentChunkRepository.insert(chunk);
             }
+
             documentRepository.updateStatusByIdAndCreatedBy(document.getId(), userId, STATUS_INDEXED, null);
 
             Document saved = getDocumentOr404(document.getId(), userId);
             Long chunkCount = documentChunkRepository.countByDocumentId(saved.getId());
             return new DocumentResponse(saved, chunkCount);
+        } catch (DocumentTextExtractor.ExtractionFailure exception) {
+            failDocument(document.getId(), userId, exception.getUserMessage());
+            throw new ResponseStatusException(exception.getStatus(), exception.getUserMessage());
         } catch (ResponseStatusException exception) {
-            throw exception;
+            String safeMessage = safeReason(exception);
+            failDocument(document.getId(), userId, safeMessage);
+            throw new ResponseStatusException(resolveStatus(exception), safeMessage);
         } catch (Exception exception) {
-            documentRepository.updateStatusByIdAndCreatedBy(document.getId(), userId, STATUS_FAILED,
-                    exception.getMessage());
+            // Sanitized fallback avoids leaking server paths, temp names, dependency stack traces, or DB details.
+            failDocument(document.getId(), userId, "Document processing failed");
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Process document failed");
         }
     }
 
-    // 获取某个知识库下文档列表
     @GetMapping("/knowledge-bases/{knowledgeBaseId}/documents")
     public List<DocumentResponse> listDocuments(@PathVariable Long knowledgeBaseId, @AuthenticationPrincipal Jwt jwt) {
         Long userId = getCurrentUserId(jwt);
         knowledgeBaseRepository.findByIdAndCreatedBy(knowledgeBaseId, userId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "knowledge base not found"));
-        return documentRepository.findAllByKnowledgeBaseIdAndCreatedBy(knowledgeBaseId, userId).stream().map(
-                document -> new DocumentResponse(document, documentChunkRepository.countByDocumentId(document.getId())))
+
+        return documentRepository.findAllByKnowledgeBaseIdAndCreatedBy(knowledgeBaseId, userId)
+                .stream()
+                .map(document -> new DocumentResponse(
+                        document,
+                        documentChunkRepository.countByDocumentId(document.getId())))
                 .toList();
     }
 
-    // 搜索文档
     @PostMapping("/knowledge-bases/{knowledgeBaseId}/search")
     public SearchDocumentResponse searchDocuments(
             @PathVariable Long knowledgeBaseId,
@@ -152,21 +154,21 @@ public class DocumentController {
             @AuthenticationPrincipal Jwt jwt) {
         Long userId = getCurrentUserId(jwt);
 
-        // 校验权限：知识库必须属于当前登录用户。
+        // Search must also bind KB and user ID to prevent cross-user chunk access.
         knowledgeBaseRepository.findByIdAndCreatedBy(knowledgeBaseId, userId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Knowledge base not found"));
 
         String query = normalizeSearchQuery(request == null ? null : request.getQuery());
         Integer limit = normalizeSearchLimit(request == null ? null : request.getLimit());
 
-        // 检索 SQL 必须同时限制知识库 ID 和用户 ID，避免跨用户搜索到其他人的文档片段。
-        List<SearchResultResponse> results = documentChunkRepository.searchIndexedChunks(knowledgeBaseId, userId, query,
+        List<SearchResultResponse> results = documentChunkRepository.searchIndexedChunks(
+                knowledgeBaseId,
+                userId,
+                query,
                 limit);
-        //
         return new SearchDocumentResponse(query, results);
     }
 
-    // 获取文档详情
     @GetMapping("/documents/{documentId}")
     public DocumentResponse getDocument(@PathVariable Long documentId, @AuthenticationPrincipal Jwt jwt) {
         Long userId = getCurrentUserId(jwt);
@@ -175,23 +177,20 @@ public class DocumentController {
         return new DocumentResponse(document, chunkCount);
     }
 
-    // 获取文档切片列表
     @GetMapping("/documents/{documentId}/chunks")
     public List<DocumentChunkResponse> listChunks(@PathVariable Long documentId, @AuthenticationPrincipal Jwt jwt) {
         Long userId = getCurrentUserId(jwt);
-
-        // 确认文档所有人
         getDocumentOr404(documentId, userId);
-        return documentChunkRepository.findAllByDocumentId(documentId).stream().map(DocumentChunkResponse::new)
+
+        return documentChunkRepository.findAllByDocumentId(documentId)
+                .stream()
+                .map(DocumentChunkResponse::new)
                 .toList();
     }
 
-    // 删除文档。
-    // document_chunks.document_id 已设置 ON DELETE CASCADE，所以删除文档会自动删除 chunks。
     @DeleteMapping("/documents/{documentId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteDocument(@PathVariable Long documentId, @AuthenticationPrincipal Jwt jwt) {
-
         Long userId = getCurrentUserId(jwt);
         int rows = documentRepository.deleteByIdAndCreatedBy(documentId, userId);
         if (rows != 1) {
@@ -215,7 +214,6 @@ public class DocumentController {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Document not found"));
     }
 
-    // 判断搜索查询是否为空
     private String normalizeSearchQuery(String query) {
         if (query == null || query.trim().isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "query is empty");
@@ -223,7 +221,6 @@ public class DocumentController {
         return query.trim();
     }
 
-    // 判断搜索限制是否有效
     private Integer normalizeSearchLimit(Integer limit) {
         if (limit == null) {
             return DEFAULT_SEARCH_LIMIT;
@@ -234,7 +231,30 @@ public class DocumentController {
         return Math.min(limit, MAX_SEARCH_LIMIT);
     }
 
-    private void validateFile(MultipartFile file) {
+    private List<String> splitText(String text) {
+        List<String> chunks = new ArrayList<>();
+        int start = 0;
+        int textLength = text.length();
+        while (start < textLength) {
+            int end = Math.min(start + CHUNK_SIZE, textLength);
+            String chunk = text.substring(start, end).trim();
+
+            if (!chunk.isBlank()) {
+                chunks.add(chunk);
+            }
+            if (end >= textLength) {
+                break;
+            }
+            // Overlap keeps nearby context when a sentence is split on a chunk boundary.
+            start = end - CHUNK_OVERLAP;
+        }
+        if (chunks.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Document content is blank");
+        }
+        return chunks;
+    }
+
+    private void validateBasicFile(MultipartFile file) {
         if (file == null || file.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "File is required");
         }
@@ -246,54 +266,31 @@ public class DocumentController {
         if (filename == null || filename.isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Filename is required");
         }
-        String lowerName = filename.toLowerCase();
-        if (!lowerName.endsWith(".txt") && !lowerName.endsWith(".pdf") && !lowerName.endsWith(".md")
-                && !lowerName.endsWith(".markdown")) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "File must be txt, pdf, md/markdown");
-        }
     }
 
-    private String readText(MultipartFile file) throws IOException {
-        String fileName = file.getOriginalFilename();
-        // pdf 文件需要使用专门的解析器提取文本
-        if (fileName != null && fileName.toLowerCase().endsWith(".pdf")) {
-            return readPdfText(file);
+    private String safeContentType(String contentType) {
+        if (contentType == null || contentType.isBlank()) {
+            return null;
         }
-        // 文档解析器：支持 txt, md, markdown 格式文件
-        return new String(file.getBytes(), StandardCharsets.UTF_8);
+        // Long Office MIME types are kept as metadata but capped to the documents.content_type column size.
+        return contentType.length() > CONTENT_TYPE_MAX_LENGTH
+                ? contentType.substring(0, CONTENT_TYPE_MAX_LENGTH)
+                : contentType;
     }
 
-    private String readPdfText(MultipartFile file) throws IOException {
-        try (PDDocument document = Loader.loadPDF(file.getBytes())) {
-            PDFTextStripper stripper = new PDFTextStripper();
-            return stripper.getText(document);
-        }
+    private void failDocument(Long documentId, Long userId, String safeMessage) {
+        documentRepository.updateStatusByIdAndCreatedBy(documentId, userId, STATUS_FAILED, safeMessage);
     }
 
-    private List<String> splitText(String text) {
-        List<String> chunks = new ArrayList<>();
-        int start = 0;
-        int textLength = text.length();
-        while (start < textLength) {
-            int end = Math.min(start + CHUNK_SIZE, textLength);
-            String chunk = text.substring(start, end).trim();
-
-            // trim 后为空的片段不入库，避免产生无意义 chunk。
-            if (!chunk.isBlank()) {
-                chunks.add(chunk);
-            }
-            if (end >= textLength) {
-                break;
-            }
-            // overlap 的作用：
-            // 下一个 chunk 往回重叠 150 个字符，避免一句话刚好被切断后丢失上下文。
-
-            start = end - CHUNK_OVERLAP;
+    private String safeReason(ResponseStatusException exception) {
+        if (exception.getReason() == null || exception.getReason().isBlank()) {
+            return "Document processing failed";
         }
-        if (chunks.isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Document content is blank");
-        }
-        return chunks;
+        return exception.getReason();
     }
 
+    private HttpStatus resolveStatus(ResponseStatusException exception) {
+        HttpStatus status = HttpStatus.resolve(exception.getStatusCode().value());
+        return status == null ? HttpStatus.INTERNAL_SERVER_ERROR : status;
+    }
 }

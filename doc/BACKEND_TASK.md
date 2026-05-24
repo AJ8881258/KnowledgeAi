@@ -1,140 +1,76 @@
-# 后端任务书：阶段 10 收尾完成
+# 后端任务书：阶段 11 文档处理增强收尾完成
 
-本任务书是后端会话的固定入口。后续每个阶段都复用本文件，由文档会话实时更新当前任务。用户正在练习后端，默认不要直接修改后端业务源码；请给除导入部分包以外的完整代码、文件相对路径、实现顺序、文件清单、关键注释和测试命令。
-
-## 当前目标
-
-阶段 10：RAG 体验增强已完成。当前文件保留阶段 10 验收结果和下一阶段占位；进入阶段 11 前，由文档会话重新改写本文件为“阶段 11 后端任务书”。
-
-阶段 10 已完成的后端目标：在阶段 9 PostgreSQL 全文检索稳定后，增强问答体验和可信度，控制多轮上下文、优化空检索和模型失败降级、保持引用来源可追踪。流式输出未实现，继续作为后续规划。
-
-本阶段默认不做：
-
-- embedding
-- pgvector
-- 多模型选择
-- Agent 工作流
-- 复杂提示词编排系统
-- 知识库权限共享
-- 大规模接口重构
+本任务书是后端会话的固定入口。后续每个阶段都复用本文件，由文档会话实时更新当前任务。后端会话必须先阅读 `AGENTS.md`、`doc/STAGE_PLAN.md`、`doc/PROJECT.md`、`doc/API.md` 和本文件。
 
 ## 必读规则
 
 - 注意：我是后端学习阶段，你不要直接改后端业务源码。请给我除了导入部分包其他的完整代码、文件相对路径、实现顺序、文件清单、关键注释和测试命令，我自己写代码。
-- 例外：测试类可以直接编辑。`backend/src/test/**` 下的测试文件允许 Agent 直接新增或修改，用来补充验收覆盖、复现问题和验证用户手写的业务代码。
-- 后端会话必须先读 `AGENTS.md`、`doc/STAGE_PLAN.md`、`doc/PROJECT.md`、`doc/API.md` 和本文件。
-- 不要修改已经执行过的 Flyway 迁移文件；表结构或索引变化只能新增迁移。
-- 任何接口变化必须提醒文档会话同步 `doc/API.md`。
-- 不要绕过 JWT 用户隔离；Chat session、knowledge base、documents、chunks 都必须属于当前用户。
+- 测试类可以直接编辑，`backend/src/test/**` 下的后端测试文件允许 Agent 直接新增或修改。
+- 不要修改已经执行过的 Flyway 迁移文件；如果确实需要表结构或索引变化，只能新增迁移文件。
+- 任何接口路径、请求体、响应体或错误语义变化，都必须提醒文档会话同步 `doc/API.md`。
+- 不要绕过 JWT 用户隔离；知识库、文档、chunks、搜索和 Chat 都必须只访问当前用户自己的数据。
+- 新增或修改功能代码时，在新增字段、DTO、接口方法、Service 分支、事务边界、解析分支、状态流转等功能点旁附上简短注释，说明业务目的或与旧代码的区别；不要给 import、基础注解、getter/setter 写噪声注释。
 
-## 当前接口边界
+## 当前目标
 
-阶段 10 默认继续增强已实现的非流式接口：
+阶段 11：文档处理增强已完成。
 
-```http
-POST /api/chat/sessions/{sessionId}/messages
-```
+当前后端已在不改变现有上传接口路径和响应结构的前提下，把文档上传解析能力从 TXT、Markdown、文本型 PDF 扩展到 DOCX 和 HTML。
 
-请求体保持：
-
-```json
-{
-  "content": "JWT 登录流程是什么？",
-  "limit": 5
-}
-```
-
-响应主体结构保持兼容：
-
-```json
-{
-  "message": {
-    "id": 11,
-    "sessionId": 1,
-    "role": "ASSISTANT",
-    "content": "根据当前知识库资料，JWT 登录流程是...",
-    "sources": [
-      {
-        "documentId": 2,
-        "documentName": "auth.md",
-        "chunkId": 8,
-        "chunkIndex": 0,
-        "content": "登录成功后生成 JWT...",
-        "score": 0.42
-      }
-    ],
-    "createdAt": "2026-05-16T10:01:10Z"
-  }
-}
-```
-
-可选流式接口暂不默认实现：
+接口保持不变：
 
 ```http
-POST /api/chat/sessions/{sessionId}/messages/stream
+POST /api/knowledge-bases/{knowledgeBaseId}/documents
 ```
 
-如果决定做流式输出，必须先让文档会话把 SSE 事件契约同步到 `doc/API.md`，再开始实现。
+## 已完成内容
 
-## 当前任务
+1. 保留现有 `.txt`、`.md`、`.markdown`、文本型 `.pdf` 支持。
+2. 新增 `.docx` 文本提取，优先提取段落和表格文本。
+3. 新增 `.html` / `.htm` 文本提取，过滤 `script`、`style`、`noscript` 等非正文内容。
+4. 保持单文件 `10MB` 限制。
+5. 保持现有 `UPLOADED`、`PROCESSING`、`INDEXED`、`FAILED` 状态流转。
+6. 解析成功后继续复用现有切片、`document_chunks` 入库、全文检索索引和 RAG 链路。
+7. 解析失败、空文本或不支持格式时返回清晰错误，并把文档标记为 `FAILED`；错误信息不泄露服务器内部路径、堆栈或依赖库原始敏感报错。
+8. 未新增上传接口，未新增异步任务接口，未修改搜索或 Chat 接口。
 
-### 任务 1：多轮上下文控制
+## 本阶段不做
 
-- 在构造 prompt 时加入当前会话最近的少量历史消息，默认最近 6 条以内，并按时间顺序拼接。
-- 历史消息必须来自当前用户自己的 `sessionId`，不能跨会话、跨用户、跨知识库读取。
-- 历史上下文只用于模型 prompt，不改变消息列表查询接口；超出长度预算时优先丢弃更早历史。
-- 必须限制历史条数和内容长度，避免 prompt 过长和成本失控。
-- 保留阶段 8 的 RAG 参数：`topK`、`maxContextChunks`、`temperature` 仍要被后续问答使用。
+- 不支持旧版 `.doc`。
+- 不支持 PPT / PPTX。
+- 不支持 Excel / XLSX。
+- 不做扫描版 PDF OCR。
+- 不做后台队列、任务中心或自动重试中心。
+- 不引入 embedding、pgvector 或 Agent 工作流。
 
-### 任务 2：空检索降级
+## 已涉及文件
 
-- 当阶段 9 全文检索没有返回 chunks 时，后端不要假装找到了资料。
-- 建议返回一条明确的助手消息，例如“当前知识库中没有检索到足够相关的资料，请换个问法或上传更多文档。”
-- 空检索时 `sources` 返回空数组。
-- 默认不调用模型，直接保存用户消息和助手降级消息，减少幻觉和成本。
-- 用户消息和助手降级消息仍应保存，方便前端展示完整对话。
+- `backend/pom.xml`
+- `backend/src/main/java/com/knowflow/backend/document/controller/DocumentController.java`
+- `backend/src/main/java/com/knowflow/backend/document/repository/DocumentRepository.java`
+- `backend/src/main/java/com/knowflow/backend/document/repository/DocumentChunkRepository.java`
+- `backend/src/main/java/com/knowflow/backend/document/service/DocumentTextExtractor.java`
+- `backend/src/test/java/com/knowflow/backend/Stage11DocumentProcessingTests.java`
 
-### 任务 3：引用来源稳定性
+## 关键注释要求
 
-- 继续使用阶段 9 的全文检索排序。
-- `sources` 必须保留 `documentId`、`documentName`、`chunkId`、`chunkIndex`、`content`、`score`。
-- `score` 继续表示 PostgreSQL 全文检索相关度分数。
-- 保存引用来源时保持和回答使用的上下文一致，避免前端看到的引用与 prompt 实际上下文不一致。
+只在关键逻辑旁写简短注释，必须覆盖：
 
-### 任务 4：模型失败和超时降级
+- 为什么支持 `.docx` 但不支持旧版 `.doc`。
+- 为什么 HTML 要去掉 `script` / `style` / `noscript`。
+- 为什么本阶段不做 OCR、PPT、Excel。
+- 为什么解析失败信息要脱敏。
+- 为什么解析结果继续进入现有切片和索引流程。
 
-- 模型调用失败时继续返回脱敏错误，不泄露 API key、base URL、model 或供应商原始敏感报错。
-- 如果模型调用失败，必须明确事务边界：用户消息是否保存、助手失败消息是否保存，要保持前端可解释。
-- 建议沿用当前阶段 7 的脱敏错误文案 `AI model call failed`，除非同步更新 `doc/API.md`。
+## 验收结果
 
-### 任务 5：可选流式输出预留
+```powershell
+cd backend
+.\mvnw.cmd test
+```
 
-- 阶段 10 可以先不做流式输出。
-- 如果用户明确要求做流式输出，优先新增 `POST /api/chat/sessions/{sessionId}/messages/stream`。
-- 流式接口必须复用同一套权限校验、检索、prompt 构造、消息保存和引用来源保存逻辑。
-- 流式过程中如果失败，不能泄露密钥或供应商敏感错误。
-
-## 注释要求
-
-只在关键逻辑上加注释：
-
-- 说明为什么多轮上下文必须限制条数和长度。
-- 说明历史消息为什么必须限定在当前用户、当前会话。
-- 说明空检索时为什么不能伪造来源或假装有资料。
-- 说明引用来源保存为什么必须和 prompt 上下文一致。
-- 说明模型失败时哪些数据会保存、哪些不会保存。
-- 不要给 import、基础注解、getter/setter 写噪声注释。
-
-## 验收标准
-
-- `cd backend && .\mvnw.cmd test` 已通过，共 27 个测试。
-- 阶段 7、阶段 8、阶段 9 既有测试仍通过。
-- 多轮上下文只使用当前会话最近消息，不串用户、不串知识库。
-- 空检索返回清晰降级消息，`sources` 为空数组。
-- 引用来源顺序和阶段 9 全文检索排序一致。
-- 模型失败返回脱敏错误，不泄露 API key、base URL 或 model。
-- 不引入 embedding、pgvector、多模型选择或 Agent 工作流。
+验收结果：通过，共 41 个测试，0 失败，0 错误。
 
 ## 下一阶段占位
 
-下一阶段为阶段 11：文档处理增强。进入阶段 11 前，文档会话需要根据 `doc/STAGE_PLAN.md`、`doc/PROJECT.md` 和 `doc/API.md` 重新写清后端任务边界。后端仍按学习规则执行：业务源码默认由用户自己写，测试类 `backend/src/test/**` 可以由 Agent 直接新增或修改。
+下一阶段为阶段 12：权限与团队协作。进入阶段 12 前，文档会话需要重新改写本文件为阶段 12 后端任务书。后端仍按学习规则执行：业务源码默认由用户自己写，测试类 `backend/src/test/**` 可以由 Agent 直接新增或修改。

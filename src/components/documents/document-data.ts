@@ -1,7 +1,14 @@
 import type { DocumentStatus } from "@/api/documents";
 import type { DocumentType, PageSize, StatusFilter, TypeTab } from "./document-types";
 
-export const typeFilters: TypeTab[] = ["全部", "PDF", "Markdown", "TXT"];
+export const typeFilters: TypeTab[] = [
+  "全部",
+  "PDF",
+  "Markdown",
+  "TXT",
+  "DOCX",
+  "HTML",
+];
 export const statusFilters: { value: StatusFilter; label: string }[] = [
   { value: "ALL", label: "全部状态" },
   { value: "UPLOADED", label: "已上传" },
@@ -10,7 +17,30 @@ export const statusFilters: { value: StatusFilter; label: string }[] = [
   { value: "FAILED", label: "失败" },
 ];
 export const pageSizeOptions: PageSize[] = [20, 50, 100];
-export const allowedExtensions = [".txt", ".md", ".markdown", ".pdf"];
+export const allowedExtensions = [
+  ".txt",
+  ".md",
+  ".markdown",
+  ".pdf",
+  ".docx",
+  ".html",
+  ".htm",
+];
+export const documentUploadAccept = [
+  ".txt",
+  ".md",
+  ".markdown",
+  ".pdf",
+  ".docx",
+  ".html",
+  ".htm",
+  "text/plain",
+  "text/markdown",
+  "text/x-markdown",
+  "application/pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "text/html",
+].join(",");
 export const maxFileSize = 10 * 1024 * 1024;
 
 export const statusMeta: Record<
@@ -70,6 +100,16 @@ export const typeMeta: Record<
     className: "bg-blue-600 text-white",
     shortLabel: "TXT",
     label: "TXT",
+  },
+  DOCX: {
+    className: "bg-indigo-600 text-white",
+    shortLabel: "DOCX",
+    label: "DOCX",
+  },
+  HTML: {
+    className: "bg-orange-600 text-white",
+    shortLabel: "HTML",
+    label: "HTML",
   },
   Unknown: {
     className: "bg-slate-500 text-white",
