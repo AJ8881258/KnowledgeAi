@@ -14,6 +14,8 @@ import { ErrorPanel, EmptyPanel, LoadingPanel } from "@/components/documents/doc
 import { documentUploadAccept } from "@/components/documents/document-data";
 import type { DocumentItem, PageSize, StatusFilter, TypeTab } from "@/components/documents/document-types";
 import { getApiErrorMessage, getFileValidationMessage, getPaginationItems, isAllowedFile, mapDocument } from "@/components/documents/document-utils";
+import { canMutateKnowledgeBaseDocuments } from "@/components/knowledge-bases/knowledge-base-permissions";
+import { mapKnowledgeBaseResponse } from "@/components/knowledge-bases/knowledge-base-utils";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { clearMockAuthSession } from "@/lib/mock-auth";
 import { useKnowledgeBaseUsageStore } from "@/store/knowledge-base-usage";
@@ -72,6 +74,14 @@ const Documents = () => {
   const currentKnowledgeBase = knowledgeBases.find(
     (item) => String(item.id) === String(knowledgeBaseId),
   );
+  const currentKnowledgeBaseModel = currentKnowledgeBase
+    ? mapKnowledgeBaseResponse(currentKnowledgeBase)
+    : null;
+  const canMutateDocuments = currentKnowledgeBaseModel
+    ? canMutateKnowledgeBaseDocuments(currentKnowledgeBaseModel)
+    : false;
+  const documentMutationDisabledReason =
+    "当前角色为只读，只能查看、检索和进入 Chat 问答，不能上传或删除文档。";
   const currentKnowledgeBaseLabel = hasKnowledgeBaseId
     ? currentKnowledgeBase?.name ?? `知识库 #${knowledgeBaseId}`
     : "";
@@ -295,6 +305,11 @@ const Documents = () => {
   const processFiles = async (files: FileList | null) => {
     if (!files?.length || isUploading) return;
 
+    if (!canMutateDocuments) {
+      toast.error(documentMutationDisabledReason);
+      return;
+    }
+
     if (!knowledgeBaseId) {
       toast.error("请先选择一个知识库，再上传文档");
       return;
@@ -337,7 +352,7 @@ const Documents = () => {
 
   const handleDragOver = (event: React.DragEvent) => {
     event.preventDefault();
-    if (!isUploading && knowledgeBaseId) {
+    if (!isUploading && knowledgeBaseId && canMutateDocuments) {
       setIsDragging(true);
     }
   };
@@ -355,6 +370,12 @@ const Documents = () => {
 
   const confirmDeleteDocument = async () => {
     if (!documentToDelete) {
+      return;
+    }
+
+    if (!canMutateDocuments) {
+      toast.error(documentMutationDisabledReason);
+      setDocumentToDelete(null);
       return;
     }
 
@@ -412,6 +433,8 @@ const Documents = () => {
         paginationItems={paginationItems}
         pageSize={pageSize}
         isDeleting={isDeleting}
+        canDeleteDocuments={canMutateDocuments}
+        deleteDisabledReason={documentMutationDisabledReason}
         onSelectDocument={(doc) => void selectDocument(doc)}
         onDeleteDocument={setDocumentToDelete}
         onPageChange={setCurrentPage}
@@ -441,6 +464,8 @@ const Documents = () => {
               typeTab={typeTab}
               statusFilter={statusFilter}
               isUploading={isUploading}
+              canUpload={canMutateDocuments}
+              uploadDisabledReason={documentMutationDisabledReason}
               onNavigate={navigate}
               onTypeTabChange={handleTypeTabChange}
               onStatusFilterChange={handleStatusFilterChange}
@@ -459,6 +484,8 @@ const Documents = () => {
                   knowledgeBaseId={knowledgeBaseId}
                   isUploading={isUploading}
                   isDragging={isDragging}
+                  canUpload={canMutateDocuments}
+                  disabledReason={documentMutationDisabledReason}
                   onUploadClick={() => fileInputRef.current?.click()}
                   onDragOver={handleDragOver}
                   onDragLeave={handleDragLeave}

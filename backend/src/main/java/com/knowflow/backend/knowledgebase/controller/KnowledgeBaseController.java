@@ -1,10 +1,16 @@
-package com.knowflow.backend.knowledgebase;
+package com.knowflow.backend.knowledgebase.controller;
 
-import java.util.List;
-
+import com.knowflow.backend.knowledgebase.dto.request.CreateKnowledgeBaseRequest;
+import com.knowflow.backend.knowledgebase.dto.request.UpdateKnowledgeBaseRequest;
+import com.knowflow.backend.knowledgebase.entity.KnowledgeBase;
+import com.knowflow.backend.knowledgebase.entity.KnowledgeBaseMember;
+import com.knowflow.backend.knowledgebase.repository.KnowledgeBaseMemberRepository;
+import com.knowflow.backend.knowledgebase.repository.KnowledgeBaseRepository;
+import com.knowflow.backend.knowledgebase.service.KnowledgeBaseAccessService;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -16,42 +22,44 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
-// @RestController 表示这是 REST API 控制器
-// 方法返回的对象会自动转换成 JSON
+import java.util.List;
+
+import static com.knowflow.backend.common.utils.AuthUtils.getCurrentUserId;
+
 @RestController
-// 这个 Controller 下面所有接口都以 /api/knowledge-bases 开头
 @RequestMapping("/api/knowledge-bases")
 public class KnowledgeBaseController {
 
-    // 注入 Repository，用它查询数据库
     private final KnowledgeBaseRepository knowledgeBaseRepository;
+    private final KnowledgeBaseMemberRepository memberRepository;
+    private final KnowledgeBaseAccessService accessService;
 
-    // 构造器注入
-    // Spring 会自动把 KnowledgeBaseRepository 传进来
-    public KnowledgeBaseController(KnowledgeBaseRepository knowledgeBaseRepository) {
+    public KnowledgeBaseController(
+            KnowledgeBaseRepository knowledgeBaseRepository,
+            KnowledgeBaseMemberRepository memberRepository,
+            KnowledgeBaseAccessService accessService) {
         this.knowledgeBaseRepository = knowledgeBaseRepository;
+        this.memberRepository = memberRepository;
+        this.accessService = accessService;
     }
 
-    // 查询用户所有创建的知识库
     @GetMapping
     public List<KnowledgeBase> listKnowledgeBases(@AuthenticationPrincipal Jwt jwt) {
         Long userId = getCurrentUserId(jwt);
-        return knowledgeBaseRepository.findAllByCreatedBy(userId);
+        return knowledgeBaseRepository.findAllAccessibleByUserId(userId);
     }
 
-    // 查询指定 ID 的知识库
     @GetMapping("/{id}")
     public KnowledgeBase getKnowledgeBase(
             @PathVariable Long id,
             @AuthenticationPrincipal Jwt jwt) {
         Long userId = getCurrentUserId(jwt);
-        return knowledgeBaseRepository.findByIdAndCreatedBy(id, userId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Knowledge base not found"));
+        return accessService.requireMember(id, userId);
     }
 
-    // 创建当前登录用户自己的知识库
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
+    @Transactional
     public KnowledgeBase createKnowledgeBase(
             @RequestBody CreateKnowledgeBaseRequest request,
             @AuthenticationPrincipal Jwt jwt) {
@@ -73,54 +81,62 @@ public class KnowledgeBaseController {
         if (rows != 1) {
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Create knowledge base failed");
         }
-        return knowledgeBaseRepository.findByIdAndCreatedBy(knowledgeBase.getId(), userId)
+
+        KnowledgeBaseMember ownerMember = new KnowledgeBaseMember();
+        ownerMember.setKnowledgeBaseId(knowledgeBase.getId());
+        ownerMember.setUserId(userId);
+        ownerMember.setRole(KnowledgeBaseAccessService.ROLE_OWNER);
+
+        // 阶段 12：创建者不再只靠 created_by 表示权限，同时写入 OWNER 成员记录。
+        int memberRows = memberRepository.insert(ownerMember);
+        if (memberRows != 1) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Create owner membership failed");
+        }
+
+        return knowledgeBaseRepository.findAccessibleById(knowledgeBase.getId(), userId)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.INTERNAL_SERVER_ERROR,
                         "Create knowledge base not found"));
     }
 
-    // 修改知识库
     @PatchMapping("/{id}")
     public KnowledgeBase updateKnowledgeBase(
             @PathVariable Long id,
             @RequestBody UpdateKnowledgeBaseRequest request,
             @AuthenticationPrincipal Jwt jwt) {
         Long userId = getCurrentUserId(jwt);
+
+        // OWNER / EDITOR 可以编辑；VIEWER 是成员但权限不足，返回 403。
+        accessService.requireEditor(id, userId);
+
         String name = getRequiredName(request == null ? null : request.getName());
         String description = normalizedDescription(request == null ? null : request.getDescription());
         Boolean featured = request != null && Boolean.TRUE.equals(request.getFeatured());
         String themeId = normalizedThemeId(request == null ? null : request.getThemeId());
 
-        int rows = knowledgeBaseRepository.updateByIdAndCreatedBy(id, userId, name, description, featured, themeId);
+        int rows = knowledgeBaseRepository.updateById(id, name, description, featured, themeId);
         if (rows != 1) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Knowledge base not found");
         }
-        return knowledgeBaseRepository.findByIdAndCreatedBy(id, userId)
+
+        return knowledgeBaseRepository.findAccessibleById(id, userId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Knowledge base not found"));
     }
 
-    // 删除知识库
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteKnowledgeBase(
             @PathVariable Long id,
             @AuthenticationPrincipal Jwt jwt) {
         Long userId = getCurrentUserId(jwt);
-        int rows = knowledgeBaseRepository.deleteByIdAndCreatedBy(id, userId);
+
+        // 删除知识库会影响所有成员和文档，阶段 12 只允许 OWNER。
+        accessService.requireOwner(id, userId);
+
+        int rows = knowledgeBaseRepository.deleteById(id);
         if (rows != 1) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Knowledge base not found");
         }
-    }
-
-    private Long getCurrentUserId(Jwt jwt) {
-        if (jwt == null) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Missing token");
-        }
-        Number userId = jwt.getClaim("userId");
-        if (userId == null) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Missing userId claim");
-        }
-        return userId.longValue();
     }
 
     private String getRequiredName(String name) {

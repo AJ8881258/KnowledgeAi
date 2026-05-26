@@ -1,5 +1,7 @@
 import { http } from "@/api/http";
 
+export type KnowledgeBaseAccessRole = "OWNER" | "EDITOR" | "VIEWER";
+
 export type KnowledgeBaseResponse = {
   id: number;
   name: string;
@@ -10,6 +12,9 @@ export type KnowledgeBaseResponse = {
   createdBy: number;
   createdAt: string;
   updatedAt: string;
+  accessRole: KnowledgeBaseAccessRole;
+  ownedByMe: boolean;
+  sharedWithMe: boolean;
 };
 
 export type CreateKnowledgeBaseRequest = {

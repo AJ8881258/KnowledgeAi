@@ -27,7 +27,6 @@ public interface UserRepository {
      * @param username
      * @return
      */
-    // Find by username
     @Select("""
             SELECT id, username, password_hash, role,email, created_at, updated_at
             FROM users

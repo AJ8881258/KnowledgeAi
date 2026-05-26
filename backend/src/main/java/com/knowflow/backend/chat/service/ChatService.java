@@ -17,7 +17,7 @@ import com.knowflow.backend.chat.repository.ChatMessageSourceRepository;
 import com.knowflow.backend.chat.repository.ChatSessionRepository;
 import com.knowflow.backend.document.repository.DocumentChunkRepository;
 import com.knowflow.backend.document.dto.response.SearchResultResponse;
-import com.knowflow.backend.knowledgebase.KnowledgeBaseRepository;
+import com.knowflow.backend.knowledgebase.service.KnowledgeBaseAccessService;
 import com.knowflow.backend.settings.entity.UserRagSettings;
 import com.knowflow.backend.settings.service.SettingsService;
 import org.springframework.http.HttpStatus;
@@ -38,7 +38,7 @@ public class ChatService {
     private static final String EMPTY_RETRIEVAL_FALLBACK_MESSAGE =
             "当前知识库中没有检索到足够相关的资料，请换个问法或上传更多文档。";
 
-    private final KnowledgeBaseRepository knowledgeBaseRepository;
+    private final KnowledgeBaseAccessService accessService;
     private final DocumentChunkRepository documentChunkRepository;
     private final ChatSessionRepository chatSessionRepository;
     private final ChatMessageRepository chatMessageRepository;
@@ -48,8 +48,8 @@ public class ChatService {
 
     private final SettingsService settingsService;
 
-    public ChatService(KnowledgeBaseRepository knowledgeBaseRepository, DocumentChunkRepository documentChunkRepository, ChatSessionRepository chatSessionRepository, ChatMessageRepository chatMessageRepository, ChatMessageSourceRepository chatMessageSourceRepository, PromptBuilder promptBuilder, ChatModelClient chatModelClient, SettingsService settingsService) {
-        this.knowledgeBaseRepository = knowledgeBaseRepository;
+    public ChatService(KnowledgeBaseAccessService accessService, DocumentChunkRepository documentChunkRepository, ChatSessionRepository chatSessionRepository, ChatMessageRepository chatMessageRepository, ChatMessageSourceRepository chatMessageSourceRepository, PromptBuilder promptBuilder, ChatModelClient chatModelClient, SettingsService settingsService) {
+        this.accessService = accessService;
         this.documentChunkRepository = documentChunkRepository;
         this.chatSessionRepository = chatSessionRepository;
         this.chatMessageRepository = chatMessageRepository;
@@ -69,9 +69,8 @@ public class ChatService {
             Long knowledgeBaseId,
             Long userId,
             CreateChatSessionRequest request) {
-        // 权限校验：知识库必须属于当前 JWT 用户；不存在和无权限统一返回 404。
-        knowledgeBaseRepository.findByIdAndCreatedBy(knowledgeBaseId, userId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Knowledge base not found"));
+        // Stage 12: shared KB members can create their own sessions, but sessions remain per current user.
+        accessService.requireMember(knowledgeBaseId, userId);
 
         String title = normalizeTitle(request == null ? null : request.getTitle());
 
@@ -106,9 +105,8 @@ public class ChatService {
      * @列出所有会话
      */
     public List<ChatSessionResponse> listSessions(Long knowledgeBaseId, Long userId) {
-        // 权限校验：只能列出当前用户自己的知识库会话。
-        knowledgeBaseRepository.findByIdAndCreatedBy(knowledgeBaseId, userId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Knowledge base not found"));
+        // Stage 12: first check KB membership, then list only this user's sessions.
+        accessService.requireMember(knowledgeBaseId, userId);
 
         return chatSessionRepository.findAllByKnowledgeBaseIdAndUserId(knowledgeBaseId, userId)
                 .stream()
@@ -123,7 +121,9 @@ public class ChatService {
      * @Des 列出消息
      */
     public List<ChatMessageResponse> listMessages(Long sessionId, Long userId) {
-        getSessionOr404(sessionId, userId);
+        ChatSession session = getSessionOr404(sessionId, userId);
+        // Stage 12: a user-owned session is usable only while the user is still a member of its KB.
+        accessService.requireMember(session.getKnowledgeBaseId(), userId);
 
         return chatMessageRepository.findAllBySessionIdAndUserId(sessionId, userId)
                 .stream()
@@ -209,6 +209,8 @@ public class ChatService {
     @Transactional
     public SendMessageResponse sendMessage(Long sessionId, Long userId, SendMessageRequest request) {
         ChatSession session = getSessionOr404(sessionId, userId);
+        // Stage 12: membership can be revoked after session creation, so re-check before retrieval/model work.
+        accessService.requireMember(session.getKnowledgeBaseId(), userId);
         String question = normalizeContent(request == null ? null : request.getContent());
         UserRagSettings ragSettings = settingsService.getEffectiveRagSettings(userId);
 

@@ -122,6 +122,10 @@ export function getApiErrorMessage(error: unknown) {
       return backendMessage || "知识库或文档不存在，或你没有访问权限";
     }
 
+    if (error.response?.status === 403) {
+      return backendMessage || "当前角色无权执行此操作";
+    }
+
     if (!error.response) {
       return "无法连接文档服务，请确认后端已启动";
     }

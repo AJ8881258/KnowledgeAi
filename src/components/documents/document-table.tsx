@@ -26,6 +26,8 @@ type DocumentTableProps = {
   paginationItems: Array<number | "ellipsis">;
   pageSize: PageSize;
   isDeleting: boolean;
+  canDeleteDocuments: boolean;
+  deleteDisabledReason?: string;
   onSelectDocument: (doc: DocumentItem) => void;
   onDeleteDocument: (doc: DocumentItem) => void;
   onPageChange: (page: number) => void;
@@ -44,6 +46,8 @@ export function DocumentTable({
   paginationItems,
   pageSize,
   isDeleting,
+  canDeleteDocuments,
+  deleteDisabledReason,
   onSelectDocument,
   onDeleteDocument,
   onPageChange,
@@ -114,7 +118,8 @@ export function DocumentTable({
                   </IconButton>
                   <IconButton
                     label={`删除 ${doc.originalFilename}`}
-                    disabled={isDeleting}
+                    disabled={isDeleting || !canDeleteDocuments}
+                    title={!canDeleteDocuments ? deleteDisabledReason : undefined}
                     onClick={() => onDeleteDocument(doc)}
                   >
                     <Trash2 />
@@ -201,7 +206,12 @@ export function DocumentTable({
                         </IconButton>
                         <IconButton
                           label={`删除 ${doc.originalFilename}`}
-                          disabled={isDeleting}
+                          disabled={isDeleting || !canDeleteDocuments}
+                          title={
+                            !canDeleteDocuments
+                              ? deleteDisabledReason
+                              : undefined
+                          }
                           onClick={() => onDeleteDocument(doc)}
                         >
                           <Trash2 />

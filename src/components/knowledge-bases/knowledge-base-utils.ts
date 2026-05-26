@@ -1,4 +1,5 @@
 import type { DocumentResponse } from "@/api/documents";
+import type { KnowledgeBaseAccessRole } from "@/api/knowledge-bases";
 import type { KnowledgeBaseResponse } from "@/api/knowledge-bases";
 import { knowledgeBaseThemePresets } from "./knowledge-base-data";
 import type { DetailDocument, DetailDocumentTab, KnowledgeBase, KnowledgeBaseSortMode, SortDirection } from "./knowledge-base-types";
@@ -95,18 +96,33 @@ export function getKnowledgeBaseTheme(themeId: string | null) {
   return matchedTheme ?? knowledgeBaseThemePresets[0];
 }
 
+function getAccessRole(item: KnowledgeBaseResponse): KnowledgeBaseAccessRole {
+  if (
+    item.accessRole === "OWNER" ||
+    item.accessRole === "EDITOR" ||
+    item.accessRole === "VIEWER"
+  ) {
+    return item.accessRole;
+  }
+
+  return item.ownedByMe === false ? "VIEWER" : "OWNER";
+}
+
 export function mapKnowledgeBaseResponse(
   item: KnowledgeBaseResponse,
 ): KnowledgeBase {
   const themePreset = getKnowledgeBaseTheme(item.themeId);
   const updatedAtDate = new Date(item.updatedAt);
+  const accessRole = getAccessRole(item);
+  const ownedByMe = item.ownedByMe === true || accessRole === "OWNER";
+  const sharedWithMe = item.sharedWithMe === true || !ownedByMe;
 
   return {
     id: String(item.id),
     slug: String(item.id),
     name: item.name,
     description: item.description ?? "",
-    owner: "我创建的知识库",
+    owner: ownedByMe ? "我创建的知识库" : "共享给我的知识库",
     docs: 0,
     chunks: 0,
     sources: 0,
@@ -123,7 +139,10 @@ export function mapKnowledgeBaseResponse(
     },
     recent: true,
     featured: item.featured,
-    createdByMe: true,
+    createdByMe: ownedByMe,
+    accessRole,
+    ownedByMe,
+    sharedWithMe,
   };
 }
 

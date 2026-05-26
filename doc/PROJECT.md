@@ -4,7 +4,7 @@
 
 KnowFlow AI 是一个智能知识库问答平台。目标是让用户上传学习资料、项目文档或产品文档后，可以基于自己的资料进行问答。
 
-阶段 11：文档处理增强已完成。项目已经具备文档上传、切片、PostgreSQL 全文检索、非流式 RAG 问答、最近 6 条以内多轮上下文、空检索降级、引用来源、会话保存、会话管理、Settings 真实接后端、前端体验整理和后端稳定性测试能力。当前已支持 TXT、Markdown、文本型 PDF、DOCX、HTML/HTM 文本提取；暂不做 OCR、PPT、Excel、异步队列或复杂重试中心。
+阶段 12：权限与团队协作已完成。项目已经具备文档上传、切片、PostgreSQL 全文检索、非流式 RAG 问答、最近 6 条以内多轮上下文、空检索降级、引用来源、会话保存、会话管理、Settings 真实接后端、前端体验整理、后端稳定性测试和单个知识库共享协作能力。知识库可以按已注册用户名添加成员，并通过 `OWNER` / `EDITOR` / `VIEWER` 三角色控制查看、编辑、文档维护、检索、Chat 和成员管理权限；暂不做团队空间、组织后台、邀请邮件或公开链接。
 
 - 前端页面能调用真实后端接口。
 - 后端能连接 PostgreSQL。
@@ -51,13 +51,14 @@ KnowFlow AI 是一个智能知识库问答平台。目标是让用户上传学�
 - `knowledge_bases` 表。
 - `documents` 表已在初始迁移中存在，但字段仍是早期占位设计；文档上传阶段需要通过新的 Flyway 迁移升级字段。
 - 知识库列表、详情、创建、修改、删除接口。
-- 知识库接口按 JWT 当前用户隔离数据。
+- 知识库接口已升级为成员权限模型，让当前用户可访问自己创建和别人共享的知识库。
 - 知识库支持 `featured` 精选标记和 `themeId` 主题色字段。
 - 文档上传、文档解析、文档切片和 `INDEXED` / `FAILED` 状态流转；阶段 11 已从 TXT、Markdown、文本型 PDF 扩展到 `.docx` 和 `.html/.htm`。
 - 文档列表、详情、删除和 chunk 查询接口。
 - 知识库内文档关键词检索接口：`POST /api/knowledge-bases/{knowledgeBaseId}/search`。
 - RAG/Chat 接口：创建会话、会话列表、修改会话、删除会话、消息列表、发送问题并保存引用来源。
 - RAG 体验增强：发送问题时默认加入当前会话最近 6 条以内历史消息；空检索不调用模型并返回助手降级消息；引用来源与实际 prompt 上下文保持一致。
+- 知识库成员协作：`OWNER` 管理成员和删除知识库，`EDITOR` 维护文档和内容，`VIEWER` 只读检索与问答。
 - 注册接口。
 - 登录接口，成功后返回 JWT `accessToken`。
 - 当前用户接口：`GET /api/auth/me`。
@@ -118,13 +119,14 @@ Browser -> Vite Dev Server -> Spring Boot Backend -> PostgreSQL
 - `chat_sessions`：支持 `pinned` 字段，用于会话置顶排序。
 - `chat_messages`
 - `chat_message_sources`：阶段 6 建议新增，用于保存回答引用来源。
+- `knowledge_base_members`：用于保存知识库成员和 `OWNER` / `EDITOR` / `VIEWER` 角色。
 
 当前 RAG 问答链路：
 
 ```text
 Frontend Chat UI
   -> Chat Controller
-  -> 校验当前用户、会话、知识库归属
+  -> 校验当前用户、会话、知识库访问权限
   -> Document Chunk Search
   -> Prompt Builder
   -> OpenAI-compatible Model Client
@@ -143,10 +145,11 @@ Frontend Chat UI
 
 当前优先级：
 
-1. 阶段 11 已完成：文档上传解析已支持 `.docx` 和 `.html/.htm`，并继续保留 `.txt`、`.md`、`.markdown` 和文本型 `.pdf`。
-2. 阶段 11 当前不支持旧版 `.doc`、PPT、Excel、扫描版 PDF OCR、后台队列或自动重试中心。
-3. 当前代码级验收结果：`cd backend && .\mvnw.cmd test` 通过，共 41 个测试通过；`pnpm build` 通过；Documents 目标文件 ESLint 通过。
-4. 下一阶段是阶段 12：权限与团队协作，先设计共享知识库、成员角色和权限边界，再决定最小可用实现范围。
+1. 阶段 12 已完成：个人知识库已扩展为单个知识库共享协作。
+2. 第一版成员添加方式固定为已注册用户名，不做邮箱邀请、公开链接、团队空间或组织后台。
+3. 第一版角色固定为 `OWNER` / `EDITOR` / `VIEWER`：`OWNER` 管理成员和删除知识库，`EDITOR` 维护文档和内容，`VIEWER` 只读检索与问答。
+4. Chat 会话仍按当前用户隔离，共享知识库不共享其他成员的会话历史。
+5. 下一阶段进入部署与运维整理，优先补齐生产配置、启动复现、部署流程、日志排查和数据库备份恢复。
 
 ## 本地开发命令
 

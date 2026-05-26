@@ -20,6 +20,12 @@ export const knowledgeBaseTabs: {
     empty: "暂无我的知识库",
   },
   {
+    value: "shared",
+    label: "共享给我",
+    title: "共享给我的知识库",
+    empty: "暂无共享给我的知识库",
+  },
+  {
     value: "featured",
     label: "精选知识库",
     title: "精选知识库",

@@ -18,6 +18,32 @@ Authorization: Bearer <accessToken>
 
 - 文档上传接口使用 `multipart/form-data`，其他文档查询和删除接口仍使用普通 HTTP 请求和 JSON 响应。
 
+## 阶段 12 权限模型
+
+阶段 12 第一版从个人知识库扩展为“单个知识库共享协作”，不做团队空间、组织后台、邀请邮件或公开链接。
+
+知识库成员角色：
+
+| 角色 | 权限 |
+|---|---|
+| `OWNER` | 创建者默认角色；可编辑知识库、删除知识库、上传/删除文档、检索、Chat、管理成员 |
+| `EDITOR` | 可查看和编辑知识库、上传/删除文档、检索、Chat；不可删除知识库、不可管理成员 |
+| `VIEWER` | 可查看知识库、查看文档、检索、Chat；不可编辑、上传、删除或管理成员 |
+
+通用错误语义：
+
+| 状态码 | 含义 |
+|---|---|
+| `401` | 未登录、token 无效，或 token 中缺少当前用户信息 |
+| `403` | 当前用户是成员，但当前角色无权执行该操作 |
+| `404` | 资源不存在，或当前用户不是该知识库成员；用于避免暴露资源存在性 |
+
+Chat 会话说明：
+
+- 共享知识库只共享知识库、文档、检索和问答入口。
+- Chat 会话仍归当前用户自己所有，不共享其他成员的会话历史。
+- 成员可以基于共享知识库创建自己的会话。
+
 ## 已实现接口
 
 ### 注册
@@ -287,14 +313,20 @@ Authorization: Bearer <accessToken>
     "themeId": null,
     "createdBy": 1,
     "createdAt": "2026-05-08T10:00:00Z",
-    "updatedAt": "2026-05-08T10:00:00Z"
+    "updatedAt": "2026-05-08T10:00:00Z",
+    "accessRole": "OWNER",
+    "ownedByMe": true,
+    "sharedWithMe": false
   }
 ]
 ```
 
 说明：
 
-- 只返回当前登录用户创建的知识库。
+- 阶段 12 后返回当前登录用户可访问的知识库，包括自己创建的和别人共享给自己的。
+- `accessRole` 表示当前用户在该知识库中的角色：`OWNER`、`EDITOR`、`VIEWER`。
+- `ownedByMe` 表示该知识库是否由当前用户创建。
+- `sharedWithMe` 表示该知识库是否由其他用户共享给当前用户。
 
 失败情况：
 
@@ -329,7 +361,10 @@ Authorization: Bearer <accessToken>
   "themeId": null,
   "createdBy": 1,
   "createdAt": "2026-05-08T10:00:00Z",
-  "updatedAt": "2026-05-08T10:00:00Z"
+  "updatedAt": "2026-05-08T10:00:00Z",
+  "accessRole": "OWNER",
+  "ownedByMe": true,
+  "sharedWithMe": false
 }
 ```
 
@@ -338,7 +373,7 @@ Authorization: Bearer <accessToken>
 | 状态码 | 原因 |
 |---|---|
 | `401` | 未登录或 token 无效 |
-| `404` | 知识库不存在，或不属于当前登录用户 |
+| `404` | 知识库不存在，或当前登录用户不是该知识库成员 |
 
 失败响应示例：
 
@@ -398,7 +433,10 @@ Content-Type: application/json
   "themeId": "green",
   "createdBy": 2,
   "createdAt": "2026-05-08T10:00:00Z",
-  "updatedAt": "2026-05-08T10:00:00Z"
+  "updatedAt": "2026-05-08T10:00:00Z",
+  "accessRole": "OWNER",
+  "ownedByMe": true,
+  "sharedWithMe": false
 }
 ```
 
@@ -452,7 +490,10 @@ Content-Type: application/json
   "themeId": "blue",
   "createdBy": 2,
   "createdAt": "2026-05-08T10:00:00Z",
-  "updatedAt": "2026-05-08T10:05:00Z"
+  "updatedAt": "2026-05-08T10:05:00Z",
+  "accessRole": "OWNER",
+  "ownedByMe": true,
+  "sharedWithMe": false
 }
 ```
 
@@ -462,7 +503,8 @@ Content-Type: application/json
 |---|---|
 | `400` | `name` 为空 |
 | `401` | 未登录或 token 无效 |
-| `404` | 知识库不存在，或不属于当前登录用户 |
+| `403` | 当前用户是 `VIEWER`，无权修改知识库 |
+| `404` | 知识库不存在，或当前登录用户不是该知识库成员 |
 
 ### 删除知识库
 
@@ -489,11 +531,156 @@ Authorization: Bearer <accessToken>
 | 状态码 | 原因 |
 |---|---|
 | `401` | 未登录或 token 无效 |
-| `404` | 知识库不存在，或不属于当前登录用户 |
+| `403` | 当前用户不是 `OWNER`，无权删除知识库 |
+| `404` | 知识库不存在，或当前登录用户不是该知识库成员 |
 
 说明：
 
 - 数据库里 `documents.knowledge_base_id` 已设置 `ON DELETE CASCADE`。后续知识库下有文档后，删除知识库会级联删除对应文档，前端需要提供明确确认提示。
+
+### 获取知识库成员列表
+
+> 状态：阶段 12 已实现。仅 `OWNER` 可调用。
+
+| 项目 | 内容 |
+|---|---|
+| 请求方式 | `GET` |
+| 请求路径 | `/api/knowledge-bases/{knowledgeBaseId}/members` |
+| 是否需要登录 | 是 |
+
+成功响应示例：
+
+```json
+[
+  {
+    "id": 1,
+    "userId": 2,
+    "username": "AKinEdit",
+    "role": "EDITOR",
+    "createdAt": "2026-05-25T10:00:00Z",
+    "updatedAt": "2026-05-25T10:00:00Z"
+  }
+]
+```
+
+失败情况：
+
+| 状态码 | 原因 |
+|---|---|
+| `401` | 未登录或 token 无效 |
+| `403` | 当前用户不是 `OWNER` |
+| `404` | 知识库不存在，或当前用户不是该知识库成员 |
+
+### 添加知识库成员
+
+> 状态：阶段 12 已实现。仅 `OWNER` 可调用。
+
+| 项目 | 内容 |
+|---|---|
+| 请求方式 | `POST` |
+| 请求路径 | `/api/knowledge-bases/{knowledgeBaseId}/members` |
+| 是否需要登录 | 是 |
+
+请求示例：
+
+```json
+{
+  "username": "AKinEdit",
+  "role": "EDITOR"
+}
+```
+
+规则：
+
+- `username` 必须是已注册用户的用户名。
+- `role` 只能是 `EDITOR` 或 `VIEWER`；不能通过该接口添加 `OWNER`。
+- 同一个用户不能重复添加到同一个知识库。
+- 知识库创建者默认是 `OWNER`，不能重复添加为普通成员。
+
+成功响应示例：
+
+```json
+{
+  "id": 1,
+  "userId": 2,
+  "username": "AKinEdit",
+  "role": "EDITOR",
+  "createdAt": "2026-05-25T10:00:00Z",
+  "updatedAt": "2026-05-25T10:00:00Z"
+}
+```
+
+失败情况：
+
+| 状态码 | 原因 |
+|---|---|
+| `400` | 用户名为空、角色非法、用户不存在、重复添加成员，或尝试添加 `OWNER` |
+| `401` | 未登录或 token 无效 |
+| `403` | 当前用户不是 `OWNER` |
+| `404` | 知识库不存在，或当前用户不是该知识库成员 |
+
+### 修改知识库成员角色
+
+> 状态：阶段 12 已实现。仅 `OWNER` 可调用。
+
+| 项目 | 内容 |
+|---|---|
+| 请求方式 | `PATCH` |
+| 请求路径 | `/api/knowledge-bases/{knowledgeBaseId}/members/{memberId}` |
+| 是否需要登录 | 是 |
+
+请求示例：
+
+```json
+{
+  "role": "VIEWER"
+}
+```
+
+规则：
+
+- 只能把普通成员改为 `EDITOR` 或 `VIEWER`。
+- 不允许把普通成员改成 `OWNER`。
+- 不允许通过成员接口降级知识库 owner。
+
+失败情况：
+
+| 状态码 | 原因 |
+|---|---|
+| `400` | 角色非法，或尝试修改 owner |
+| `401` | 未登录或 token 无效 |
+| `403` | 当前用户不是 `OWNER` |
+| `404` | 知识库或成员不存在，或当前用户不是该知识库成员 |
+
+### 移除知识库成员
+
+> 状态：阶段 12 已实现。仅 `OWNER` 可调用。
+
+| 项目 | 内容 |
+|---|---|
+| 请求方式 | `DELETE` |
+| 请求路径 | `/api/knowledge-bases/{knowledgeBaseId}/members/{memberId}` |
+| 是否需要登录 | 是 |
+
+成功响应：
+
+```http
+204 No Content
+```
+
+规则：
+
+- 只能移除 `EDITOR` 或 `VIEWER`。
+- 不允许移除 owner 自己的成员记录。
+
+失败情况：
+
+| 状态码 | 原因 |
+|---|---|
+| `400` | 尝试移除 owner |
+| `401` | 未登录或 token 无效 |
+| `403` | 当前用户不是 `OWNER` |
+| `404` | 知识库或成员不存在，或当前用户不是该知识库成员 |
 
 ### Document 第一阶段接口契约
 
@@ -525,7 +712,7 @@ Authorization: Bearer <accessToken>
 
 规则：
 
-- `knowledgeBaseId` 必须属于当前登录用户，否则返回 `404`。
+- 阶段 12 后，`knowledgeBaseId` 必须是当前登录用户可访问的知识库，且当前用户角色必须是 `OWNER` 或 `EDITOR`；非成员返回 `404`，`VIEWER` 返回 `403`。
 - 单文件大小上限为 `10MB`。
 - 文件类型不支持时返回 `400`。
 - PDF 当前只支持可提取文本的 PDF；扫描图片型 PDF 暂不做 OCR，如果无法提取文本会返回 `400` 并标记为 `FAILED`。
@@ -560,7 +747,8 @@ Authorization: Bearer <accessToken>
 |---|---|
 | `400` | 未上传文件、缺少 `file` 表单字段、文件为空、文件超过 10MB、扩展名不支持、文本内容为空白，或 PDF/DOCX/HTML 无法提取有效文本 |
 | `401` | 未登录或 token 无效 |
-| `404` | 知识库不存在，或不属于当前登录用户 |
+| `403` | 当前用户是 `VIEWER`，无权上传文档 |
+| `404` | 知识库不存在，或当前登录用户不是该知识库成员 |
 | `500` | 文件读取、解析或切片过程失败 |
 
 #### 获取知识库下的文档列表
@@ -573,7 +761,7 @@ Authorization: Bearer <accessToken>
 
 说明：
 
-- 只返回当前登录用户自己的知识库文档。
+- 阶段 12 后，当前登录用户只要是该知识库成员即可查看文档列表。
 - 返回文档基础信息和 `chunkCount`，不返回 chunk 内容。
 
 #### 获取文档详情
@@ -586,7 +774,7 @@ Authorization: Bearer <accessToken>
 
 说明：
 
-- 只能查看当前登录用户自己的文档。
+- 阶段 12 后，当前登录用户只要是文档所属知识库成员即可查看文档详情。
 - 返回文档基础信息和 `chunkCount`。
 
 #### 获取文档切片列表
@@ -625,7 +813,7 @@ Authorization: Bearer <accessToken>
 
 说明：
 
-- 只能删除当前登录用户自己的文档。
+- 阶段 12 后，只有知识库 `OWNER` 或 `EDITOR` 可以删除文档；`VIEWER` 只能查看，不能删除。
 - 数据库里 `document_chunks.document_id` 需要设置 `ON DELETE CASCADE`，删除文档时自动删除对应 chunks。
 
 #### 知识库内文档检索
@@ -677,8 +865,8 @@ Authorization: Bearer <accessToken>
 
 - 阶段 9 已使用 PostgreSQL 全文检索，不是语义向量检索。
 - 阶段 9 未接新大模型、未引入 embedding、未引入 pgvector、未新增搜索引擎。
-- 后端必须先用 `knowledgeBaseId + 当前 JWT userId` 校验知识库归属；知识库不存在或不属于当前用户时统一返回 `404`。
-- SQL 检索时必须同时限制 `knowledge_base_id` 和 `created_by`，避免通过知识库 ID 或文档 ID 搜到其他用户的数据。
+- 阶段 12 后，后端必须先校验当前 JWT 用户是该知识库成员；非成员访问时统一返回 `404`。
+- SQL 检索时必须限制 `knowledge_base_id`，并通过成员权限校验避免通过知识库 ID 或文档 ID 搜到无权访问的数据。
 - 只检索 `status = 'INDEXED'` 的文档。
 - `score` 表示 PostgreSQL 全文检索相关度分数，用于结果排序和 RAG 引用来源排序；它不是语义相似度，也不保证不同知识库之间可直接比较。
 - `query`、`results`、`chunkId`、`documentId`、`documentName`、`chunkIndex`、`content`、`score` 字段保持兼容。
@@ -689,7 +877,7 @@ Authorization: Bearer <accessToken>
 |---|---|
 | `400` | `query` 为空，或 `limit < 1` |
 | `401` | 未登录或 token 无效 |
-| `404` | 知识库不存在，或不属于当前登录用户 |
+| `404` | 知识库不存在，或当前登录用户不是该知识库成员 |
 
 ### 前端知识库页面对接说明
 
@@ -705,7 +893,10 @@ Authorization: Bearer <accessToken>
   "themeId": "green",
   "createdBy": 2,
   "createdAt": "2026-05-08T10:00:00Z",
-  "updatedAt": "2026-05-08T10:00:00Z"
+  "updatedAt": "2026-05-08T10:00:00Z",
+  "accessRole": "OWNER",
+  "ownedByMe": true,
+  "sharedWithMe": false
 }
 ```
 
@@ -717,7 +908,7 @@ Authorization: Bearer <accessToken>
 - `sources = []`
 - `featured` 使用后端返回值
 - `theme` 根据后端 `themeId` 映射；`themeId` 为 `null` 时前端默认使用 `blue`
-- `createdByMe = true`
+- `createdByMe` 后续应优先由 `ownedByMe` 映射；共享知识库使用 `sharedWithMe` 和 `accessRole` 展示角色与权限。
 
 详情页路由可以继续使用 `/KnowledgeBases/:knowledgeBaseId`，但 `knowledgeBaseId` 应按后端数字 `id` 处理，不再按旧 mock `slug` 查找。
 
@@ -935,7 +1126,8 @@ Content-Type: application/json
 
 规则：
 
-- `knowledgeBaseId` 必须属于当前登录用户。
+- 阶段 12 后，`knowledgeBaseId` 必须是当前用户可访问的知识库成员资源。
+- 当前用户可基于共享知识库创建自己的会话。
 - `title` 为空时后端可以使用默认标题，例如“新会话”。
 
 #### 获取知识库会话列表
@@ -965,6 +1157,11 @@ Authorization: Bearer <accessToken>
 ```text
 pinned desc -> updatedAt desc -> id desc
 ```
+
+阶段 12 说明：
+
+- 会话列表只返回当前用户自己的会话。
+- 共享知识库不会暴露其他成员的会话历史。
 
 #### 修改会话
 
@@ -1118,7 +1315,7 @@ Content-Type: application/json
 规则：
 
 - `sessionId` 必须属于当前登录用户。
-- 后端先基于会话所属知识库检索 chunks，再构造 prompt 调用模型。
+- 后端先确认当前用户拥有该会话，并且仍是会话所属知识库成员，再基于该知识库检索 chunks，构造 prompt 调用模型。
 - 当前 `sources` 来自阶段 9 PostgreSQL 全文检索结果，`score` 表示全文检索相关度分数。
 - `limit` 为空时默认 `5`，大于 `20` 时按 `20` 处理。
 - 模型调用失败时返回明确错误，不返回或泄露密钥。

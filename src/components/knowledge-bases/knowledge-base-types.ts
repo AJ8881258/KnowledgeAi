@@ -1,4 +1,5 @@
 import type { DocumentResponse } from "@/api/documents";
+import type { KnowledgeBaseAccessRole } from "@/api/knowledge-bases";
 
 export type KnowledgeBase = {
   id: string;
@@ -21,9 +22,12 @@ export type KnowledgeBase = {
   recent: boolean;
   featured: boolean;
   createdByMe: boolean;
+  accessRole: KnowledgeBaseAccessRole;
+  ownedByMe: boolean;
+  sharedWithMe: boolean;
 };
 
-export type KnowledgeBaseTab = "all" | "mine" | "featured";
+export type KnowledgeBaseTab = "all" | "mine" | "shared" | "featured";
 export type KnowledgeBaseViewMode = "card" | "list";
 export type KnowledgeBaseSortMode = "recent" | "createdTime";
 export type SortDirection = "asc" | "desc";

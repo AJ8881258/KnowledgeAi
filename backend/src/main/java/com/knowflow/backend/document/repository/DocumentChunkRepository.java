@@ -90,11 +90,15 @@ public interface DocumentChunkRepository {
                 ) AS score
             FROM document_chunks c
             JOIN documents d ON d.id = c.document_id
+            JOIN knowledge_bases kb ON kb.id = d.knowledge_base_id
+            LEFT JOIN knowledge_base_members m
+              ON m.knowledge_base_id = kb.id
+             AND m.user_id = #{userId}
             CROSS JOIN search_query
             WHERE c.knowledge_base_id = #{knowledgeBaseId}
               AND d.knowledge_base_id = #{knowledgeBaseId}
-              AND d.created_by = #{userId}
               AND d.status = 'INDEXED'
+              AND (kb.created_by = #{userId} OR m.user_id = #{userId})
               AND (
                     to_tsvector('simple', c.content) @@ search_query.ts_query
                     OR position(lower(#{query}) in lower(c.content)) > 0

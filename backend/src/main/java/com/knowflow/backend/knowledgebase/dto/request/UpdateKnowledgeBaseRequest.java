@@ -1,10 +1,10 @@
-package com.knowflow.backend.knowledgebase;
+package com.knowflow.backend.knowledgebase.dto.request;
 
 import lombok.Data;
 
 @Data
-// 创建知识库请求实体类
-public class CreateKnowledgeBaseRequest {
+public class UpdateKnowledgeBaseRequest {
+
     private String name;
     private String description;
     private Boolean featured;

@@ -80,11 +80,13 @@ export function IconButton({
   children,
   disabled,
   label,
+  title,
   onClick,
 }: {
   children: ReactNode;
   disabled?: boolean;
   label: string;
+  title?: string;
   onClick?: () => void;
 }) {
   return (
@@ -94,6 +96,7 @@ export function IconButton({
       size="icon-xs"
       aria-label={label}
       disabled={disabled}
+      title={title}
       onClick={onClick}
       className="rounded-[5px] border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:bg-slate-50 disabled:text-slate-300"
     >

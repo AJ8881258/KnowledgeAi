@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { isAxiosError } from "axios";
 import { useLocation, useNavigate } from "react-router";
-import { ArrowLeft, ArrowRight, ChevronDown, FileText, Loader2, RefreshCw, Search, TriangleAlert } from "lucide-react";
+import { ArrowLeft, ArrowRight, ChevronDown, FileText, Loader2, RefreshCw, Search, TriangleAlert, UsersRound } from "lucide-react";
 import { toast } from "sonner";
 
 import { getKnowledgeBaseDocuments } from "@/api/documents";
@@ -9,7 +9,9 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { clearMockAuthSession } from "@/lib/mock-auth";
 import { cn } from "@/lib/utils";
-import { DocumentStatus, FileBadge, KnowledgeBaseMark } from "./knowledge-base-common";
+import { DocumentStatus, FileBadge, KnowledgeBaseMark, KnowledgeBaseRoleBadge } from "./knowledge-base-common";
+import { KnowledgeBaseMemberDialog } from "./knowledge-base-member-dialog";
+import { canManageKnowledgeBaseMembers, canMutateKnowledgeBaseDocuments } from "./knowledge-base-permissions";
 import { KnowledgeBaseSearchPanel } from "./knowledge-base-search-panel";
 import type { DetailDocument, DetailDocumentTab, KnowledgeBase } from "./knowledge-base-types";
 import { formatCompactDateTime, formatFileSize, getDocumentCountByTab, getFilteredDocuments, mapDetailDocument } from "./knowledge-base-utils";
@@ -103,7 +105,10 @@ export function KnowledgeBaseDetailView({
   const [documents, setDocuments] = useState<DetailDocument[]>([]);
   const [isLoadingDocuments, setIsLoadingDocuments] = useState(true);
   const [documentLoadError, setDocumentLoadError] = useState("");
+  const [memberDialogOpen, setMemberDialogOpen] = useState(false);
   const filteredDocuments = getFilteredDocuments(documents, documentTab);
+  const canManageMembers = canManageKnowledgeBaseMembers(current);
+  const canMutateDocuments = canMutateKnowledgeBaseDocuments(current);
 
   const redirectToLogin = useCallback(() => {
     clearMockAuthSession();
@@ -150,13 +155,13 @@ export function KnowledgeBaseDetailView({
     return () => window.clearTimeout(timeoutId);
   }, [loadDocuments]);
 
+  const indexedDocuments = documents.filter((document) => document.status === "INDEXED");
   const currentWithDocumentStats: KnowledgeBase = {
     ...current,
     docs: documents.length,
     chunks: documents.reduce((total, document) => total + document.chunkCount, 0),
+    sources: indexedDocuments.length,
   };
-
-  const indexedDocuments = documents.filter((document) => document.status === "INDEXED");
 
   return (
     <section className="min-h-[calc(100svh-5rem)] bg-white text-slate-900 xl:h-[calc(100svh-5rem)] xl:min-h-[720px] xl:overflow-hidden">
@@ -179,6 +184,31 @@ export function KnowledgeBaseDetailView({
           </div>
 
           <section className="flex min-h-0 flex-1 flex-col px-4 py-4">
+            <div className="mb-4 rounded-[8px] border border-slate-200 bg-slate-50 px-3 py-3">
+              <div className="flex min-w-0 items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="truncate text-xs font-medium text-slate-500">
+                    当前权限
+                  </div>
+                  <div className="mt-2">
+                    <KnowledgeBaseRoleBadge item={currentWithDocumentStats} />
+                  </div>
+                </div>
+                {canManageMembers && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="shrink-0 rounded-[6px] border-slate-200 bg-white text-xs tracking-normal text-slate-700 normal-case hover:bg-slate-50"
+                    onClick={() => setMemberDialogOpen(true)}
+                  >
+                    <UsersRound data-icon="inline-start" />
+                    成员
+                  </Button>
+                )}
+              </div>
+            </div>
+
             <div className="mb-3 flex items-center justify-between">
               <h3 className="text-sm font-semibold">文档处理状态</h3>
               <Button
@@ -289,7 +319,11 @@ export function KnowledgeBaseDetailView({
               className="mt-4 h-10 rounded-[6px] border-slate-200 text-xs font-medium tracking-normal text-slate-600 normal-case"
               onClick={() => navigate(`/Documents/${current.slug}`)}
             >
-              {documents.length > 0 ? "查看全部文档" : "上传文档"}
+              {canMutateDocuments
+                ? documents.length > 0
+                  ? "管理文档"
+                  : "上传文档"
+                : "查看文档"}
               <ArrowRight data-icon="inline-end" />
             </Button>
           </section>
@@ -382,12 +416,20 @@ export function KnowledgeBaseDetailView({
               className="h-10 w-full rounded-[6px] border-slate-200 text-xs font-medium tracking-normal text-slate-600 normal-case"
               onClick={() => navigate(`/Documents/${current.slug}`)}
             >
-              管理知识库文档
+              {canMutateDocuments ? "管理知识库文档" : "查看知识库文档"}
               <ArrowRight data-icon="inline-end" />
             </Button>
           </div>
         </aside>
       </div>
+      {canManageMembers && (
+        <KnowledgeBaseMemberDialog
+          knowledgeBase={currentWithDocumentStats}
+          open={memberDialogOpen}
+          onOpenChange={setMemberDialogOpen}
+          onUnauthorized={redirectToLogin}
+        />
+      )}
     </section>
   );
 }

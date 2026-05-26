@@ -80,6 +80,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import type { KnowledgeBase } from "@/components/knowledge-bases/knowledge-base-types";
+import { KnowledgeBaseRoleBadge } from "@/components/knowledge-bases/knowledge-base-common";
 
 const DEFAULT_CHAT_LIMIT = 5;
 const SOURCE_PREVIEW_LENGTH = 180;
@@ -1078,7 +1079,12 @@ export function RagChatWorkspace({
                   <SelectGroup>
                     {knowledgeBases.map((item) => (
                       <SelectItem key={item.id} value={item.id}>
-                        {item.name}
+                        <span className="min-w-0 truncate">{item.name}</span>
+                        {item.sharedWithMe && (
+                          <span className="shrink-0 rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500">
+                            共享
+                          </span>
+                        )}
                       </SelectItem>
                     ))}
                   </SelectGroup>
@@ -1174,6 +1180,7 @@ export function RagChatWorkspace({
                 <span className="size-1.5 rounded-full bg-emerald-500" />
                 RAG 已启用
               </span>
+              <KnowledgeBaseRoleBadge item={knowledgeBase} />
             </div>
             <p className="mt-1 truncate text-xs text-slate-500">
               {activeSession

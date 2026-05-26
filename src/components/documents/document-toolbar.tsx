@@ -21,6 +21,8 @@ type DocumentToolbarProps = {
   typeTab: TypeTab;
   statusFilter: StatusFilter;
   isUploading: boolean;
+  canUpload: boolean;
+  uploadDisabledReason?: string;
   onNavigate: (path: string) => void;
   onTypeTabChange: (value: TypeTab) => void;
   onStatusFilterChange: (value: StatusFilter) => void;
@@ -35,6 +37,8 @@ export function DocumentToolbar({
   typeTab,
   statusFilter,
   isUploading,
+  canUpload,
+  uploadDisabledReason,
   onNavigate,
   onTypeTabChange,
   onStatusFilterChange,
@@ -101,8 +105,9 @@ export function DocumentToolbar({
 
       <Button
         type="button"
-        disabled={!knowledgeBaseId || isUploading}
+        disabled={!knowledgeBaseId || isUploading || !canUpload}
         onClick={onUploadClick}
+        title={!canUpload ? uploadDisabledReason : undefined}
         className="h-10 w-full rounded-[5px] bg-blue-600 px-5 text-sm font-medium tracking-normal text-white normal-case hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-500 sm:w-fit"
       >
         {isUploading ? (

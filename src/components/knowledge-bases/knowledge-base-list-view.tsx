@@ -13,8 +13,10 @@ import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetT
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import { KnowledgeBaseMark, StatusPill } from "./knowledge-base-common";
+import { useKnowledgeBaseUsageStore } from "@/store/knowledge-base-usage";
+import { KnowledgeBaseMark, KnowledgeBaseRoleBadge, StatusPill } from "./knowledge-base-common";
 import { knowledgeBaseTabs, knowledgeBaseThemePresets } from "./knowledge-base-data";
+import { canDeleteKnowledgeBase, canEditKnowledgeBase } from "./knowledge-base-permissions";
 import type { KnowledgeBase, KnowledgeBaseSortMode, KnowledgeBaseTab, KnowledgeBaseViewMode, NewKnowledgeBaseForm, SortDirection } from "./knowledge-base-types";
 import { formatDateTime, searchKnowledgeBases, sortKnowledgeBases } from "./knowledge-base-utils";
 
@@ -23,7 +25,11 @@ function getFilteredKnowledgeBases(
   tab: KnowledgeBaseTab,
 ) {
   if (tab === "mine") {
-    return items.filter((item) => item.createdByMe);
+    return items.filter((item) => item.ownedByMe);
+  }
+
+  if (tab === "shared") {
+    return items.filter((item) => item.sharedWithMe);
   }
 
   if (tab === "featured") {
@@ -63,7 +69,10 @@ function FeaturedCard({
             <div className="truncate text-sm font-semibold text-slate-900">
               {item.name}
             </div>
-            <div className="text-xs text-slate-500">{item.docs} 个文档</div>
+            <div className="mt-1 flex min-w-0 flex-wrap items-center gap-2 text-xs text-slate-500">
+              <span>{item.docs} 个文档</span>
+              <KnowledgeBaseRoleBadge item={item} />
+            </div>
           </div>
         </div>
         <div>
@@ -141,17 +150,21 @@ function KnowledgeBaseEmptyState({
 function KnowledgeBaseActionsMenu({
   item,
   onOpen,
+  onChat,
   onEdit,
   onDelete,
   isSubmitting,
 }: {
   item: KnowledgeBase;
   onOpen: (slug: string) => void;
+  onChat: (item: KnowledgeBase) => void;
   onEdit: (item: KnowledgeBase) => void;
   onDelete: (item: KnowledgeBase) => void;
   isSubmitting: boolean;
 }) {
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const canEdit = canEditKnowledgeBase(item);
+  const canDelete = canDeleteKnowledgeBase(item);
   const stopCardClick = (event: MouseEvent | Event) => {
     event.stopPropagation();
   };
@@ -183,18 +196,30 @@ function KnowledgeBaseActionsMenu({
                 onOpen(item.slug);
               }}
             >
-              <MessageCircle />
-              使用对话
+              <ArrowRight />
+              查看详情
             </DropdownMenuItem>
             <DropdownMenuItem
               onSelect={(event) => {
                 stopCardClick(event);
-                onEdit(item);
+                onChat(item);
               }}
             >
-              <Pencil />
-              编辑知识库
+              <MessageCircle />
+              进入问答
             </DropdownMenuItem>
+            {canEdit && (
+              <DropdownMenuItem
+                onSelect={(event) => {
+                  stopCardClick(event);
+                  onEdit(item);
+                }}
+              >
+                <Pencil />
+                编辑知识库
+              </DropdownMenuItem>
+            )}
+            {canDelete && (
               <DropdownMenuItem
                 variant="destructive"
                 onSelect={(event) => {
@@ -207,7 +232,8 @@ function KnowledgeBaseActionsMenu({
               >
                 <Trash2 />
                 删除知识库
-            </DropdownMenuItem>
+              </DropdownMenuItem>
+            )}
           </DropdownMenuGroup>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -244,12 +270,14 @@ function KnowledgeBaseActionsMenu({
 function RecentCard({
   item,
   onOpen,
+  onChat,
   onEdit,
   onDelete,
   isSubmitting,
 }: {
   item: KnowledgeBase;
   onOpen: (slug: string) => void;
+  onChat: (item: KnowledgeBase) => void;
   onEdit: (item: KnowledgeBase) => void;
   onDelete: (item: KnowledgeBase) => void;
   isSubmitting: boolean;
@@ -279,11 +307,20 @@ function RecentCard({
               <div className="mt-1 text-xs text-slate-500">
                 {item.docs} 个文档
               </div>
+              <div className="mt-2 flex min-w-0 flex-wrap items-center gap-2">
+                <KnowledgeBaseRoleBadge item={item} />
+                {item.sharedWithMe && (
+                  <span className="inline-flex max-w-full items-center rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-500">
+                    <span className="truncate">共享给我</span>
+                  </span>
+                )}
+              </div>
             </div>
           </div>
           <KnowledgeBaseActionsMenu
             item={item}
             onOpen={onOpen}
+            onChat={onChat}
             onEdit={onEdit}
             onDelete={onDelete}
             isSubmitting={isSubmitting}
@@ -304,12 +341,14 @@ function RecentCard({
 function KnowledgeBaseListItem({
   item,
   onOpen,
+  onChat,
   onEdit,
   onDelete,
   isSubmitting,
 }: {
   item: KnowledgeBase;
   onOpen: (slug: string) => void;
+  onChat: (item: KnowledgeBase) => void;
   onEdit: (item: KnowledgeBase) => void;
   onDelete: (item: KnowledgeBase) => void;
   isSubmitting: boolean;
@@ -355,6 +394,12 @@ function KnowledgeBaseListItem({
             </span>
           )}
           <StatusPill status={item.status} />
+          <KnowledgeBaseRoleBadge item={item} />
+          {item.sharedWithMe && (
+            <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-500">
+              共享给我
+            </span>
+          )}
         </div>
         <p className="mt-2 line-clamp-2 text-sm leading-6 text-slate-500">
           {item.description}
@@ -369,6 +414,7 @@ function KnowledgeBaseListItem({
       <KnowledgeBaseActionsMenu
         item={item}
         onOpen={onOpen}
+        onChat={onChat}
         onEdit={onEdit}
         onDelete={onDelete}
         isSubmitting={isSubmitting}
@@ -425,6 +471,9 @@ export function KnowledgeBaseListView({
   isSubmitting: boolean;
 }) {
   const navigate = useNavigate();
+  const rememberKnowledgeBase = useKnowledgeBaseUsageStore(
+    (state) => state.rememberKnowledgeBase,
+  );
   const [activeTab, setActiveTab] = useState<KnowledgeBaseTab>("all");
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
@@ -462,9 +511,22 @@ export function KnowledgeBaseListView({
       : `创建时间 ${createdTimeDirection === "desc" ? "倒序" : "正序"}`;
   const hasSearchTerm = searchTerm.trim().length > 0;
   const isEditing = !!editingItem;
+  const canCreateFromActiveTab = activeTab === "all" || activeTab === "mine";
+  const emptyDescription = hasSearchTerm
+    ? "换一个关键词试试，或清空搜索条件查看全部知识库。"
+    : activeTab === "shared"
+      ? "当其他知识库 owner 把你添加为 editor 或 viewer 后，这里会展示可访问的共享知识库。"
+      : activeTab === "featured"
+        ? "在新建或编辑知识库时勾选精选后，这里会展示常用知识库。"
+        : "创建第一个知识库后，就可以继续上传资料、整理文档，并在 Chat 页面基于这些资料进行问答。";
 
   const openKnowledgeBase = (slug: string) => {
     navigate(`/KnowledgeBases/${slug}`);
+  };
+
+  const openChat = (item: KnowledgeBase) => {
+    rememberKnowledgeBase(item.id);
+    navigate("/Chat");
   };
 
   const openCreateSheet = () => {
@@ -521,6 +583,10 @@ export function KnowledgeBaseListView({
   };
 
   const openEditSheet = (item: KnowledgeBase) => {
+    if (!canEditKnowledgeBase(item)) {
+      return;
+    }
+
     const themePreset =
       knowledgeBaseThemePresets.find(
         (preset) => preset.iconClass === item.theme.iconClass,
@@ -567,6 +633,10 @@ export function KnowledgeBaseListView({
 
     try {
       if (editingItem) {
+        if (!canEditKnowledgeBase(editingItem)) {
+          return;
+        }
+
         await onUpdate(editingItem, request);
       } else {
         await onCreate(request);
@@ -734,9 +804,9 @@ export function KnowledgeBaseListView({
             <Button
               variant="outline"
               className="hidden h-10 rounded-full border-slate-200 bg-white px-5 text-sm tracking-normal normal-case sm:flex"
-              onClick={() => setActiveTab("mine")}
+              onClick={() => setActiveTab("featured")}
             >
-              查看全部
+              查看精选
               <ArrowRight data-icon="inline-end" />
             </Button>
           </div>
@@ -765,7 +835,7 @@ export function KnowledgeBaseListView({
           </h2>
           {viewMode === "card" ? (
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-              {activeTab !== "featured" && visibleItems.length > 0 && (
+              {canCreateFromActiveTab && visibleItems.length > 0 && (
                 <NewKnowledgeBaseCard onCreate={openCreateSheet} />
               )}
               {visibleItems.map((item) => (
@@ -773,6 +843,7 @@ export function KnowledgeBaseListView({
                   key={item.id}
                   item={item}
                   onOpen={openKnowledgeBase}
+                  onChat={openChat}
                   onEdit={openEditSheet}
                   onDelete={onDelete}
                   isSubmitting={isSubmitting}
@@ -781,7 +852,7 @@ export function KnowledgeBaseListView({
             </div>
           ) : (
             <div className="flex flex-col gap-3">
-              {activeTab !== "featured" && visibleItems.length > 0 && (
+              {canCreateFromActiveTab && visibleItems.length > 0 && (
                 <NewKnowledgeBaseListRow onCreate={openCreateSheet} />
               )}
               {visibleItems.map((item) => (
@@ -789,6 +860,7 @@ export function KnowledgeBaseListView({
                   key={item.id}
                   item={item}
                   onOpen={openKnowledgeBase}
+                  onChat={openChat}
                   onEdit={openEditSheet}
                   onDelete={onDelete}
                   isSubmitting={isSubmitting}
@@ -799,18 +871,14 @@ export function KnowledgeBaseListView({
           {visibleItems.length === 0 && (
             <KnowledgeBaseEmptyState
               title={hasSearchTerm ? "没有匹配的知识库" : activeTabMeta.empty}
-              description={
-                hasSearchTerm
-                  ? "换一个关键词试试，或清空搜索条件查看全部知识库。"
-                  : "创建第一个知识库后，就可以继续上传资料、整理文档，并在后续阶段基于这些资料进行问答。"
-              }
+              description={emptyDescription}
               actionLabel={
-                !hasSearchTerm && activeTab !== "featured"
+                !hasSearchTerm && canCreateFromActiveTab
                   ? "新建知识库"
                   : undefined
               }
               onAction={
-                !hasSearchTerm && activeTab !== "featured"
+                !hasSearchTerm && canCreateFromActiveTab
                   ? openCreateSheet
                   : undefined
               }
