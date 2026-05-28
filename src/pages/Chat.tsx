@@ -168,7 +168,7 @@ const Chat = () => {
 
   if (isLoading) {
     return (
-      <section className="flex min-h-[calc(100svh-5rem)] items-center justify-center bg-slate-50/60 px-5 text-slate-600">
+      <section className="flex h-[calc(100svh-5rem)] min-h-0 items-center justify-center overflow-hidden bg-slate-50/60 px-5 text-slate-600">
         <div className="flex items-center gap-3 rounded-[8px] border border-slate-200 bg-white px-5 py-4 text-sm shadow-sm">
           <Loader2 className="size-4 animate-spin text-sky-500" />
           正在加载知识库...
@@ -179,7 +179,7 @@ const Chat = () => {
 
   if (loadError) {
     return (
-      <section className="flex min-h-[calc(100svh-5rem)] items-center justify-center bg-slate-50/60 px-5 text-slate-900">
+      <section className="flex h-[calc(100svh-5rem)] min-h-0 items-center justify-center overflow-hidden bg-slate-50/60 px-5 text-slate-900">
         <div className="w-full max-w-md rounded-[8px] border border-slate-200 bg-white px-6 py-8 text-center shadow-sm">
           <TriangleAlert className="mx-auto size-8 text-orange-500" />
           <h2 className="mt-4 text-base font-semibold">问答入口加载失败</h2>
@@ -198,7 +198,7 @@ const Chat = () => {
 
   if (!selectedKnowledgeBase) {
     return (
-      <section className="flex min-h-[calc(100svh-5rem)] items-center justify-center bg-slate-50/60 px-5 text-slate-900">
+      <section className="flex h-[calc(100svh-5rem)] min-h-0 items-center justify-center overflow-hidden bg-slate-50/60 px-5 text-slate-900">
         <div className="w-full max-w-md rounded-[8px] border border-dashed border-slate-300 bg-white px-6 py-8 text-center shadow-sm">
           <MessageCircle className="mx-auto size-9 text-slate-400" />
           <h2 className="mt-4 text-base font-semibold">暂无可问答的知识库</h2>
@@ -218,7 +218,7 @@ const Chat = () => {
   }
 
   return (
-    <section className="h-[calc(100svh-5rem)] min-h-[720px] overflow-hidden border border-slate-200 bg-white shadow-sm">
+    <section className="h-[calc(100svh-5rem)] min-h-0 overflow-hidden border border-slate-200 bg-white shadow-sm">
       <RagChatWorkspace
         knowledgeBase={selectedKnowledgeBase}
         knowledgeBases={knowledgeBases}

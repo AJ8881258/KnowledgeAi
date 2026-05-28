@@ -16,8 +16,10 @@ public interface ChatSessionRepository {
     @Insert("""
             insert into chat_sessions (title,
                                       knowledge_base_id,
-                                      user_id)
-            values (#{title},#{knowledgeBaseId},#{userId})
+                                      user_id,
+                                      unread,
+                                      status)
+            values (#{title},#{knowledgeBaseId},#{userId},false,'IDLE')
             """)
     @Options(useGeneratedKeys = true, keyProperty = "id", keyColumn = "id")
     int insert(ChatSession session);
@@ -32,7 +34,7 @@ public interface ChatSessionRepository {
      */
 
     @Select("""
-                select id,title,knowledge_base_id,user_id,pinned,created_at,updated_at
+                select id,title,knowledge_base_id,user_id,pinned,unread,status,last_error_message,created_at,updated_at
                 from chat_sessions
                 where knowledge_base_id = #{knowledgeBaseId} and
                 user_id = #{userId}
@@ -49,7 +51,7 @@ public interface ChatSessionRepository {
      */
 
     @Select("""
-                select id,title,knowledge_base_id,user_id,pinned,created_at,updated_at
+                select id,title,knowledge_base_id,user_id,pinned,unread,status,last_error_message,created_at,updated_at
                 from chat_sessions
                 where id = #{id} and user_id = #{userId}
             """)
@@ -80,21 +82,65 @@ public interface ChatSessionRepository {
      */
 
     @Update("""
-                update chat_sessions set title = coalesce(#{title},title),pinned = coalesce(#{pinned},pinned),updated_at = now()
+                update chat_sessions
+                set title = coalesce(#{title},title),
+                    pinned = coalesce(#{pinned},pinned),
+                    unread = coalesce(#{unread},unread),
+                    updated_at = now()
                 where id = #{id} and user_id = #{userId}
             """)
     int updateByIdAndUserId(
             @Param("id") Long id,
             @Param("userId") Long userId,
             @Param("title") String title,
-            @Param("pinned") Boolean pinned
+            @Param("pinned") Boolean pinned,
+            @Param("unread") Boolean unread
     );
 
     /**
-     * @des 删除会话
+     * @param id               会话ID
+     * @param userId           当前用户ID
+     * @param status           生成状态：IDLE、GENERATING、FAILED
+     * @param lastErrorMessage 最近一次失败的脱敏错误
+     * @param unread           是否更新未读标记，传 null 表示保持原值
+     * @return 更新行数
+     * @Desc 后台生成任务用它落库状态，前端轮询会话列表时能看到生成进度。
+     */
+    @Update("""
+                update chat_sessions
+                set status = #{status},
+                    last_error_message = #{lastErrorMessage},
+                    unread = coalesce(#{unread}, unread),
+                    updated_at = now()
+                where id = #{id} and user_id = #{userId}
+            """)
+    int updateStatus(
+            @Param("id") Long id,
+            @Param("userId") Long userId,
+            @Param("status") String status,
+            @Param("lastErrorMessage") String lastErrorMessage,
+            @Param("unread") Boolean unread
+    );
+
+    /**
+     * @param id     会话ID
+     * @param userId 当前用户ID
+     * @return 更新行数
+     * @Desc 用户打开消息列表后，将该会话标记为已读。
+     */
+    @Update("""
+                update chat_sessions
+                set unread = false,
+                    updated_at = now()
+                where id = #{id} and user_id = #{userId}
+            """)
+    int markRead(@Param("id") Long id, @Param("userId") Long userId);
+
+    /**
      * @param id
      * @param userId
      * @return
+     * @des 删除会话
      */
 
     @Delete("""

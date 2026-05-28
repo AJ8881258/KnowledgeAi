@@ -1,0 +1,1283 @@
+package com.knowflow.backend;
+
+import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpServer;
+import com.knowflow.backend.settings.dto.request.UpdateModelSettingsRequest;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
+import java.time.OffsetDateTime;
+import java.time.ZoneId;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.Predicate;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+@SpringBootTest(
+        classes = KnowflowBackendApplication.class,
+        properties = {
+                "knowflow.ai.base-url=http://127.0.0.1:1/v1",
+                "knowflow.ai.api-key=stage13-env-key",
+                "knowflow.ai.model=stage13-env-model",
+                "knowflow.model.secret-key=stage13-test-secret-key-with-32-bytes"
+        }
+)
+@AutoConfigureMockMvc
+class Stage13UserModelAndChatTests {
+    private static final String MODEL_AUTH_FAILED_MESSAGE = "模型供应商鉴权失败，请检查 API Key 是否有效";
+    private static final String MODEL_NOT_AVAILABLE_MESSAGE = "模型不存在或当前 API Key 无权访问该模型";
+    private static final String MODEL_CALL_FAILED_MESSAGE = "AI model call failed";
+
+    @Autowired
+    private MockMvc mockMvc;
+
+    @Autowired
+    private ObjectMapper objectMapper;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private PasswordEncoder passwordEncoder;
+
+    private Stage13ModelServer modelServer;
+    private final String password = "stage13-password";
+
+    @BeforeEach
+    void cleanBefore() throws Exception {
+        modelServer = new Stage13ModelServer();
+        cleanStage13Data();
+    }
+
+    @AfterEach
+    void cleanAfter() {
+        if (modelServer != null) {
+            modelServer.close();
+        }
+        cleanStage13Data();
+    }
+
+    @Test
+    void modelSettingsSaveReadPreserveAndReplaceApiKeyWithoutLeakingPlaintext() throws Exception {
+        assertThat(Arrays.stream(UpdateModelSettingsRequest.class.getDeclaredFields()).map(field -> field.getName()))
+                .doesNotContain("clearApiKey");
+
+        createUser("stage13_model_owner");
+        String token = loginAndGetToken("stage13_model_owner");
+
+        mockMvc.perform(patch("/api/settings/model")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "baseUrl": "%s/v1",
+                                  "apiKey": "stage13-user-secret-key",
+                                  "model": "stage13-model-a",
+                                  "timeoutSeconds": 42
+                                }
+                                """.formatted(modelServer.baseUrl())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.configured").value(true))
+                .andExpect(jsonPath("$.model").value("stage13-model-a"))
+                .andExpect(jsonPath("$.baseUrl").value(modelServer.baseUrl() + "/v1"))
+                .andExpect(jsonPath("$.baseUrlConfigured").value(true))
+                .andExpect(jsonPath("$.apiKeyConfigured").value(true))
+                .andExpect(jsonPath("$.timeoutSeconds").value(42))
+                .andExpect(jsonPath("$.mode").doesNotExist())
+                .andExpect(jsonPath("$.editable").doesNotExist())
+                .andExpect(jsonPath("$.apiKey").doesNotExist())
+                .andExpect(jsonPath("$.encryptedApiKey").doesNotExist())
+                .andExpect(content().string(not(containsString("stage13-user-secret-key"))));
+
+        String encryptedApiKey = readEncryptedApiKey("stage13_model_owner");
+        assertThat(encryptedApiKey).isNotBlank();
+        assertThat(encryptedApiKey).doesNotContain("stage13-user-secret-key");
+
+        mockMvc.perform(patch("/api/settings/model")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "baseUrl": "%s/v1",
+                                  "model": "stage13-model-b",
+                                  "timeoutSeconds": 50
+                                }
+                                """.formatted(modelServer.baseUrl())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.configured").value(true))
+                .andExpect(jsonPath("$.model").value("stage13-model-b"))
+                .andExpect(jsonPath("$.baseUrl").value(modelServer.baseUrl() + "/v1"))
+                .andExpect(jsonPath("$.apiKeyConfigured").value(true));
+
+        assertThat(readEncryptedApiKey("stage13_model_owner")).isEqualTo(encryptedApiKey);
+
+        modelServer.returnModels("stage13-model-b");
+        mockMvc.perform(post("/api/settings/model/models")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.models[0].id").value("stage13-model-b"));
+        assertThat(modelServer.authorizationHeaders()).contains("Bearer stage13-user-secret-key");
+
+        mockMvc.perform(patch("/api/settings/model")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "baseUrl": "%s/v1",
+                                  "apiKey": "stage13-user-replacement-key",
+                                  "model": "stage13-model-c",
+                                  "timeoutSeconds": 55
+                                }
+                                """.formatted(modelServer.baseUrl())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.configured").value(true))
+                .andExpect(jsonPath("$.model").value("stage13-model-c"))
+                .andExpect(jsonPath("$.apiKeyConfigured").value(true))
+                .andExpect(content().string(not(containsString("stage13-user-replacement-key"))));
+
+        String replacedEncryptedApiKey = readEncryptedApiKey("stage13_model_owner");
+        assertThat(replacedEncryptedApiKey).isNotBlank();
+        assertThat(replacedEncryptedApiKey).isNotEqualTo(encryptedApiKey);
+        assertThat(replacedEncryptedApiKey).doesNotContain("stage13-user-replacement-key");
+
+        modelServer.returnModels("stage13-model-c");
+        mockMvc.perform(post("/api/settings/model/models")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.models[0].id").value("stage13-model-c"))
+                .andExpect(content().string(not(containsString("stage13-user-replacement-key"))));
+        assertThat(modelServer.authorizationHeaders()).contains("Bearer stage13-user-replacement-key");
+    }
+
+    @Test
+    void fetchModelsUsesSubmittedCredentialsAndSanitizesProviderFailures() throws Exception {
+        createUser("stage13_model_fetch");
+        String token = loginAndGetToken("stage13_model_fetch");
+        modelServer.returnModels("stage13-dynamic-model");
+
+        mockMvc.perform(post("/api/settings/model/models")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "baseUrl": "%s/v1",
+                                  "apiKey": "stage13-list-key"
+                                }
+                                """.formatted(modelServer.baseUrl())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.models[0].id").value("stage13-dynamic-model"))
+                .andExpect(jsonPath("$.models[0].name").value("stage13-dynamic-model"))
+                .andExpect(content().string(not(containsString("stage13-list-key"))));
+
+        assertThat(modelServer.authorizationHeaders()).contains("Bearer stage13-list-key");
+
+        modelServer.returnSensitiveFailure("provider failed with stage13-list-key and Authorization header");
+
+        mockMvc.perform(post("/api/settings/model/models")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "baseUrl": "%s/v1",
+                                  "apiKey": "stage13-list-key"
+                                }
+                                """.formatted(modelServer.baseUrl())))
+                .andExpect(status().isInternalServerError())
+                .andExpect(content().string(not(containsString("stage13-list-key"))))
+                .andExpect(content().string(not(containsString("Authorization"))))
+                .andExpect(content().string(not(containsString(modelServer.baseUrl()))));
+    }
+
+    @Test
+    void fetchModelsCanReuseSavedBaseUrlAndApiKeyWithoutReturningKeyToFrontend() throws Exception {
+        createUser("stage13_model_reuse");
+        String token = loginAndGetToken("stage13_model_reuse");
+        saveModelSettings(token, "stage13-reused-key", "stage13-reused-model");
+        modelServer.returnModels("stage13-reused-model");
+
+        mockMvc.perform(get("/api/settings/model")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.baseUrl").value(modelServer.baseUrl() + "/v1"))
+                .andExpect(jsonPath("$.apiKeyConfigured").value(true))
+                .andExpect(jsonPath("$.apiKey").doesNotExist())
+                .andExpect(jsonPath("$.encryptedApiKey").doesNotExist())
+                .andExpect(content().string(not(containsString("stage13-reused-key"))));
+
+        mockMvc.perform(post("/api/settings/model/models")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.models[0].id").value("stage13-reused-model"))
+                .andExpect(content().string(not(containsString("stage13-reused-key"))));
+
+        assertThat(modelServer.authorizationHeaders()).contains("Bearer stage13-reused-key");
+    }
+
+    @Test
+    void fetchModelsCanUseSubmittedBaseUrlWithSavedApiKeyAndRejectMissingCredentials() throws Exception {
+        createUser("stage13_model_reuse_partial");
+        String token = loginAndGetToken("stage13_model_reuse_partial");
+        saveModelSettings(token, "stage13-partial-key", "stage13-partial-model");
+        modelServer.returnModels("stage13-partial-model");
+
+        mockMvc.perform(post("/api/settings/model/models")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "baseUrl": "%s/v1"
+                                }
+                                """.formatted(modelServer.baseUrl())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.models[0].id").value("stage13-partial-model"))
+                .andExpect(content().string(not(containsString("stage13-partial-key"))));
+
+        assertThat(modelServer.authorizationHeaders()).contains("Bearer stage13-partial-key");
+
+        createUser("stage13_model_reuse_missing");
+        String missingToken = loginAndGetToken("stage13_model_reuse_missing");
+        mockMvc.perform(post("/api/settings/model/models")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + missingToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().string(not(containsString("Authorization"))))
+                .andExpect(content().string(not(containsString("stage13-partial-key"))));
+    }
+
+    @Test
+    void modelConnectionTestUsesSavedChatCredentialsWithoutLeakingSecrets() throws Exception {
+        modelServer.returnChatCompletion("stage13 connection ok");
+        createUser("stage13_model_test_owner");
+        String token = loginAndGetToken("stage13_model_test_owner");
+        saveModelSettings(token, "stage13-connection-key", "stage13-connection-model");
+
+        mockMvc.perform(post("/api/settings/model/test")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.message").value("模型连接测试成功"))
+                .andExpect(content().string(not(containsString("stage13-connection-key"))))
+                .andExpect(content().string(not(containsString("stage13-connection-model"))))
+                .andExpect(content().string(not(containsString("Authorization"))));
+
+        assertThat(modelServer.authorizationHeaders()).contains("Bearer stage13-connection-key");
+    }
+
+    @Test
+    void modelConnectionTestReturnsReadableSanitizedProviderFailures() throws Exception {
+        createUser("stage13_model_test_failure");
+        String token = loginAndGetToken("stage13_model_test_failure");
+        saveModelSettings(token, "stage13-test-failure-key", "stage13-test-failure-model");
+
+        modelServer.returnSensitiveFailure(
+                401,
+                "provider leaked stage13-test-failure-key Authorization http://provider.example/v1 stage13-test-failure-model");
+
+        mockMvc.perform(post("/api/settings/model/test")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.message").value(MODEL_AUTH_FAILED_MESSAGE))
+                .andExpect(content().string(not(containsString("stage13-test-failure-key"))))
+                .andExpect(content().string(not(containsString("Authorization"))))
+                .andExpect(content().string(not(containsString("provider.example"))))
+                .andExpect(content().string(not(containsString("stage13-test-failure-model"))));
+
+        assertThat(modelServer.authorizationHeaders()).contains("Bearer stage13-test-failure-key");
+    }
+
+    @Test
+    void preferencesCanBeSavedAndReadPerCurrentUser() throws Exception {
+        createUser("stage13_pref_owner");
+        createUser("stage13_pref_other");
+        String ownerToken = loginAndGetToken("stage13_pref_owner");
+        String otherToken = loginAndGetToken("stage13_pref_other");
+
+        mockMvc.perform(get("/api/settings/preferences")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + ownerToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.language").value("zh-CN"))
+                .andExpect(jsonPath("$.timezone").isNotEmpty());
+
+        mockMvc.perform(patch("/api/settings/preferences")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + ownerToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "language": "en-US",
+                                  "timezone": "America/New_York"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.language").value("en-US"))
+                .andExpect(jsonPath("$.timezone").value("America/New_York"));
+
+        mockMvc.perform(get("/api/settings/preferences")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + ownerToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.language").value("en-US"))
+                .andExpect(jsonPath("$.timezone").value("America/New_York"));
+
+        mockMvc.perform(get("/api/settings/preferences")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + otherToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.language").value("zh-CN"))
+                .andExpect(jsonPath("$.timezone").isNotEmpty());
+    }
+
+    @Test
+    void chatUsesCurrentUsersSavedModelSettingsWithoutCrossUserApiKeyReuse() throws Exception {
+        modelServer.returnChatCompletion("stage13 model answer");
+        Long userAId = createUser("stage13_model_user_a");
+        Long userBId = createUser("stage13_model_user_b");
+        String userAToken = loginAndGetToken("stage13_model_user_a");
+        String userBToken = loginAndGetToken("stage13_model_user_b");
+
+        saveModelSettings(userAToken, "stage13-user-a-key", "stage13-user-a-model");
+        saveModelSettings(userBToken, "stage13-user-b-key", "stage13-user-b-model");
+
+        Long knowledgeBaseAId = createKnowledgeBase(userAId, "Stage13 Model A KB");
+        Long knowledgeBaseBId = createKnowledgeBase(userBId, "Stage13 Model B KB");
+        createMembership(knowledgeBaseAId, userAId, "OWNER");
+        createMembership(knowledgeBaseBId, userBId, "OWNER");
+        createIndexedChunk(userAId, knowledgeBaseAId, "stage13 model a retrieval marker");
+        createIndexedChunk(userBId, knowledgeBaseBId, "stage13 model b retrieval marker");
+        Long sessionAId = createSession(knowledgeBaseAId, userAToken, "Model A session");
+        Long sessionBId = createSession(knowledgeBaseBId, userBToken, "Model B session");
+
+        sendAsyncMessage(userAToken, sessionAId, "stage13 model a retrieval");
+        sendAsyncMessage(userBToken, sessionBId, "stage13 model b retrieval");
+
+        waitUntil(() -> modelServer.authorizationHeaders().contains("Bearer stage13-user-a-key")
+                && modelServer.authorizationHeaders().contains("Bearer stage13-user-b-key"));
+
+        waitForAssistantMessage(userAToken, sessionAId);
+        waitForAssistantMessage(userBToken, sessionBId);
+    }
+
+    @Test
+    void sessionUnreadStatusAndAsyncEmptyRetrievalFlowWorkTogether() throws Exception {
+        modelServer.returnChatCompletion("stage13 empty retrieval model answer");
+        Long userId = createUser("stage13_async_owner");
+        String token = loginAndGetToken("stage13_async_owner");
+        saveModelSettings(token, "stage13-empty-key", "stage13-empty-model");
+        Long knowledgeBaseId = createKnowledgeBase(userId, "Stage13 Async KB");
+        createMembership(knowledgeBaseId, userId, "OWNER");
+        Long sessionId = createSession(knowledgeBaseId, token, "Async session");
+
+        mockMvc.perform(patch("/api/chat/sessions/{sessionId}", sessionId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "unread": true
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.unread").value(true));
+
+        mockMvc.perform(get("/api/chat/sessions/{sessionId}/messages", sessionId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/knowledge-bases/{knowledgeBaseId}/chat/sessions", knowledgeBaseId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].unread").value(false));
+
+        mockMvc.perform(post("/api/chat/sessions/{sessionId}/messages", sessionId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "content": "你好",
+                                  "limit": 5
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.userMessage.role").value("USER"))
+                .andExpect(jsonPath("$.session.status").value("GENERATING"))
+                .andExpect(jsonPath("$.message").doesNotExist());
+
+        waitForSessionStatus(token, knowledgeBaseId, sessionId, "IDLE");
+        JsonNode assistantMessage = waitForAssistantMessage(token, sessionId);
+        assertThat(assistantMessage.get("content").asText()).isEqualTo("stage13 empty retrieval model answer");
+        assertThat(assistantMessage.get("sources").size()).isZero();
+        assertThat(modelServer.authorizationHeaders()).contains("Bearer stage13-empty-key");
+    }
+
+    @Test
+    void fullChatCompletionsBaseUrlIsNormalizedBeforeSavingAndChatting() throws Exception {
+        modelServer.returnChatCompletion("stage13 normalized base url answer");
+        Long userId = createUser("stage13_full_endpoint_owner");
+        String token = loginAndGetToken("stage13_full_endpoint_owner");
+
+        mockMvc.perform(patch("/api/settings/model")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "baseUrl": "%s/v1/chat/completions",
+                                  "apiKey": "stage13-full-endpoint-key",
+                                  "model": "stage13-full-endpoint-model",
+                                  "timeoutSeconds": 10
+                                }
+                                """.formatted(modelServer.baseUrl())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.baseUrl").value(modelServer.baseUrl() + "/v1"))
+                .andExpect(content().string(not(containsString("stage13-full-endpoint-key"))));
+
+        Long knowledgeBaseId = createKnowledgeBase(userId, "Stage13 Full Endpoint KB");
+        createMembership(knowledgeBaseId, userId, "OWNER");
+        Long sessionId = createSession(knowledgeBaseId, token, "Full endpoint session");
+
+        sendAsyncMessage(token, sessionId, "你好");
+
+        waitForSessionStatus(token, knowledgeBaseId, sessionId, "IDLE");
+        JsonNode assistantMessage = waitForAssistantMessage(token, sessionId);
+        assertThat(assistantMessage.get("content").asText()).isEqualTo("stage13 normalized base url answer");
+        assertThat(assistantMessage.get("sources").size()).isZero();
+        assertThat(modelServer.authorizationHeaders()).contains("Bearer stage13-full-endpoint-key");
+    }
+
+    @Test
+    void modelSettingsRejectsBaseUrlWithoutOpenAiVersionRoot() throws Exception {
+        createUser("stage13_invalid_base_url_owner");
+        String token = loginAndGetToken("stage13_invalid_base_url_owner");
+
+        mockMvc.perform(patch("/api/settings/model")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "baseUrl": "%s",
+                                  "apiKey": "stage13-invalid-base-key",
+                                  "model": "stage13-invalid-base-model",
+                                  "timeoutSeconds": 10
+                                }
+                                """.formatted(modelServer.baseUrl())))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("baseUrl must be an OpenAI-compatible root ending with /v1"))
+                .andExpect(content().string(not(containsString("stage13-invalid-base-key"))))
+                .andExpect(content().string(not(containsString(modelServer.baseUrl()))))
+                .andExpect(content().string(not(containsString("Authorization"))));
+    }
+
+    @Test
+    void usageTodayCountsOnlyCurrentUsersUserMessagesInRequestedTimezone() throws Exception {
+        Long currentUserId = createUser("stage13_usage_owner");
+        Long otherUserId = createUser("stage13_usage_other");
+        String token = loginAndGetToken("stage13_usage_owner");
+        Long currentKnowledgeBaseId = createKnowledgeBase(currentUserId, "Stage13 Usage KB");
+        Long otherKnowledgeBaseId = createKnowledgeBase(otherUserId, "Stage13 Other Usage KB");
+        Long currentSessionId = createChatSession(currentUserId, currentKnowledgeBaseId, "Usage session");
+        Long otherSessionId = createChatSession(otherUserId, otherKnowledgeBaseId, "Other usage session");
+        ZoneId zone = ZoneId.of("Asia/Shanghai");
+        OffsetDateTime todayStart = LocalDate.now(zone).atStartOfDay(zone).toOffsetDateTime();
+
+        createChatMessage(currentSessionId, "USER", "counted one", todayStart.plusHours(1));
+        createChatMessage(currentSessionId, "USER", "counted two", todayStart.plusHours(2));
+        createChatMessage(currentSessionId, "ASSISTANT", "not counted assistant", todayStart.plusHours(3));
+        createChatMessage(currentSessionId, "USER", "outside day", todayStart.minusMinutes(1));
+        createChatMessage(otherSessionId, "USER", "other user not counted", todayStart.plusHours(4));
+
+        mockMvc.perform(get("/api/chat/usage/today")
+                        .queryParam("timezone", "Asia/Shanghai")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.timezone").value("Asia/Shanghai"))
+                .andExpect(jsonPath("$.date").value(LocalDate.now(zone).toString()))
+                .andExpect(jsonPath("$.messageCount").value(2));
+    }
+
+    @Test
+    void modelFailureMarksSessionFailedAndStoresOnlySanitizedError() throws Exception {
+        modelServer.returnSensitiveFailure("provider leaked stage13-failure-key Authorization http://leaky.example/v1 stage13-failure-model");
+        Long userId = createUser("stage13_failure_owner");
+        String token = loginAndGetToken("stage13_failure_owner");
+        saveModelSettings(token, "stage13-failure-key", "stage13-failure-model");
+        Long knowledgeBaseId = createKnowledgeBase(userId, "Stage13 Failure KB");
+        createMembership(knowledgeBaseId, userId, "OWNER");
+        createIndexedChunk(userId, knowledgeBaseId, "stage13 failure retrieval marker");
+        Long sessionId = createSession(knowledgeBaseId, token, "Failure session");
+
+        sendAsyncMessage(token, sessionId, "stage13 failure retrieval");
+
+        waitForSessionStatus(token, knowledgeBaseId, sessionId, "FAILED");
+        JsonNode failedSession = readSessions(token, knowledgeBaseId).stream()
+                .filter(session -> session.get("id").asLong() == sessionId)
+                .findFirst()
+                .orElseThrow();
+
+        assertThat(failedSession.get("status").asText()).isEqualTo("FAILED");
+        assertThat(failedSession.get("lastErrorMessage").asText()).isEqualTo(MODEL_CALL_FAILED_MESSAGE);
+        assertThat(failedSession.toString())
+                .doesNotContain("stage13-failure-key", "Authorization", "leaky.example", "stage13-failure-model");
+        assertThat(readLastErrorMessage(sessionId)).isEqualTo(MODEL_CALL_FAILED_MESSAGE);
+        assertThat(readLastErrorMessage(sessionId))
+                .doesNotContain("stage13-failure-key", "Authorization", "leaky.example", "stage13-failure-model");
+        assertThat(readMessages(token, sessionId))
+                .filteredOn(message -> "ASSISTANT".equals(message.get("role").asText()))
+                .isEmpty();
+    }
+
+    @Test
+    void providerHttpFailuresAreVisibleOnSessionWithSanitizedError() throws Exception {
+        int[] providerStatuses = {401, 404, 500};
+
+        for (int providerStatus : providerStatuses) {
+            Long userId = createUser("stage13_provider_failure_" + providerStatus);
+            String token = loginAndGetToken("stage13_provider_failure_" + providerStatus);
+            saveModelSettings(token, "stage13-provider-key-" + providerStatus, "stage13-provider-model-" + providerStatus);
+            Long knowledgeBaseId = createKnowledgeBase(userId, "Stage13 Provider Failure KB " + providerStatus);
+            createMembership(knowledgeBaseId, userId, "OWNER");
+            Long sessionId = createSession(knowledgeBaseId, token, "Provider failure session " + providerStatus);
+
+            modelServer.returnSensitiveFailure(
+                    providerStatus,
+                    "provider leaked stage13-provider-key-" + providerStatus
+                            + " Authorization http://provider.example/v1 stage13-provider-model-" + providerStatus);
+
+            sendAsyncMessage(token, sessionId, "你好");
+
+            waitForSessionStatus(token, knowledgeBaseId, sessionId, "FAILED");
+            JsonNode failedSession = readSessions(token, knowledgeBaseId).stream()
+                    .filter(session -> session.get("id").asLong() == sessionId)
+                    .findFirst()
+                    .orElseThrow();
+
+            assertThat(failedSession.get("status").asText()).isEqualTo("FAILED");
+            assertThat(failedSession.get("lastErrorMessage").asText()).isEqualTo(expectedProviderMessage(providerStatus));
+            assertThat(failedSession.toString())
+                    .doesNotContain("stage13-provider-key-" + providerStatus)
+                    .doesNotContain("Authorization")
+                    .doesNotContain("provider.example")
+                    .doesNotContain("stage13-provider-model-" + providerStatus);
+            assertThat(readLastErrorMessage(sessionId)).isEqualTo(expectedProviderMessage(providerStatus));
+            assertThat(modelServer.authorizationHeaders()).contains("Bearer stage13-provider-key-" + providerStatus);
+            assertThat(readMessages(token, sessionId))
+                    .filteredOn(message -> "ASSISTANT".equals(message.get("role").asText()))
+                    .isEmpty();
+        }
+    }
+
+    private String expectedProviderMessage(int providerStatus) {
+        return switch (providerStatus) {
+            case 401, 403 -> MODEL_AUTH_FAILED_MESSAGE;
+            case 404 -> MODEL_NOT_AVAILABLE_MESSAGE;
+            default -> MODEL_CALL_FAILED_MESSAGE;
+        };
+    }
+
+    private void saveModelSettings(String token, String apiKey, String model) throws Exception {
+        mockMvc.perform(patch("/api/settings/model")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "baseUrl": "%s/v1",
+                                  "apiKey": "%s",
+                                  "model": "%s",
+                                  "timeoutSeconds": 10
+                                }
+                                """.formatted(modelServer.baseUrl(), apiKey, model)))
+                .andExpect(status().isOk());
+    }
+
+    private void sendAsyncMessage(String token, Long sessionId, String content) throws Exception {
+        mockMvc.perform(post("/api/chat/sessions/{sessionId}/messages", sessionId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "content": "%s",
+                                  "limit": 5
+                                }
+                                """.formatted(content)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.session.status").value("GENERATING"));
+    }
+
+    private void waitForSessionStatus(String token, Long knowledgeBaseId, Long sessionId, String status) throws Exception {
+        waitUntil(() -> readSessions(token, knowledgeBaseId)
+                .stream()
+                .anyMatch(session -> session.get("id").asLong() == sessionId
+                        && status.equals(session.get("status").asText())));
+    }
+
+    private JsonNode waitForAssistantMessage(String token, Long sessionId) throws Exception {
+        final JsonNode[] found = new JsonNode[1];
+        waitUntil(() -> readMessages(token, sessionId)
+                .stream()
+                .filter(message -> "ASSISTANT".equals(message.get("role").asText()))
+                .findFirst()
+                .map(message -> {
+                    found[0] = message;
+                    return true;
+                })
+                .orElse(false));
+        return found[0];
+    }
+
+    private List<JsonNode> readSessions(String token, Long knowledgeBaseId) throws Exception {
+        MvcResult result = mockMvc.perform(get("/api/knowledge-bases/{knowledgeBaseId}/chat/sessions", knowledgeBaseId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk())
+                .andReturn();
+        List<JsonNode> sessions = new ArrayList<>();
+        for (JsonNode session : objectMapper.readTree(result.getResponse().getContentAsString(StandardCharsets.UTF_8))) {
+            sessions.add(session);
+        }
+        return sessions;
+    }
+
+    private List<JsonNode> readMessages(String token, Long sessionId) throws Exception {
+        MvcResult result = mockMvc.perform(get("/api/chat/sessions/{sessionId}/messages", sessionId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk())
+                .andReturn();
+        List<JsonNode> messages = new ArrayList<>();
+        for (JsonNode message : objectMapper.readTree(result.getResponse().getContentAsString(StandardCharsets.UTF_8))) {
+            messages.add(message);
+        }
+        return messages;
+    }
+
+    private String readLastErrorMessage(Long sessionId) {
+        return jdbcTemplate.queryForObject(
+                "select last_error_message from chat_sessions where id = ?",
+                String.class,
+                sessionId);
+    }
+
+    private void waitUntil(CheckedBooleanSupplier condition) throws Exception {
+        long deadline = System.nanoTime() + 5_000_000_000L;
+        AssertionError lastError = null;
+        while (System.nanoTime() < deadline) {
+            try {
+                if (condition.getAsBoolean()) {
+                    return;
+                }
+            } catch (AssertionError error) {
+                lastError = error;
+            }
+            Thread.sleep(100);
+        }
+        if (lastError != null) {
+            throw lastError;
+        }
+        throw new AssertionError("Condition was not met before timeout");
+    }
+
+    private String loginAndGetToken(String username) throws Exception {
+        MvcResult result = mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "username", username,
+                                "password", password))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.tokenType").value("Bearer"))
+                .andExpect(jsonPath("$.accessToken").isNotEmpty())
+                .andReturn();
+
+        JsonNode root = objectMapper.readTree(result.getResponse().getContentAsString(StandardCharsets.UTF_8));
+        return root.get("accessToken").asText();
+    }
+
+    private Long createUser(String username) {
+        return jdbcTemplate.queryForObject("""
+                        insert into users (username, password_hash, role)
+                        values (?, ?, 'USER')
+                        on conflict (username)
+                        do update set password_hash = excluded.password_hash,
+                                      role = excluded.role,
+                                      updated_at = now()
+                        returning id
+                        """,
+                Long.class,
+                username,
+                passwordEncoder.encode(password));
+    }
+
+    private Long createKnowledgeBase(Long userId, String name) {
+        return jdbcTemplate.queryForObject("""
+                        insert into knowledge_bases (name, description, status, featured, theme_id, created_by)
+                        values (?, 'stage13 test', 'ACTIVE', false, 'blue', ?)
+                        returning id
+                        """,
+                Long.class,
+                name,
+                userId);
+    }
+
+    private Long createMembership(Long knowledgeBaseId, Long userId, String role) {
+        return jdbcTemplate.queryForObject("""
+                        insert into knowledge_base_members (knowledge_base_id, user_id, role)
+                        values (?, ?, ?)
+                        returning id
+                        """,
+                Long.class,
+                knowledgeBaseId,
+                userId,
+                role);
+    }
+
+    private Long createSession(Long knowledgeBaseId, String token, String title) throws Exception {
+        MvcResult result = mockMvc.perform(post("/api/knowledge-bases/{knowledgeBaseId}/chat/sessions", knowledgeBaseId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of("title", title))))
+                .andExpect(status().isCreated())
+                .andReturn();
+
+        JsonNode root = objectMapper.readTree(result.getResponse().getContentAsString(StandardCharsets.UTF_8));
+        return root.get("id").asLong();
+    }
+
+    private Long createChatSession(Long userId, Long knowledgeBaseId, String title) {
+        return jdbcTemplate.queryForObject("""
+                        insert into chat_sessions (title, knowledge_base_id, user_id)
+                        values (?, ?, ?)
+                        returning id
+                        """,
+                Long.class,
+                title,
+                knowledgeBaseId,
+                userId);
+    }
+
+    private void createIndexedChunk(Long userId, Long knowledgeBaseId, String content) {
+        Long documentId = jdbcTemplate.queryForObject("""
+                        insert into documents (
+                            knowledge_base_id,
+                            original_filename,
+                            content_type,
+                            size_bytes,
+                            status,
+                            error_message,
+                            created_by
+                        )
+                        values (?, 'stage13.md', 'text/markdown', 100, 'INDEXED', null, ?)
+                        returning id
+                        """,
+                Long.class,
+                knowledgeBaseId,
+                userId);
+
+        jdbcTemplate.update("""
+                        insert into document_chunks (
+                            document_id,
+                            knowledge_base_id,
+                            chunk_index,
+                            content,
+                            char_count
+                        )
+                        values (?, ?, 0, ?, ?)
+                        """,
+                documentId,
+                knowledgeBaseId,
+                content,
+                content.length());
+    }
+
+    private Long createChatMessage(Long sessionId, String role, String content, OffsetDateTime createdAt) {
+        return jdbcTemplate.queryForObject("""
+                        insert into chat_messages (session_id, role, content, created_at)
+                        values (?, ?, ?, ?)
+                        returning id
+                        """,
+                Long.class,
+                sessionId,
+                role,
+                content,
+                createdAt);
+    }
+
+    private String readEncryptedApiKey(String username) {
+        if (!tableExists("user_model_settings")) {
+            return null;
+        }
+        Long userId = jdbcTemplate.queryForObject("select id from users where username = ?", Long.class, username);
+        return jdbcTemplate.queryForObject("""
+                        select encrypted_api_key
+                        from user_model_settings
+                        where user_id = ?
+                        """,
+                String.class,
+                userId);
+    }
+
+    private boolean tableExists(String tableName) {
+        Boolean exists = jdbcTemplate.queryForObject("""
+                        select exists (
+                            select 1
+                            from information_schema.tables
+                            where table_schema = 'public'
+                              and table_name = ?
+                        )
+                        """,
+                Boolean.class,
+                tableName);
+        return Boolean.TRUE.equals(exists);
+    }
+
+    private void cleanStage13Data() {
+        jdbcTemplate.update("""
+                delete from chat_message_sources
+                where message_id in (
+                    select m.id
+                    from chat_messages m
+                    join chat_sessions s on s.id = m.session_id
+                    join users u on u.id = s.user_id
+                    where u.username like 'stage13_%'
+                )
+                """);
+
+        jdbcTemplate.update("""
+                delete from chat_messages
+                where session_id in (
+                    select s.id
+                    from chat_sessions s
+                    join users u on u.id = s.user_id
+                    where u.username like 'stage13_%'
+                )
+                """);
+
+        jdbcTemplate.update("""
+                delete from chat_sessions
+                where user_id in (
+                    select id from users where username like 'stage13_%'
+                )
+                """);
+
+        jdbcTemplate.update("""
+                delete from document_chunks
+                where document_id in (
+                    select d.id
+                    from documents d
+                    join users u on u.id = d.created_by
+                    where u.username like 'stage13_%'
+                )
+                """);
+
+        jdbcTemplate.update("""
+                delete from documents
+                where created_by in (
+                    select id from users where username like 'stage13_%'
+                )
+                """);
+
+        if (tableExists("knowledge_base_members")) {
+            jdbcTemplate.update("""
+                    delete from knowledge_base_members
+                    where user_id in (
+                        select id from users where username like 'stage13_%'
+                    )
+                    """);
+
+            jdbcTemplate.update("""
+                    delete from knowledge_base_members
+                    where knowledge_base_id in (
+                        select kb.id
+                        from knowledge_bases kb
+                        join users u on u.id = kb.created_by
+                        where u.username like 'stage13_%'
+                    )
+                    """);
+        }
+
+        jdbcTemplate.update("""
+                delete from knowledge_bases
+                where created_by in (
+                    select id from users where username like 'stage13_%'
+                )
+                """);
+
+        jdbcTemplate.update("""
+                delete from user_rag_settings
+                where user_id in (
+                    select id from users where username like 'stage13_%'
+                )
+                """);
+
+        if (tableExists("user_model_settings")) {
+            jdbcTemplate.update("""
+                    delete from user_model_settings
+                    where user_id in (
+                        select id from users where username like 'stage13_%'
+                    )
+                    """);
+        }
+
+        if (tableExists("user_preferences")) {
+            jdbcTemplate.update("""
+                    delete from user_preferences
+                    where user_id in (
+                        select id from users where username like 'stage13_%'
+                    )
+                    """);
+        }
+
+        jdbcTemplate.update("delete from users where username like 'stage13_%'");
+    }
+
+    @FunctionalInterface
+    private interface CheckedBooleanSupplier {
+        boolean getAsBoolean() throws Exception;
+    }
+
+    private static class Stage13ModelServer implements AutoCloseable {
+        private final HttpServer server;
+        private final List<String> authorizationHeaders = new CopyOnWriteArrayList<>();
+        private volatile Predicate<String> handlerMode = path -> true;
+        private volatile int status = 200;
+        private volatile String body = "{\"data\":[]}";
+
+        Stage13ModelServer() throws IOException {
+            server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+            server.createContext("/v1/models", this::handle);
+            server.createContext("/v1/chat/completions", this::handle);
+            server.start();
+        }
+
+        String baseUrl() {
+            return "http://127.0.0.1:" + server.getAddress().getPort();
+        }
+
+        List<String> authorizationHeaders() {
+            return authorizationHeaders;
+        }
+
+        void returnModels(String modelId) {
+            this.handlerMode = path -> path.endsWith("/models");
+            this.status = 200;
+            this.body = """
+                    {
+                      "data": [
+                        {
+                          "id": "%s"
+                        }
+                      ]
+                    }
+                    """.formatted(modelId);
+        }
+
+        void returnChatCompletion(String answer) {
+            this.handlerMode = path -> path.endsWith("/chat/completions");
+            this.status = 200;
+            this.body = """
+                    {
+                      "choices": [
+                        {
+                          "message": {
+                            "content": "%s"
+                          }
+                        }
+                      ]
+                    }
+                    """.formatted(answer);
+        }
+
+        void returnSensitiveFailure(String sensitiveMessage) {
+            returnSensitiveFailure(500, sensitiveMessage);
+        }
+
+        void returnSensitiveFailure(int status, String sensitiveMessage) {
+            this.handlerMode = path -> true;
+            this.status = status;
+            this.body = "{\"error\":{\"message\":\"" + sensitiveMessage + "\"}}";
+        }
+
+        private void handle(HttpExchange exchange) throws IOException {
+            authorizationHeaders.add(exchange.getRequestHeaders().getFirst(HttpHeaders.AUTHORIZATION));
+            byte[] responseBody;
+            int responseStatus;
+            if (handlerMode.test(exchange.getRequestURI().getPath())) {
+                responseStatus = status;
+                responseBody = body.getBytes(StandardCharsets.UTF_8);
+            } else {
+                responseStatus = 404;
+                responseBody = "{\"error\":\"not found\"}".getBytes(StandardCharsets.UTF_8);
+            }
+            exchange.getResponseHeaders().add(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE);
+            exchange.sendResponseHeaders(responseStatus, responseBody.length);
+            exchange.getResponseBody().write(responseBody);
+            exchange.close();
+        }
+
+        @Override
+        public void close() {
+            server.stop(0);
+        }
+    }
+}
+
+@SpringBootTest(
+        classes = KnowflowBackendApplication.class,
+        properties = {
+                "knowflow.ai.base-url=http://127.0.0.1:1/v1",
+                "knowflow.ai.api-key=stage13-env-key",
+                "knowflow.ai.model=stage13-env-model"
+        }
+)
+@AutoConfigureMockMvc
+class Stage13LocalModelSecretDefaultTests {
+
+    @Autowired
+    private MockMvc mockMvc;
+
+    @Autowired
+    private ObjectMapper objectMapper;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private PasswordEncoder passwordEncoder;
+
+    private final String password = "stage13-password";
+
+    @BeforeEach
+    void cleanBefore() {
+        cleanStage13LocalSecretData();
+    }
+
+    @AfterEach
+    void cleanAfter() {
+        cleanStage13LocalSecretData();
+    }
+
+    @Test
+    void localProfileDefaultEncryptionSecretAllowsSavingApiKeyWithoutLeakingPlaintext() throws Exception {
+        createUser("stage13_local_secret_owner");
+        String token = loginAndGetToken("stage13_local_secret_owner");
+
+        mockMvc.perform(patch("/api/settings/model")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "baseUrl": "https://api.local-secret.test/v1",
+                                  "apiKey": "stage13-local-default-key",
+                                  "model": "stage13-local-model",
+                                  "timeoutSeconds": 60
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.configured").value(true))
+                .andExpect(jsonPath("$.apiKeyConfigured").value(true))
+                .andExpect(jsonPath("$.baseUrl").value("https://api.local-secret.test/v1"))
+                .andExpect(jsonPath("$.apiKey").doesNotExist())
+                .andExpect(jsonPath("$.encryptedApiKey").doesNotExist())
+                .andExpect(content().string(not(containsString("stage13-local-default-key"))))
+                .andExpect(content().string(not(containsString("Authorization"))));
+
+        String encryptedApiKey = readEncryptedApiKey("stage13_local_secret_owner");
+        assertThat(encryptedApiKey).isNotBlank();
+        assertThat(encryptedApiKey).doesNotContain("stage13-local-default-key");
+    }
+
+    private String loginAndGetToken(String username) throws Exception {
+        MvcResult result = mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "username", username,
+                                "password", password))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.tokenType").value("Bearer"))
+                .andExpect(jsonPath("$.accessToken").isNotEmpty())
+                .andReturn();
+
+        JsonNode root = objectMapper.readTree(result.getResponse().getContentAsString(StandardCharsets.UTF_8));
+        return root.get("accessToken").asText();
+    }
+
+    private Long createUser(String username) {
+        return jdbcTemplate.queryForObject("""
+                        insert into users (username, password_hash, role)
+                        values (?, ?, 'USER')
+                        on conflict (username)
+                        do update set password_hash = excluded.password_hash,
+                                      role = excluded.role,
+                                      updated_at = now()
+                        returning id
+                        """,
+                Long.class,
+                username,
+                passwordEncoder.encode(password));
+    }
+
+    private String readEncryptedApiKey(String username) {
+        Long userId = jdbcTemplate.queryForObject("select id from users where username = ?", Long.class, username);
+        return jdbcTemplate.queryForObject("""
+                        select encrypted_api_key
+                        from user_model_settings
+                        where user_id = ?
+                        """,
+                String.class,
+                userId);
+    }
+
+    private void cleanStage13LocalSecretData() {
+        jdbcTemplate.update("""
+                delete from user_model_settings
+                where user_id in (
+                    select id from users where username like 'stage13_local_secret_%'
+                )
+                """);
+        jdbcTemplate.update("delete from users where username like 'stage13_local_secret_%'");
+    }
+}
+
+@SpringBootTest(
+        classes = KnowflowBackendApplication.class,
+        properties = {
+                "knowflow.ai.base-url=http://127.0.0.1:1/v1",
+                "knowflow.ai.api-key=stage13-env-key",
+                "knowflow.ai.model=stage13-env-model",
+                "knowflow.model.secret-key="
+        }
+)
+@AutoConfigureMockMvc
+class Stage13ModelSecretMissingTests {
+
+    @Autowired
+    private MockMvc mockMvc;
+
+    @Autowired
+    private ObjectMapper objectMapper;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private PasswordEncoder passwordEncoder;
+
+    private final String password = "stage13-password";
+
+    @BeforeEach
+    void cleanBefore() {
+        cleanStage13SecretData();
+    }
+
+    @AfterEach
+    void cleanAfter() {
+        cleanStage13SecretData();
+    }
+
+    @Test
+    void savingApiKeyIsRejectedWhenEncryptionSecretIsMissingAndErrorIsSanitized() throws Exception {
+        createUser("stage13_secret_missing");
+        String token = loginAndGetToken("stage13_secret_missing");
+
+        mockMvc.perform(patch("/api/settings/model")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "baseUrl": "https://api.example.test/v1",
+                                  "apiKey": "stage13-must-not-leak",
+                                  "model": "stage13-model",
+                                  "timeoutSeconds": 60
+                                }
+                                """))
+                .andExpect(status().isInternalServerError())
+                .andExpect(content().string(not(containsString("stage13-must-not-leak"))))
+                .andExpect(content().string(not(containsString("Authorization"))))
+                .andExpect(content().string(not(containsString("api.example.test"))));
+    }
+
+    private String loginAndGetToken(String username) throws Exception {
+        MvcResult result = mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "username", username,
+                                "password", password))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.tokenType").value("Bearer"))
+                .andExpect(jsonPath("$.accessToken").isNotEmpty())
+                .andReturn();
+
+        JsonNode root = objectMapper.readTree(result.getResponse().getContentAsString(StandardCharsets.UTF_8));
+        return root.get("accessToken").asText();
+    }
+
+    private Long createUser(String username) {
+        return jdbcTemplate.queryForObject("""
+                        insert into users (username, password_hash, role)
+                        values (?, ?, 'USER')
+                        on conflict (username)
+                        do update set password_hash = excluded.password_hash,
+                                      role = excluded.role,
+                                      updated_at = now()
+                        returning id
+                        """,
+                Long.class,
+                username,
+                passwordEncoder.encode(password));
+    }
+
+    private boolean tableExists(String tableName) {
+        Boolean exists = jdbcTemplate.queryForObject("""
+                        select exists (
+                            select 1
+                            from information_schema.tables
+                            where table_schema = 'public'
+                              and table_name = ?
+                        )
+                        """,
+                Boolean.class,
+                tableName);
+        return Boolean.TRUE.equals(exists);
+    }
+
+    private void cleanStage13SecretData() {
+        if (tableExists("user_model_settings")) {
+            jdbcTemplate.update("""
+                    delete from user_model_settings
+                    where user_id in (
+                        select id from users where username like 'stage13_secret_%'
+                    )
+                    """);
+        }
+        jdbcTemplate.update("delete from users where username like 'stage13_secret_%'");
+    }
+}

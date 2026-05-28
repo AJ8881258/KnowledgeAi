@@ -3,10 +3,7 @@ package com.knowflow.backend.chat.service;
 import com.knowflow.backend.chat.dto.request.CreateChatSessionRequest;
 import com.knowflow.backend.chat.dto.request.SendMessageRequest;
 import com.knowflow.backend.chat.dto.request.UpdateChatSessionRequest;
-import com.knowflow.backend.chat.dto.response.ChatMessageResponse;
-import com.knowflow.backend.chat.dto.response.ChatSessionResponse;
-import com.knowflow.backend.chat.dto.response.ChatSourceResponse;
-import com.knowflow.backend.chat.dto.response.SendMessageResponse;
+import com.knowflow.backend.chat.dto.response.*;
 import com.knowflow.backend.chat.entity.ChatMessage;
 import com.knowflow.backend.chat.entity.ChatMessageSource;
 import com.knowflow.backend.chat.entity.ChatSession;
@@ -25,6 +22,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.LocalDate;
+import java.time.OffsetDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -35,8 +35,6 @@ public class ChatService {
     private static final int MAX_HISTORY_MESSAGES = 6;
     private static final int MAX_HISTORY_TOTAL_CHARS = 3000;
     private static final int MAX_HISTORY_SINGLE_MESSAGE_CHARS = 800;
-    private static final String EMPTY_RETRIEVAL_FALLBACK_MESSAGE =
-            "当前知识库中没有检索到足够相关的资料，请换个问法或上传更多文档。";
 
     private final KnowledgeBaseAccessService accessService;
     private final DocumentChunkRepository documentChunkRepository;
@@ -45,10 +43,19 @@ public class ChatService {
     private final ChatMessageSourceRepository chatMessageSourceRepository;
     private final PromptBuilder promptBuilder;
     private final ChatModelClient chatModelClient;
+    private final ChatGenerationService chatGenerationService;
 
     private final SettingsService settingsService;
 
-    public ChatService(KnowledgeBaseAccessService accessService, DocumentChunkRepository documentChunkRepository, ChatSessionRepository chatSessionRepository, ChatMessageRepository chatMessageRepository, ChatMessageSourceRepository chatMessageSourceRepository, PromptBuilder promptBuilder, ChatModelClient chatModelClient, SettingsService settingsService) {
+    public ChatService(
+            KnowledgeBaseAccessService accessService,
+            DocumentChunkRepository documentChunkRepository,
+            ChatSessionRepository chatSessionRepository,
+            ChatMessageRepository chatMessageRepository,
+            ChatMessageSourceRepository chatMessageSourceRepository,
+            PromptBuilder promptBuilder, ChatModelClient chatModelClient,
+            ChatGenerationService chatGenerationService,
+            SettingsService settingsService) {
         this.accessService = accessService;
         this.documentChunkRepository = documentChunkRepository;
         this.chatSessionRepository = chatSessionRepository;
@@ -56,6 +63,7 @@ public class ChatService {
         this.chatMessageSourceRepository = chatMessageSourceRepository;
         this.promptBuilder = promptBuilder;
         this.chatModelClient = chatModelClient;
+        this.chatGenerationService = chatGenerationService;
         this.settingsService = settingsService;
     }
 
@@ -124,6 +132,8 @@ public class ChatService {
         ChatSession session = getSessionOr404(sessionId, userId);
         // Stage 12: a user-owned session is usable only while the user is still a member of its KB.
         accessService.requireMember(session.getKnowledgeBaseId(), userId);
+        // 用户打开消息列表后，说明已看到这个会话，清除未读提醒。
+        chatSessionRepository.markRead(sessionId, userId);
 
         return chatMessageRepository.findAllBySessionIdAndUserId(sessionId, userId)
                 .stream()
@@ -152,8 +162,9 @@ public class ChatService {
 
         String title = request == null ? null : request.getTitle();
         Boolean pinned = request == null ? null : request.getPinned();
+        Boolean unread = request == null ? null : request.getUnread();
 
-        if (title == null && pinned == null) {
+        if (title == null && pinned == null && unread == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "No session field to update");
         }
 
@@ -174,7 +185,8 @@ public class ChatService {
                 session.getId(),
                 userId,
                 normalizedTitle,
-                pinned
+                pinned,
+                unread
         );
         if (updatedRows != 1) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Chat Session not found");
@@ -209,10 +221,9 @@ public class ChatService {
     @Transactional
     public SendMessageResponse sendMessage(Long sessionId, Long userId, SendMessageRequest request) {
         ChatSession session = getSessionOr404(sessionId, userId);
-        // Stage 12: membership can be revoked after session creation, so re-check before retrieval/model work.
+        // 会话创建后成员权限也可能被移除，所以发送消息前必须重新校验知识库成员身份。
         accessService.requireMember(session.getKnowledgeBaseId(), userId);
         String question = normalizeContent(request == null ? null : request.getContent());
-        UserRagSettings ragSettings = settingsService.getEffectiveRagSettings(userId);
 
         List<ChatMessage> historyMessages = loadPromptHistory(session, userId);
 
@@ -222,55 +233,44 @@ public class ChatService {
         userMessage.setContent(question);
         chatMessageRepository.insert(userMessage);
 
-
-        /**
-         * @Des 搜索文档片段
-         */
-        List<SearchResultResponse> retrievedChunks = documentChunkRepository.searchIndexedChunks(
-                session.getKnowledgeBaseId(),
+        // 先保存用户消息并把会话置为生成中，模型调用交给后台任务，前端通过轮询拿结果。
+        chatSessionRepository.updateStatus(session.getId(), userId, "GENERATING", null, false);
+        chatGenerationService.generate(
+                session.getId(),
                 userId,
+                session.getKnowledgeBaseId(),
                 question,
-                ragSettings.getTopK());
-
-        List<SearchResultResponse> contextChunks = limitContextChunks(
-                retrievedChunks,
-                ragSettings.getMaxContextChunks()
+                historyMessages
         );
 
-        if (contextChunks.isEmpty()) {
-            ChatMessage assistantMessage = new ChatMessage();
-            assistantMessage.setSessionId(session.getId());
-            assistantMessage.setRole("ASSISTANT");
-            assistantMessage.setContent(EMPTY_RETRIEVAL_FALLBACK_MESSAGE);
-            chatMessageRepository.insert(assistantMessage);
+        return new SendMessageResponse(
+                new ChatMessageResponse(userMessage, List.of()),
+                new ChatSessionResponse(getSessionOr404(session.getId(), userId))
+        );
+    }
 
-            chatSessionRepository.touch(session.getId(), userId);
-            return new SendMessageResponse(new ChatMessageResponse(assistantMessage, List.of()));
-        }
-
-        //
-        String prompt = promptBuilder.build(question, contextChunks, historyMessages);
-
-        String answer;
+    /**
+     * @param userId   当前用户ID
+     * @param timezone 前端传入的时区；为空时使用用户偏好时区
+     * @return 当前用户在该时区今天发送的 USER 消息数量
+     * @Desc 今日统计要按用户时区切分日期，不能使用服务器默认时区。
+     */
+    public ChatUsageTodayResponse getTodayUsage(Long userId, String timezone) {
+        String effectiveTimezone = timezone == null || timezone.isBlank()
+                ? settingsService.getPreferences(userId).getTimezone()
+                : timezone.trim();
+        ZoneId zoneId;
         try {
-            answer = chatModelClient.chat(prompt, ragSettings.getTemperature());
-        } catch (IllegalStateException exception) {
-            // 不把 API key、请求头或模型供应商的原始敏感错误暴露给前端。
-            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "AI model call failed");
+            zoneId = ZoneId.of(effectiveTimezone);
+        } catch (RuntimeException exception) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "timezone is invalid");
         }
 
-        //Entity
-        ChatMessage assistantMessage = new ChatMessage();
-        assistantMessage.setSessionId(session.getId());
-        assistantMessage.setRole("ASSISTANT");
-        assistantMessage.setContent(answer);
-        chatMessageRepository.insert(assistantMessage);
-
-        List<ChatSourceResponse> sources = saveSources(assistantMessage.getId(), contextChunks);
-        chatSessionRepository.touch(session.getId(), userId);
-
-        // 事务边界：一次问答里的用户消息、助手消息、引用来源一起写入，避免只保存一半数据。
-        return new SendMessageResponse(new ChatMessageResponse(assistantMessage, sources));
+        LocalDate today = LocalDate.now(zoneId);
+        OffsetDateTime startAt = today.atStartOfDay(zoneId).toOffsetDateTime();
+        OffsetDateTime endAt = today.plusDays(1).atStartOfDay(zoneId).toOffsetDateTime();
+        long count = chatMessageRepository.countUserMessagesCreatedBetween(userId, startAt, endAt);
+        return new ChatUsageTodayResponse(today.toString(), effectiveTimezone, count);
     }
 
 

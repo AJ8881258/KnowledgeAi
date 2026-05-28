@@ -5,6 +5,10 @@ export type ChatSessionResponse = {
   knowledgeBaseId: number;
   title: string;
   pinned: boolean;
+  unread: boolean;
+  status: "IDLE" | "GENERATING" | "FAILED";
+  lastErrorMessage?: string | null;
+  generationError?: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -34,6 +38,7 @@ export type CreateChatSessionRequest = {
 export type UpdateChatSessionRequest = {
   title?: string;
   pinned?: boolean;
+  unread?: boolean;
 };
 
 export type SendChatMessageRequest = {
@@ -42,7 +47,15 @@ export type SendChatMessageRequest = {
 };
 
 export type SendChatMessageResponse = {
-  message: ChatMessageResponse;
+  userMessage?: ChatMessageResponse;
+  session?: ChatSessionResponse;
+  message?: ChatMessageResponse;
+};
+
+export type ChatUsageTodayResponse = {
+  date: string;
+  timezone: string;
+  messageCount: number;
 };
 
 export async function createKnowledgeBaseChatSession(
@@ -99,6 +112,14 @@ export async function sendChatSessionMessage(
     `/chat/sessions/${sessionId}/messages`,
     request,
   );
+
+  return response.data;
+}
+
+export async function getChatUsageToday(timezone?: string) {
+  const response = await http.get<ChatUsageTodayResponse>("/chat/usage/today", {
+    params: timezone ? { timezone } : undefined,
+  });
 
   return response.data;
 }

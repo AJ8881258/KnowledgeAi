@@ -21,6 +21,8 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -275,7 +277,9 @@ class Stage12CollaborationTests {
                                 }
                                 """))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.message.sources.length()").value(1));
+                .andExpect(jsonPath("$.session.status").value("GENERATING"));
+
+        assertThat(waitForAssistantMessage(editorToken, sessionId).get("sources").size()).isEqualTo(1);
 
         mockMvc.perform(delete("/api/knowledge-bases/{knowledgeBaseId}", knowledgeBaseId)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + editorToken))
@@ -334,7 +338,9 @@ class Stage12CollaborationTests {
                                 }
                                 """))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.message.sources.length()").value(1));
+                .andExpect(jsonPath("$.session.status").value("GENERATING"));
+
+        assertThat(waitForAssistantMessage(viewerToken, sessionId).get("sources").size()).isEqualTo(1);
 
         mockMvc.perform(patch("/api/knowledge-bases/{knowledgeBaseId}", knowledgeBaseId)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + viewerToken)
@@ -446,6 +452,48 @@ class Stage12CollaborationTests {
 
         JsonNode root = objectMapper.readTree(result.getResponse().getContentAsString(StandardCharsets.UTF_8));
         return root.get("accessToken").asText();
+    }
+
+    private JsonNode waitForAssistantMessage(String token, Long sessionId) throws Exception {
+        final JsonNode[] found = new JsonNode[1];
+        waitUntil(() -> {
+            for (JsonNode message : readMessages(token, sessionId)) {
+                if ("ASSISTANT".equals(message.get("role").asText())) {
+                    found[0] = message;
+                    return true;
+                }
+            }
+            return false;
+        });
+        return found[0];
+    }
+
+    private List<JsonNode> readMessages(String token, Long sessionId) throws Exception {
+        MvcResult result = mockMvc.perform(get("/api/chat/sessions/{sessionId}/messages", sessionId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk())
+                .andReturn();
+        List<JsonNode> messages = new ArrayList<>();
+        for (JsonNode message : objectMapper.readTree(result.getResponse().getContentAsString(StandardCharsets.UTF_8))) {
+            messages.add(message);
+        }
+        return messages;
+    }
+
+    private void waitUntil(CheckedBooleanSupplier condition) throws Exception {
+        long deadline = System.nanoTime() + 5_000_000_000L;
+        while (System.nanoTime() < deadline) {
+            if (condition.getAsBoolean()) {
+                return;
+            }
+            Thread.sleep(100);
+        }
+        throw new AssertionError("Condition was not met before timeout");
+    }
+
+    @FunctionalInterface
+    private interface CheckedBooleanSupplier {
+        boolean getAsBoolean() throws Exception;
     }
 
     private Long createUser(String username) {
@@ -675,7 +723,7 @@ class Stage12CollaborationTests {
         private int callCount;
 
         @Override
-        public synchronized String chat(String prompt, double temperature) {
+        public synchronized String chat(Long userId, String prompt, double temperature) {
             callCount++;
             return "stage12 model answer\n" + prompt;
         }

@@ -229,11 +229,20 @@ class Stage7ApiStabilityTests {
                                   "limit": 5
                                 }
                                 """))
-                .andExpect(status().isInternalServerError())
-                .andExpect(jsonPath("$.message").value("AI model call failed"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.session.status").value("GENERATING"))
                 .andExpect(content().string(not(containsString("stage7-test-secret"))))
                 .andExpect(content().string(not(containsString("127.0.0.1"))))
                 .andExpect(content().string(not(containsString("stage7-test-model"))));
+
+        waitUntil(() -> {
+            String status = jdbcTemplate.queryForObject(
+                    "select status from chat_sessions where id = ? and user_id = ?",
+                    String.class,
+                    sessionId,
+                    userId);
+            return "FAILED".equals(status);
+        });
     }
 
     private String loginAndGetToken(String username) throws Exception {
@@ -418,5 +427,21 @@ class Stage7ApiStabilityTests {
                 """);
 
         jdbcTemplate.update("delete from users where username like 'stage7_%'");
+    }
+
+    private void waitUntil(CheckedBooleanSupplier condition) throws Exception {
+        long deadline = System.nanoTime() + 5_000_000_000L;
+        while (System.nanoTime() < deadline) {
+            if (condition.getAsBoolean()) {
+                return;
+            }
+            Thread.sleep(100);
+        }
+        throw new AssertionError("Condition was not met before timeout");
+    }
+
+    @FunctionalInterface
+    private interface CheckedBooleanSupplier {
+        boolean getAsBoolean() throws Exception;
     }
 }

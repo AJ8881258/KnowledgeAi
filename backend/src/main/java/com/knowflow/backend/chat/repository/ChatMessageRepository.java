@@ -3,6 +3,7 @@ package com.knowflow.backend.chat.repository;
 import com.knowflow.backend.chat.entity.ChatMessage;
 import org.apache.ibatis.annotations.*;
 
+import java.time.OffsetDateTime;
 import java.util.List;
 
 @Mapper
@@ -69,5 +70,27 @@ public interface ChatMessageRepository {
             @Param("userId") Long userId,
             @Param("knowledgeBaseId") Long knowledgeBaseId,
             @Param("limit") Integer limit
+    );
+
+    /**
+     * @param userId 当前用户ID
+     * @param startAt 指定时区当天的开始时间
+     * @param endAt 指定时区下一天的开始时间
+     * @return 当前用户当天发送的 USER 消息数量
+     * @Desc 统计只看当前用户自己的 USER 消息，不统计助手消息，也不统计其他用户会话。
+     */
+    @Select("""
+            select count(*)
+            from chat_messages m
+            join chat_sessions s on s.id = m.session_id
+            where s.user_id = #{userId}
+              and m.role = 'USER'
+              and m.created_at >= #{startAt}
+              and m.created_at < #{endAt}
+            """)
+    long countUserMessagesCreatedBetween(
+            @Param("userId") Long userId,
+            @Param("startAt") OffsetDateTime startAt,
+            @Param("endAt") OffsetDateTime endAt
     );
 }

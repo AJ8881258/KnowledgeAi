@@ -10,11 +10,19 @@ import {
   type CurrentUserResponse,
 } from "@/api/auth";
 import {
+  fetchModelList,
   getModelSettings,
   getRagSettings,
+  getUserPreferences,
+  updateModelSettings,
   updateRagSettings,
+  updateUserPreferences,
+  type FetchModelListRequest,
+  type ModelListItem,
   type ModelSettingsResponse,
   type RagSettingsResponse,
+  type UpdateModelSettingsRequest,
+  type UserPreferenceResponse,
 } from "@/api/settings";
 import { AccountProfileSection } from "@/components/settings/account-profile-section";
 import { DangerZoneSection } from "@/components/settings/danger-zone-section";
@@ -22,6 +30,7 @@ import { ModelSettingsSection } from "@/components/settings/model-settings-secti
 import { RagSettingsSection } from "@/components/settings/rag-settings-section";
 import { normalizeRagSettings } from "@/components/settings/settings-rag";
 import { useAuthStore } from "@/store/auth";
+import { useChatStatusStore } from "@/store/chat-status";
 
 function getErrorMessage(error: unknown, fallback: string) {
   if (isAxiosError(error)) {
@@ -46,39 +55,63 @@ function isUnauthorized(error: unknown) {
 type SectionErrors = {
   profile: string;
   model: string;
+  preferences: string;
   rag: string;
 };
 
 type SectionLoading = {
   profile: boolean;
   model: boolean;
+  preferences: boolean;
   rag: boolean;
 };
+
+function getBrowserTimezone() {
+  if (typeof Intl === "undefined") {
+    return "Asia/Shanghai";
+  }
+
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Shanghai";
+}
 
 export default function Settings() {
   const navigate = useNavigate();
   const syncCurrentUser = useAuthStore((state) => state.syncCurrentUser);
   const clearSession = useAuthStore((state) => state.clearSession);
+  const setChatTimezone = useChatStatusStore((state) => state.setTimezone);
+  const refreshTodayUsage = useChatStatusStore(
+    (state) => state.refreshTodayUsage,
+  );
   const handledUnauthorizedRef = useRef(false);
+  const browserTimezoneRef = useRef(getBrowserTimezone());
   const [currentUser, setCurrentUser] = useState<CurrentUserResponse | null>(
     null,
   );
   const [modelSettings, setModelSettings] =
     useState<ModelSettingsResponse | null>(null);
+  const [modelOptions, setModelOptions] = useState<ModelListItem[]>([]);
+  const [modelFetchError, setModelFetchError] = useState("");
+  const [preferences, setPreferences] =
+    useState<UserPreferenceResponse | null>(null);
   const [ragSettings, setRagSettings] = useState<RagSettingsResponse | null>(
     null,
   );
   const [loading, setLoading] = useState<SectionLoading>({
     profile: true,
     model: true,
+    preferences: true,
     rag: true,
   });
   const [errors, setErrors] = useState<SectionErrors>({
     profile: "",
     model: "",
+    preferences: "",
     rag: "",
   });
   const [savingProfile, setSavingProfile] = useState(false);
+  const [savingModel, setSavingModel] = useState(false);
+  const [fetchingModels, setFetchingModels] = useState(false);
+  const [savingPreferences, setSavingPreferences] = useState(false);
   const [savingRag, setSavingRag] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
 
@@ -119,6 +152,7 @@ export default function Settings() {
   const loadModelSettings = useCallback(async () => {
     setLoading((current) => ({ ...current, model: true }));
     setErrors((current) => ({ ...current, model: "" }));
+    setModelFetchError("");
 
     try {
       setModelSettings(await getModelSettings());
@@ -136,6 +170,34 @@ export default function Settings() {
       setLoading((current) => ({ ...current, model: false }));
     }
   }, [handleUnauthorized]);
+
+  const loadPreferences = useCallback(async () => {
+    setLoading((current) => ({ ...current, preferences: true }));
+    setErrors((current) => ({ ...current, preferences: "" }));
+
+    try {
+      const nextPreferences = await getUserPreferences();
+
+      setPreferences(nextPreferences);
+      setChatTimezone(nextPreferences.timezone);
+      void refreshTodayUsage(nextPreferences.timezone);
+    } catch (error) {
+      if (isUnauthorized(error)) {
+        handleUnauthorized();
+        return;
+      }
+
+      setErrors((current) => ({
+        ...current,
+        preferences: getErrorMessage(
+          error,
+          "语言和时区加载失败，请稍后重试。",
+        ),
+      }));
+    } finally {
+      setLoading((current) => ({ ...current, preferences: false }));
+    }
+  }, [handleUnauthorized, refreshTodayUsage, setChatTimezone]);
 
   const loadRagSettings = useCallback(async () => {
     setLoading((current) => ({ ...current, rag: true }));
@@ -159,26 +221,106 @@ export default function Settings() {
   }, [handleUnauthorized]);
 
   useEffect(() => {
-    void Promise.all([loadProfile(), loadModelSettings(), loadRagSettings()]);
-  }, [loadModelSettings, loadProfile, loadRagSettings]);
+    void Promise.all([
+      loadProfile(),
+      loadModelSettings(),
+      loadPreferences(),
+      loadRagSettings(),
+    ]);
+  }, [loadModelSettings, loadPreferences, loadProfile, loadRagSettings]);
 
-  async function handleSaveProfile(email: string | null) {
+  async function handleSaveProfile(
+    email: string | null,
+    nextPreferences: UserPreferenceResponse,
+    changes: { emailChanged: boolean; preferencesChanged: boolean },
+  ) {
+    if (!changes.emailChanged && !changes.preferencesChanged) {
+      return;
+    }
+
     setSavingProfile(true);
+    if (changes.preferencesChanged) {
+      setSavingPreferences(true);
+    }
 
     try {
-      const updatedUser = await updateCurrentUser({ email });
-      setCurrentUser(updatedUser);
-      syncCurrentUser(updatedUser);
-      toast.success("邮箱已保存");
+      if (changes.emailChanged) {
+        const updatedUser = await updateCurrentUser({ email });
+        setCurrentUser(updatedUser);
+        syncCurrentUser(updatedUser);
+      }
+
+      if (changes.preferencesChanged) {
+        const updatedPreferences = await updateUserPreferences(nextPreferences);
+        setPreferences(updatedPreferences);
+        setChatTimezone(updatedPreferences.timezone);
+        void refreshTodayUsage(updatedPreferences.timezone);
+      }
+
+      toast.success("账号资料已保存");
     } catch (error) {
       if (isUnauthorized(error)) {
         handleUnauthorized();
         return;
       }
 
-      toast.error(getErrorMessage(error, "邮箱保存失败，请稍后重试。"));
+      toast.error(getErrorMessage(error, "账号资料保存失败，请稍后重试。"));
     } finally {
       setSavingProfile(false);
+      if (changes.preferencesChanged) {
+        setSavingPreferences(false);
+      }
+    }
+  }
+
+  async function handleFetchModels(request: FetchModelListRequest) {
+    setFetchingModels(true);
+    setModelFetchError("");
+
+    try {
+      const response = await fetchModelList(request);
+
+      setModelOptions(response.models);
+      if (response.models.length === 0) {
+        setModelFetchError("服务返回的模型列表为空，可以手动输入模型名称。");
+      } else {
+        toast.success(`已获取 ${response.models.length} 个模型`);
+      }
+    } catch (error) {
+      if (isUnauthorized(error)) {
+        handleUnauthorized();
+        return;
+      }
+
+      setModelFetchError(
+        getErrorMessage(error, "模型列表获取失败，请检查 Base URL 和 API Key。"),
+      );
+    } finally {
+      setFetchingModels(false);
+    }
+  }
+
+  async function handleSaveModelSettings(request: UpdateModelSettingsRequest) {
+    setSavingModel(true);
+
+    try {
+      const updatedSettings = await updateModelSettings(request);
+
+      setModelSettings(updatedSettings);
+      toast.success("模型配置已保存");
+      return true;
+    } catch (error) {
+      if (isUnauthorized(error)) {
+        handleUnauthorized();
+        return false;
+      }
+
+      toast.error(
+        getErrorMessage(error, "模型配置保存失败，请检查配置后重试。"),
+      );
+      return false;
+    } finally {
+      setSavingModel(false);
     }
   }
 
@@ -229,8 +371,14 @@ export default function Settings() {
         loading={loading.profile}
         error={errors.profile}
         saving={savingProfile}
+        preferences={preferences}
+        preferencesLoading={loading.preferences}
+        preferencesError={errors.preferences}
+        savingPreferences={savingPreferences}
+        browserTimezone={browserTimezoneRef.current}
         onRetry={loadProfile}
         onSave={handleSaveProfile}
+        onRetryPreferences={loadPreferences}
         onLogout={() => {
           clearSession();
           navigate("/login", { replace: true });
@@ -238,10 +386,21 @@ export default function Settings() {
       />
 
       <ModelSettingsSection
+        key={
+          modelSettings
+            ? `${modelSettings.configured}-${modelSettings.model ?? ""}-${modelSettings.baseUrl ?? ""}-${modelSettings.timeoutSeconds ?? ""}-${modelSettings.apiKeyConfigured}-${modelSettings.updatedAt ?? ""}`
+            : "empty-model-settings"
+        }
         settings={modelSettings}
         loading={loading.model}
         error={errors.model}
+        saving={savingModel}
+        fetchingModels={fetchingModels}
+        modelOptions={modelOptions}
+        modelFetchError={modelFetchError}
         onRetry={loadModelSettings}
+        onFetchModels={handleFetchModels}
+        onSave={handleSaveModelSettings}
       />
 
       <RagSettingsSection

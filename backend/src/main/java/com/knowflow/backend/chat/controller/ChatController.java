@@ -15,8 +15,11 @@ import com.knowflow.backend.chat.dto.request.CreateChatSessionRequest;
 import com.knowflow.backend.chat.dto.request.SendMessageRequest;
 import com.knowflow.backend.chat.dto.response.ChatMessageResponse;
 import com.knowflow.backend.chat.dto.response.ChatSessionResponse;
+import com.knowflow.backend.chat.dto.response.ChatUsageTodayResponse;
 import com.knowflow.backend.chat.dto.response.SendMessageResponse;
 import com.knowflow.backend.chat.service.ChatService;
+
+import static com.knowflow.backend.common.utils.AuthUtils.getCurrentUserId;
 
 @RestController
 @RequestMapping("/api")
@@ -78,16 +81,11 @@ public class ChatController {
         return chatService.sendMessage(sessionId, getCurrentUserId(jwt), request);
     }
 
-    private Long getCurrentUserId(Jwt jwt) {
-        if (jwt == null) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Missing token");
-        }
-
-        Number userId = jwt.getClaim("userId");
-        if (userId == null) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Missing userId");
-        }
-
-        return userId.longValue();
+    @GetMapping("/chat/usage/today")
+    public ChatUsageTodayResponse getTodayUsage(
+            @RequestParam(required = false) String timezone,
+            @AuthenticationPrincipal Jwt jwt
+    ) {
+        return chatService.getTodayUsage(getCurrentUserId(jwt), timezone);
     }
 }

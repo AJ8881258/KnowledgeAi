@@ -1,4 +1,5 @@
 import { useLocation, useNavigate } from "react-router";
+import { useEffect } from "react";
 
 // Sidebar
 import {
@@ -22,6 +23,8 @@ import { Button } from "@/components/ui/button";
 
 // Card
 import { Card, CardContent } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
+import { useChatStatusStore } from "@/store/chat-status";
 
 const navList = [
   {
@@ -61,6 +64,19 @@ export function AppSidebar() {
   const { state, isMobile, setOpenMobile } = useSidebar();
   const location = useLocation();
   const navigate = useNavigate();
+  const todayMessageCount = useChatStatusStore(
+    (chatState) => chatState.todayMessageCount,
+  );
+  const loadingTodayUsage = useChatStatusStore(
+    (chatState) => chatState.loadingTodayUsage,
+  );
+  const refreshTodayUsage = useChatStatusStore(
+    (chatState) => chatState.refreshTodayUsage,
+  );
+
+  useEffect(() => {
+    void refreshTodayUsage();
+  }, [refreshTodayUsage]);
   const handleNavigate = (route: string) => {
     navigate(route);
     if (isMobile) {
@@ -141,16 +157,22 @@ export function AppSidebar() {
           className={`rounded-[8px] border-slate-200 bg-slate-50 shadow-none ${state === "expanded" ? "" : "hidden"}`}
         >
           <CardContent className="p-3">
-            <p className="text-xs font-medium text-slate-700">MVP 本地开发</p>
-            <p className="mt-1 text-xs leading-5 text-slate-500">
-              数据来自当前后端接口
-            </p>
+            <p className="text-xs font-medium text-slate-700">今日交谈</p>
+            {loadingTodayUsage ? (
+              <Skeleton className="mt-2 h-5 w-24 rounded-[5px]" />
+            ) : (
+              <p className="mt-1 text-sm font-semibold leading-5 text-slate-900">
+                {todayMessageCount} 次
+              </p>
+            )}
           </CardContent>
         </Card>
         <Card
           className={`flex size-9 items-center justify-center rounded-full p-0 ${state === "expanded" ? "hidden" : ""}`}
         >
-          <span className="text-[10px] font-semibold leading-none">MVP</span>
+          <span className="text-[10px] font-semibold leading-none">
+            {todayMessageCount}
+          </span>
         </Card>
       </SidebarFooter>
     </Sidebar>

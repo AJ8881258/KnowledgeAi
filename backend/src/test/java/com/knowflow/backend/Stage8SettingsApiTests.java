@@ -20,6 +20,8 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
@@ -87,11 +89,17 @@ class Stage8SettingsApiTests {
     }
 
     @Test
-    void modelSettingsDoNotLeakApiKeyOrBaseUrl() throws Exception {
+    void modelSettingsDoNotLeakApiKeyWhileAllowingBaseUrlEcho() throws Exception {
         createUser("stage8_model_status", null);
         String token = loginAndGetToken("stage8_model_status");
 
-        mockMvc.perform(get("/api/settings/model").header(HttpHeaders.AUTHORIZATION, "Bearer " + token)).andExpect(status().isOk()).andExpect(jsonPath("$.configured").value(true)).andExpect(jsonPath("$.mode").value("ENVIRONMENT")).andExpect(jsonPath("$.model").value("stage8-test-model")).andExpect(jsonPath("$.baseUrlConfigured").value(true)).andExpect(jsonPath("$.apiKeyConfigured").value(true)).andExpect(jsonPath("$.editable").value(false)).andExpect(content().string(not(containsString("stage8-test-secret")))).andExpect(content().string(not(containsString("127.0.0.1"))));
+        mockMvc.perform(get("/api/settings/model").header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.mode").doesNotExist())
+                .andExpect(jsonPath("$.editable").doesNotExist())
+                .andExpect(jsonPath("$.apiKey").doesNotExist())
+                .andExpect(jsonPath("$.encryptedApiKey").doesNotExist())
+                .andExpect(content().string(not(containsString("stage8-test-secret"))));
     }
 
     @Test
@@ -143,7 +151,14 @@ class Stage8SettingsApiTests {
                   "content": "stage8-rag",
                   "limit": 20
                 }
-                """)).andExpect(status().isOk()).andExpect(jsonPath("$.message.sources.length()").value(2)).andExpect(jsonPath("$.message.content", containsString("temperature=0.7"))).andExpect(jsonPath("$.message.content", containsString("stage8-rag content 1"))).andExpect(jsonPath("$.message.content", containsString("stage8-rag content 2"))).andExpect(jsonPath("$.message.content", not(containsString("stage8-rag content 3"))));
+                """)).andExpect(status().isOk()).andExpect(jsonPath("$.session.status").value("GENERATING"));
+
+        JsonNode message = waitForAssistantMessage(token, sessionId);
+        assertThat(message.get("sources").size()).isEqualTo(2);
+        assertThat(message.get("content").asText()).contains("temperature=0.7");
+        assertThat(message.get("content").asText()).contains("stage8-rag content 1");
+        assertThat(message.get("content").asText()).contains("stage8-rag content 2");
+        assertThat(message.get("content").asText()).doesNotContain("stage8-rag content 3");
     }
 
     @Test
@@ -179,6 +194,48 @@ class Stage8SettingsApiTests {
 
         JsonNode root = objectMapper.readTree(result.getResponse().getContentAsString(StandardCharsets.UTF_8));
         return root.get("accessToken").asText();
+    }
+
+    private JsonNode waitForAssistantMessage(String token, Long sessionId) throws Exception {
+        final JsonNode[] found = new JsonNode[1];
+        waitUntil(() -> {
+            for (JsonNode message : readMessages(token, sessionId)) {
+                if ("ASSISTANT".equals(message.get("role").asText())) {
+                    found[0] = message;
+                    return true;
+                }
+            }
+            return false;
+        });
+        return found[0];
+    }
+
+    private List<JsonNode> readMessages(String token, Long sessionId) throws Exception {
+        MvcResult result = mockMvc.perform(get("/api/chat/sessions/{sessionId}/messages", sessionId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk())
+                .andReturn();
+        List<JsonNode> messages = new ArrayList<>();
+        for (JsonNode message : objectMapper.readTree(result.getResponse().getContentAsString(StandardCharsets.UTF_8))) {
+            messages.add(message);
+        }
+        return messages;
+    }
+
+    private void waitUntil(CheckedBooleanSupplier condition) throws Exception {
+        long deadline = System.nanoTime() + 5_000_000_000L;
+        while (System.nanoTime() < deadline) {
+            if (condition.getAsBoolean()) {
+                return;
+            }
+            Thread.sleep(100);
+        }
+        throw new AssertionError("Condition was not met before timeout");
+    }
+
+    @FunctionalInterface
+    private interface CheckedBooleanSupplier {
+        boolean getAsBoolean() throws Exception;
     }
 
     private Long createUser(String username, String email) {
@@ -358,7 +415,7 @@ class Stage8SettingsApiTests {
         @Bean
         @Primary
         ChatModelClient chatModelClient() {
-            return (prompt, temperature) -> "temperature=" + temperature + "\n" + prompt;
+            return (userId, prompt, temperature) -> "temperature=" + temperature + "\n" + prompt;
         }
     }
 }

@@ -35,6 +35,7 @@ No test runner is configured. Adding shadcn components: `pnpm dlx shadcn@latest 
 - Do not introduce direct `fetch` calls for frontend API requests unless there is a specific technical reason that axios cannot satisfy. Use the shared `http` client from `src/api/http.ts`, add endpoint wrappers under `src/api/`, and keep request/response types next to those wrappers.
 - Do not introduce ad hoc component-level `localStorage` access for feature state. For shared, cross-route, or persisted frontend state, use a Zustand store under `src/store/` with `persist` when persistence is required. Direct `localStorage` access should stay inside low-level adapters/helpers only, such as legacy mock-auth compatibility code.
 - Treat existing mock data, hardcoded auth, direct `localStorage`, and local-only page state as legacy migration areas unless the task is explicitly to maintain that mock behavior. Do not copy those patterns into new backend-integrated features.
+- 涉及模型供应商、Base URL、API Key、Authorization header 或其他敏感配置的功能时，后端必须按 `doc/API.md` 契约做加密保存、脱敏返回和错误脱敏；前端不得把 API Key 存入组件级 `localStorage`、不得明文回显已保存 Key，也不得在 toast、日志或错误详情中暴露密钥。
 - Verify changes one by one against real behavior where possible: run the relevant command, inspect the actual route/component/API response, and confirm the specific behavior changed.
 - Because of context window limits, final development acceptance is performed by a human. Agents should provide concise manual verification steps instead of trying to exhaustively re-check the whole application in context.
 - Frontend implementation sessions must not proactively use Chrome, Browser, Playwright, screenshots, or other browser-based visual acceptance tools unless the user explicitly asks for browser acceptance with tools such as `@chrome` or `@浏览器`. Run code-level checks such as `pnpm build`, targeted ESLint, and type checks when relevant; leave browser/UI acceptance to the user by default.
@@ -42,14 +43,14 @@ No test runner is configured. Adding shadcn components: `pnpm dlx shadcn@latest 
 
 ## User Workflow Preferences
 
-- 用户是初学者，后端开发经常希望自己手动完成。遇到用户意图“后端不要直接修改”、“告诉我，我去做”、“不要编辑文件”时，除了/doc文档下文档文件意外，其他文件必须只给核心步骤、代码片段、文件路径和解释，不要直接修改文件或运行命令。
+- 后端开发现在默认由 Agent 正常直接实现，可以修改后端业务代码、测试代码和必要配置，并运行相关验证命令。只有当用户明确说“后端不要直接修改”、“告诉我，我去做”、“不要编辑文件”时，除了 `doc/` 文档文件以外，其他文件才只给步骤、代码片段、文件路径和解释，不直接修改文件或运行命令。
+- 如果用户把当前会话定义为“文档/规划/指挥/交接会话”，当前会话只能同步 `doc/` 核心文档、`AGENTS.md` 规则和前后端任务书，并输出给前端/后端会话的执行说明；不得继续修改 `src/`、`backend/` 等业务代码。即使计划里包含前后端修复，也应写入 `doc/FRONTEND_TASK.md`、`doc/BACKEND_TASK.md` 后交给对应实现会话执行。
 - 用户说“收尾”时，默认含义是：检查当前功能是否完成、同步开发文档、同步 `AGENTS.md` 项目规则、更新下一步路线、生成下一轮对话交接提示。不要默认继续开发新功能。
 - 用户说“实施计划”或明确要求实现时，才可以修改文件；但如果同一句或近期上下文出现“不要编辑文件/不要运行命令”，以后者为准。
-- 后端学习阶段不要过度教学；默认给实现顺序、文件清单、文件相对路径、除导入部分包以外的完整代码、关键注释和测试命令。关键注释应解释权限校验、状态流转、事务边界、切片/检索等关键逻辑，不要逐个解释基础注解、getter/setter 或 import。
-- 后端会话输出新增或修改功能代码时，必须在新增字段、DTO、接口方法、Service 分支、事务删除、配置读取、RAG 参数应用等功能点旁附上简短注释，说明这段代码实现的业务目的或与旧代码的区别，方便用户不用逐行 diff 也能理解改动；不要给基础 import、注解、getter/setter 写噪声注释。
-- 后端会话输出教学代码时，必须按“阅读到当前位置时依赖已经出现”的顺序组织，避免用户从上往下抄代码时一路爆红。跨文件按数据库迁移/表结构、实体和 DTO、Repository、Service/权限工具、Controller、测试的顺序输出；单个文件内也要先给被依赖的字段、常量、DTO、Repository 方法、Service 方法、私有 helper、校验/转换函数，再给调用它们的功能方法。不要在前面的代码里调用后面才首次定义的方法、类或字段；如果为了贴合 Java 常见排版必须把私有方法放在文件底部，也要先在该文件小节开头列出本文件会用到的私有方法清单和用途，避免读者误以为缺方法。
-- 后端开发默认由用户在单独后端会话中练习实现。除非用户在该会话明确要求，否则不要直接修改后端业务代码；只提供实现顺序、文件清单、文件相对路径、除导入部分包以外的完整代码、关键注释和测试命令。后端会话必须先阅读 `doc/BACKEND_TASK.md`。
-- 后端学习阶段的“不要直接修改后端源码”不限制测试类；`backend/src/test/**` 下的后端测试文件可以由 Agent 直接新增或修改，用来补充验收覆盖、复现问题和验证用户手写的业务代码。
+- 后端会话必须先阅读 `doc/BACKEND_TASK.md`，再按项目现有 Spring Boot/MyBatis/Flyway/Security 结构直接实现任务；不要只输出教学代码，除非用户明确要求只讲解或只给代码片段。
+- 后端新增或修改功能代码时，必须写有价值的业务注释或 JavaDoc，说明“实现了什么功能、有哪些关键参数、参数含义是什么、与旧逻辑的区别是什么”。重点覆盖新增字段、DTO、接口方法、请求参数、响应字段、Service 分支、事务删除、配置读取、加密/脱敏、权限校验、状态流转、RAG 参数应用、异步任务和定时/统计逻辑；不要给 import、基础注解、getter/setter 写噪声注释。
+- 后端代码注释要帮助用户快速理解改动，不追求逐行解释。公共 API、DTO、配置项和复杂私有 helper 优先使用简短 JavaDoc；方法内部只在业务分支、边界条件或安全处理不直观时加行内注释。
+- 后端实现完成后默认运行相关后端验证命令，至少优先运行 `cd backend && .\mvnw.cmd test`；如果无法运行，要说明原因和可替代验证方式。
 - 前端开发默认由单独前端会话按 `doc/FRONTEND_TASK.md` 执行。前端 UI 修改应遵守 shadcn/radix-sera、Lucide、现有 Tailwind 风格，并参考 `$ui-ux-pro-max` 的专业 UI 检查项。
 - 除非用户明确要求使用 `@chrome`、`@浏览器`、Playwright、截图或其他浏览器工具做验收，否则前端会话不要主动打开浏览器做 UI/视觉验收；默认只跑 `pnpm build`、目标 ESLint、类型检查等代码级验证，并把浏览器验收步骤交给用户。
 - 以后只要用户调整项目规则、协作规则、验收规则、前后端开发规则或阶段推进规则，必须立刻同步到 `AGENTS.md`；如果该规则影响阶段计划、接口、项目状态或任务书，还必须同步 `doc/STAGE_PLAN.md`、`doc/PROJECT.md`、`doc/API.md`、`doc/FRONTEND_TASK.md`、`doc/BACKEND_TASK.md` 中相关文件，不能只停留在聊天记录里。

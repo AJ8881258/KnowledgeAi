@@ -96,7 +96,6 @@ export function RagSettingsSection({
         ) : settings ? (
           <form className="flex flex-col gap-5" onSubmit={handleSubmit}>
             <div className="flex flex-wrap gap-2">
-              <StatusPill status="已接入后端保存" tone="green" />
               <StatusPill status="Chat/RAG 会读取这些参数" tone="blue" />
             </div>
 

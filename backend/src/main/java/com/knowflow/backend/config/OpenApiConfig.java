@@ -7,11 +7,19 @@ import io.swagger.v3.oas.models.security.SecurityScheme;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+/**
+ * OpenAPI 配置类
+ * 用于配置 OpenAPI 文档，包括 API 信息、安全要求和 JWT 认证
+ */
 @Configuration
 public class OpenApiConfig {
 
     private static final String BEARER_AUTH = "bearerAuth";
 
+    /**
+     * 配置 OpenAPI 文档
+     * 用于生成 OpenAPI 文档，包括 API 信息、安全要求和 JWT 认证
+     */
     @Bean
     OpenAPI knowFlowOpenApi() {
         return new OpenAPI()

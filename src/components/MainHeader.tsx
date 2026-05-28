@@ -12,6 +12,7 @@ import {
   getMockUserProfile,
   MOCK_AUTH_SESSION_CHANGE_EVENT,
 } from "@/lib/mock-auth";
+import { useChatStatusStore } from "@/store/chat-status";
 
 // AlertDialog
 import {
@@ -48,8 +49,16 @@ const MainHeader = ({ title, desc }: MainHeaderProps) => {
   const [displayName, setDisplayName] = useState(
     () => getMockUserProfile().displayName,
   );
+  const unreadCount = useChatStatusStore((state) => state.unreadCount);
+  const refreshUnreadCount = useChatStatusStore(
+    (state) => state.refreshUnreadCount,
+  );
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [logoutDialogOpen, setLogoutDialogOpen] = useState(false);
+
+  useEffect(() => {
+    void refreshUnreadCount();
+  }, [refreshUnreadCount]);
 
   useEffect(() => {
     const syncDisplayName = () => {
@@ -91,9 +100,19 @@ const MainHeader = ({ title, desc }: MainHeaderProps) => {
           )}
         >
           {!isMobile && (
-            <div className="flex cursor-pointer items-center">
+            <button
+              type="button"
+              className="relative flex size-9 cursor-pointer items-center justify-center rounded-[6px] text-slate-600 transition-colors hover:bg-slate-100"
+              aria-label={`未读会话 ${unreadCount} 个`}
+              onClick={() => navigate("/Chat")}
+            >
               <span className="iconfont icon-news-filling text-[clamp(1rem,1.5vw,1.3rem)] transition-all duration-300 hover:-translate-y-0.5"></span>
-            </div>
+              {unreadCount > 0 && (
+                <span className="absolute -top-1 -right-1 flex min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-semibold leading-4 text-white">
+                  {unreadCount > 99 ? "99+" : unreadCount}
+                </span>
+              )}
+            </button>
           )}
           <DropdownMenu open={userMenuOpen} onOpenChange={setUserMenuOpen}>
             <DropdownMenuTrigger asChild>

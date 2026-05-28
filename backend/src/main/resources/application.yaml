@@ -8,6 +8,11 @@ spring:
     url: jdbc:postgresql://localhost:5432/knowflow
     username: knowflow
     password: knowflow
+    hikari:
+      # 后端测试会创建多个 Spring 上下文，限制每个连接池大小，避免本地 PostgreSQL 出现 too many clients。
+      # 生产环境可以通过 KNOWFLOW_DB_MAX_POOL_SIZE 覆盖为更高数值。
+      maximum-pool-size: ${KNOWFLOW_DB_MAX_POOL_SIZE:5}
+      minimum-idle: ${KNOWFLOW_DB_MIN_IDLE:1}
 
   flyway:
     # 开启 Flyway 数据库迁移
@@ -30,6 +35,20 @@ knowflow:
     api-key: ${KNOWFLOW_AI_API_KEY:}
     model: ${KNOWFLOW_AI_MODEL:}
     timeout-seconds: ${KNOWFLOW_AI_TIMEOUT_SECONDS:60}
+  model:
+    # 用户模型 API Key 的加密密钥；正式部署时通过环境变量提供，不能写死生产密钥。
+    secret-key: ${KNOWFLOW_MODEL_SECRET_KEY:}
 
 server:
   port: 8080
+
+---
+spring:
+  config:
+    activate:
+      on-profile: local
+
+knowflow:
+  model:
+    # local profile 的开发默认密钥只用于本地学习和联调，生产环境通过 KNOWFLOW_MODEL_SECRET_KEY 覆盖或使用非 local profile。
+    secret-key: ${KNOWFLOW_MODEL_SECRET_KEY:knowflow-local-development-model-secret-change-me}

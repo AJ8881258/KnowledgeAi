@@ -2,8 +2,10 @@ import { type FormEvent, useState } from "react";
 import { Mail, Save, UserRound } from "lucide-react";
 
 import type { CurrentUserResponse } from "@/api/auth";
+import type { UserPreferenceResponse } from "@/api/settings";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   CardAction,
   CardContent,
@@ -16,16 +18,26 @@ import {
   SectionCard,
   SettingsErrorState,
   SettingsSkeleton,
-  TextField,
 } from "@/components/settings/settings-components";
+import { PreferencesFields } from "@/components/settings/preferences-section";
 
 type AccountProfileSectionProps = {
   user: CurrentUserResponse | null;
   loading: boolean;
   error: string;
   saving: boolean;
+  preferences: UserPreferenceResponse | null;
+  preferencesLoading: boolean;
+  preferencesError: string;
+  savingPreferences: boolean;
+  browserTimezone: string;
   onRetry: () => void;
-  onSave: (email: string | null) => Promise<void>;
+  onSave: (
+    email: string | null,
+    preferences: UserPreferenceResponse,
+    changes: { emailChanged: boolean; preferencesChanged: boolean },
+  ) => Promise<void>;
+  onRetryPreferences: () => void;
   onLogout: () => void;
 };
 
@@ -39,21 +51,49 @@ function validateEmail(email: string) {
     : "请输入有效的邮箱地址。";
 }
 
+function createPreferenceDraft(
+  preferences: UserPreferenceResponse | null,
+  browserTimezone: string,
+): UserPreferenceResponse {
+  return (
+    preferences ?? {
+      language: "zh-CN",
+      timezone: browserTimezone,
+    }
+  );
+}
+
 export function AccountProfileSection({
   user,
   loading,
   error,
   saving,
+  preferences,
+  preferencesLoading,
+  preferencesError,
+  savingPreferences,
+  browserTimezone,
   onRetry,
   onSave,
+  onRetryPreferences,
   onLogout,
 }: AccountProfileSectionProps) {
   const [emailDraft, setEmailDraft] = useState(() => user?.email ?? "");
   const [emailError, setEmailError] = useState("");
+  const [preferenceDraftOverride, setPreferenceDraftOverride] =
+    useState<UserPreferenceResponse | null>(null);
+  const preferenceDraft =
+    preferenceDraftOverride ?? createPreferenceDraft(preferences, browserTimezone);
 
   const normalizedEmail = emailDraft.trim();
   const initialEmail = user?.email ?? "";
-  const isDirty = normalizedEmail !== initialEmail;
+  const emailChanged = normalizedEmail !== initialEmail;
+  const preferencesChanged =
+    !!preferences &&
+    (preferenceDraft.language !== preferences.language ||
+      preferenceDraft.timezone !== preferences.timezone);
+  const isDirty = emailChanged || preferencesChanged;
+  const isSavingProfile = saving || savingPreferences;
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -65,7 +105,10 @@ export function AccountProfileSection({
       return;
     }
 
-    await onSave(normalizedEmail || null);
+    await onSave(normalizedEmail || null, preferenceDraft, {
+      emailChanged,
+      preferencesChanged,
+    });
   }
 
   return (
@@ -111,27 +154,60 @@ export function AccountProfileSection({
             <div className="grid gap-4 md:grid-cols-2">
               <ReadonlyField label="用户名" value={user.username} />
               <ReadonlyField label="角色" value={user.role || "USER"} />
-              <TextField
-                id="settings-email"
-                label="邮箱"
-                type="email"
-                value={emailDraft}
-                placeholder="name@example.com"
-                error={emailError}
-                helpText="邮箱为空时会保存为未设置。本阶段不发送邮箱验证邮件。"
-                disabled={saving}
-                onChange={(value) => {
-                  setEmailDraft(value);
-                  setEmailError("");
-                }}
-              />
-              <ReadonlyField label="语言和时区" value="暂未接入后端，本阶段不保存" />
+              <div className="min-w-0 rounded-[6px] border border-slate-200 bg-slate-50 px-3 py-2.5">
+                <label
+                  htmlFor="settings-email"
+                  className="text-xs font-medium text-slate-500"
+                >
+                  邮箱
+                </label>
+                <Input
+                  id="settings-email"
+                  type="email"
+                  value={emailDraft}
+                  placeholder="name@example.com"
+                  aria-invalid={Boolean(emailError)}
+                  disabled={isSavingProfile}
+                  onChange={(event) => {
+                    setEmailDraft(event.target.value);
+                    setEmailError("");
+                  }}
+                  className="mt-1 h-5 border-0 border-b-0 bg-transparent px-0 py-0 text-sm font-medium text-slate-900 placeholder:text-slate-400 focus-visible:border-0 focus-visible:border-b-0 disabled:cursor-not-allowed disabled:opacity-70"
+                />
+                {emailError ? (
+                  <p className="mt-1 text-xs leading-4 text-red-600">
+                    {emailError}
+                  </p>
+                ) : null}
+              </div>
+              <div className="min-w-0 rounded-[6px] border border-slate-200 bg-slate-50 px-3 py-2.5">
+                <div className="text-xs font-medium text-slate-500">
+                  语言和时区
+                </div>
+                <PreferencesFields
+                  key={
+                    preferences
+                      ? `${preferences.language}-${preferences.timezone}-${browserTimezone}`
+                      : `empty-preferences-${browserTimezone}`
+                  }
+                  preferences={preferences}
+                  loading={preferencesLoading}
+                  error={preferencesError}
+                  saving={savingPreferences}
+                  browserTimezone={browserTimezone}
+                  onRetry={onRetryPreferences}
+                  value={preferenceDraft}
+                  onDraftChange={setPreferenceDraftOverride}
+                  compact
+                  className="mt-1"
+                />
+              </div>
             </div>
 
             <div className="flex justify-end">
-              <Button type="submit" size="sm" disabled={!isDirty || saving}>
+              <Button type="submit" size="sm" disabled={!isDirty || isSavingProfile}>
                 <Save data-icon="inline-start" />
-                {saving ? "保存中..." : "保存邮箱"}
+                {isSavingProfile ? "保存中..." : "保存资料"}
               </Button>
             </div>
           </form>

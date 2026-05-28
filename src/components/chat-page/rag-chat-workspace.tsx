@@ -4,9 +4,11 @@ import {
   Bot,
   CheckCircle2,
   ChevronDown,
+  CircleDot,
   FileText,
   Info,
   Loader2,
+  MailOpen,
   MessageSquarePlus,
   MoreHorizontal,
   Pencil,
@@ -14,10 +16,12 @@ import {
   PinOff,
   RefreshCw,
   SearchCheck,
+  Settings2,
   Trash2,
   TriangleAlert,
   UserRound,
 } from "lucide-react";
+import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import {
@@ -81,9 +85,18 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import type { KnowledgeBase } from "@/components/knowledge-bases/knowledge-base-types";
 import { KnowledgeBaseRoleBadge } from "@/components/knowledge-bases/knowledge-base-common";
+import { useChatStatusStore } from "@/store/chat-status";
 
 const DEFAULT_CHAT_LIMIT = 5;
 const SOURCE_PREVIEW_LENGTH = 180;
+const POLL_INTERVAL_MS = 2500;
+const MAX_GENERATION_POLL_ATTEMPTS = 24;
+const GENERATION_TIMEOUT_MESSAGE =
+  "生成超时：后台可能仍在生成回答。你可以稍后刷新会话，或检查模型配置后重试。";
+const DEFAULT_GENERATION_ERROR_MESSAGE =
+  "AI model call failed";
+const ACTIONABLE_MODEL_ERROR_MESSAGE =
+  "模型调用失败，请检查 Base URL、API Key 和模型名称是否有效。";
 
 function getTimeValue(value: string) {
   const time = new Date(value).getTime();
@@ -115,6 +128,10 @@ function normalizeChatSession(session: ChatSessionResponse) {
   return {
     ...session,
     pinned: session.pinned === true,
+    unread: session.unread === true,
+    status: session.status ?? "IDLE",
+    lastErrorMessage: session.lastErrorMessage ?? session.generationError ?? null,
+    generationError: session.generationError ?? session.lastErrorMessage ?? null,
   };
 }
 
@@ -169,6 +186,26 @@ function getDefaultSessionTitle(content: string) {
   return title.slice(0, 24) || "新会话";
 }
 
+function getSessionGenerationError(session: ChatSessionResponse | null | undefined) {
+  const errorMessage =
+    session?.lastErrorMessage?.trim() || session?.generationError?.trim();
+
+  if (
+    !errorMessage ||
+    errorMessage.toLowerCase() === DEFAULT_GENERATION_ERROR_MESSAGE.toLowerCase()
+  ) {
+    return ACTIONABLE_MODEL_ERROR_MESSAGE;
+  }
+
+  return errorMessage;
+}
+
+function isModelConfigurationError(message: string) {
+  return /api key|base url|401|403|unauthorized|forbidden|auth|permission|provider|model|鉴权|认证|授权|无权|供应商|模型|不存在|权限/i.test(
+    message,
+  );
+}
+
 function getBackendErrorMessage(error: unknown) {
   if (!isAxiosError(error)) {
     return "";
@@ -203,7 +240,7 @@ function getChatErrorMessage(error: unknown) {
     }
 
     if (status === 400) {
-      return "请输入问题内容，并确认引用片段数量不少于 1。";
+      return "请输入问题内容，并确认检索数量参数不少于 1。";
     }
 
     if (status === 404) {
@@ -385,7 +422,7 @@ function SourceCard({
       <p
         className={cn(
           "mt-3 whitespace-pre-wrap break-words rounded-[6px] border border-slate-200 bg-slate-50/70 p-3 text-xs leading-5 text-slate-600",
-          expanded ? "max-h-52 overflow-auto" : "max-h-24 overflow-hidden",
+          !expanded && "max-h-24 overflow-hidden",
         )}
       >
         {displayContent}
@@ -407,6 +444,7 @@ function SessionListItem({
   onRename,
   onDelete,
   onTogglePin,
+  onMarkUnread,
 }: {
   session: ChatSessionResponse;
   isActive: boolean;
@@ -415,8 +453,12 @@ function SessionListItem({
   onRename: () => void;
   onDelete: () => void;
   onTogglePin: () => void;
+  onMarkUnread: () => void;
 }) {
   const isPinned = session.pinned === true;
+  const isUnread = session.unread === true;
+  const isGenerating = session.status === "GENERATING";
+  const isFailed = session.status === "FAILED";
 
   return (
     <div
@@ -440,6 +482,24 @@ function SessionListItem({
             <span className="inline-flex shrink-0 items-center gap-1 rounded-[4px] border border-blue-100 bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-700">
               <Pin className="size-3" />
               置顶
+            </span>
+          )}
+          {isGenerating && (
+            <span className="inline-flex shrink-0 items-center gap-1 rounded-[4px] border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">
+              <Loader2 className="size-3 animate-spin" />
+              生成中
+            </span>
+          )}
+          {isUnread && (
+            <span className="inline-flex shrink-0 items-center gap-1 rounded-[4px] border border-sky-200 bg-sky-50 px-1.5 py-0.5 text-[10px] font-medium text-sky-700">
+              <CircleDot className="size-3" />
+              未读
+            </span>
+          )}
+          {isFailed && (
+            <span className="inline-flex shrink-0 items-center gap-1 rounded-[4px] border border-red-200 bg-red-50 px-1.5 py-0.5 text-[10px] font-medium text-red-700">
+              <TriangleAlert className="size-3" />
+              失败
             </span>
           )}
           <span className="min-w-0 truncate text-sm font-medium">
@@ -487,6 +547,14 @@ function SessionListItem({
                 {isPinned ? <PinOff /> : <Pin />}
                 {isPinned ? "取消置顶" : "置顶"}
               </DropdownMenuItem>
+              <DropdownMenuItem
+                className="cursor-pointer tracking-normal normal-case"
+                disabled={isUnread}
+                onSelect={onMarkUnread}
+              >
+                <MailOpen />
+                设为未读
+              </DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
@@ -518,6 +586,13 @@ type RagChatWorkspaceProps = {
   className?: string;
 };
 
+type LoadMessagesOptions = {
+  silent?: boolean;
+  preserveSources?: boolean;
+  scrollOnNewAssistant?: boolean;
+  scrollToBottom?: boolean;
+};
+
 export function RagChatWorkspace({
   knowledgeBase,
   knowledgeBases = [],
@@ -529,6 +604,7 @@ export function RagChatWorkspace({
   layout = "full",
   className,
 }: RagChatWorkspaceProps) {
+  const navigate = useNavigate();
   const [sessions, setSessions] = useState<ChatSessionResponse[]>([]);
   const [messages, setMessages] = useState<ChatMessageResponse[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<number | null>(null);
@@ -537,6 +613,7 @@ export function RagChatWorkspace({
   const [isCreatingSession, setIsCreatingSession] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const [generationNotice, setGenerationNotice] = useState("");
   const [editingSession, setEditingSession] =
     useState<ChatSessionResponse | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
@@ -549,13 +626,21 @@ export function RagChatWorkspace({
   const [expandedSources, setExpandedSources] = useState<Set<string>>(
     () => new Set(),
   );
+  const refreshUnreadCount = useChatStatusStore(
+    (state) => state.refreshUnreadCount,
+  );
+  const refreshTodayUsage = useChatStatusStore(
+    (state) => state.refreshTodayUsage,
+  );
   const activeSessionIdRef = useRef<number | null>(null);
   const sessionsRef = useRef<ChatSessionResponse[]>([]);
+  const messagesRef = useRef<ChatMessageResponse[]>([]);
+  const messageScrollRef = useRef<HTMLDivElement>(null);
   const latestInitialSessionIdRef = useRef(initialSessionId);
   const onSessionChangeRef = useRef(onSessionChange);
   const onSessionClearedRef = useRef(onSessionCleared);
   const onUnauthorizedRef = useRef(onUnauthorized);
-  const messageRequestSeqRef = useRef(0);
+  const normalMessageRequestSeqRef = useRef(0);
   const isSendingRef = useRef(false);
   const activeSession = sessions.find((session) => session.id === activeSessionId);
   const latestAssistantMessage = [...messages]
@@ -569,6 +654,19 @@ export function RagChatWorkspace({
     [latestAssistantMessage],
   );
   const hasLatestSources = latestSources.length > 0;
+  const isActiveSessionGenerating = activeSession?.status === "GENERATING";
+  const isActiveSessionFailed = activeSession?.status === "FAILED";
+  const activeGenerationError = !isSending && isActiveSessionFailed
+    ? getSessionGenerationError(activeSession)
+    : "";
+  const activeGenerationNotice = activeGenerationError
+    ? `回答生成失败：${activeGenerationError}`
+    : generationNotice;
+  const shouldShowModelSettingsLink =
+    Boolean(activeGenerationError && isModelConfigurationError(activeGenerationError)) ||
+    (generationNotice ? isModelConfigurationError(generationNotice) : false);
+  const showGenerationPending =
+    (isSending || isActiveSessionGenerating) && !activeGenerationNotice;
   const canChooseKnowledgeBase =
     knowledgeBases.length > 0 && !!onKnowledgeBaseChange;
   const isEmbedded = layout === "embedded";
@@ -580,6 +678,10 @@ export function RagChatWorkspace({
   useEffect(() => {
     sessionsRef.current = sessions;
   }, [sessions]);
+
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
 
   useEffect(() => {
     latestInitialSessionIdRef.current = initialSessionId;
@@ -616,6 +718,52 @@ export function RagChatWorkspace({
     [],
   );
 
+  const scrollMessagesToBottom = useCallback(() => {
+    window.requestAnimationFrame(() => {
+      const messageScroll = messageScrollRef.current;
+
+      if (!messageScroll) {
+        return;
+      }
+
+      messageScroll.scrollTop = messageScroll.scrollHeight;
+    });
+  }, []);
+
+  const replaceMessages = useCallback((nextMessages: ChatMessageResponse[]) => {
+    messagesRef.current = nextMessages;
+    setMessages(nextMessages);
+  }, []);
+
+  const updateMessages = useCallback(
+    (
+      updater: (
+        currentMessages: ChatMessageResponse[],
+      ) => ChatMessageResponse[],
+    ) => {
+      setMessages((currentMessages) => {
+        const nextMessages = updater(currentMessages);
+
+        messagesRef.current = nextMessages;
+        return nextMessages;
+      });
+    },
+    [],
+  );
+
+  const applySessions = useCallback(
+    (nextSessions: ChatSessionResponse[]) => {
+      const normalizedSessions = normalizeChatSessions(nextSessions);
+
+      sessionsRef.current = normalizedSessions;
+      setSessions(normalizedSessions);
+      void refreshUnreadCount();
+
+      return normalizedSessions;
+    },
+    [refreshUnreadCount],
+  );
+
   const selectSession = useCallback(
     (
       sessionId: number | null,
@@ -646,38 +794,92 @@ export function RagChatWorkspace({
   );
 
   const loadMessages = useCallback(
-    async (sessionId: number) => {
-      const requestSeq = messageRequestSeqRef.current + 1;
+    async (sessionId: number, options: LoadMessagesOptions = {}) => {
+      const isSilent = options.silent === true;
+      const normalRequestSeqAtStart = normalMessageRequestSeqRef.current;
+      let normalRequestSeq = normalRequestSeqAtStart;
 
-      messageRequestSeqRef.current = requestSeq;
-      setIsLoadingMessages(true);
+      if (!isSilent) {
+        normalRequestSeq = normalMessageRequestSeqRef.current + 1;
+        normalMessageRequestSeqRef.current = normalRequestSeq;
+        setIsLoadingMessages(true);
+      }
       setErrorMessage("");
-      setExpandedSources(new Set());
+      if (!isSilent) {
+        setGenerationNotice("");
+      }
+      if (!options.preserveSources) {
+        setExpandedSources(new Set());
+      }
 
       try {
         const response = await getChatSessionMessages(sessionId);
 
-        if (messageRequestSeqRef.current !== requestSeq) {
+        const hasNewerNormalRequest =
+          normalMessageRequestSeqRef.current !== normalRequestSeq;
+        const hasNormalRequestAfterSilent =
+          normalMessageRequestSeqRef.current !== normalRequestSeqAtStart;
+
+        if (
+          activeSessionIdRef.current !== sessionId ||
+          (!isSilent && hasNewerNormalRequest) ||
+          (isSilent && hasNormalRequestAfterSilent)
+        ) {
           return;
         }
 
-        setMessages(response);
-        setExpandedSources(new Set());
+        const previousAssistantIds = new Set(
+          messagesRef.current
+            .filter((message) => message.role === "ASSISTANT")
+            .map((message) => message.id),
+        );
+        const hasNewAssistantMessage = response.some(
+          (message) =>
+            message.role === "ASSISTANT" &&
+            !previousAssistantIds.has(message.id),
+        );
+
+        replaceMessages(response);
+        if (!options.preserveSources) {
+          setExpandedSources(new Set());
+        }
+        if (
+          options.scrollToBottom ||
+          (options.scrollOnNewAssistant && hasNewAssistantMessage)
+        ) {
+          scrollMessagesToBottom();
+        }
       } catch (error) {
-        if (messageRequestSeqRef.current !== requestSeq) {
+        const hasNewerNormalRequest =
+          normalMessageRequestSeqRef.current !== normalRequestSeq;
+        const hasNormalRequestAfterSilent =
+          normalMessageRequestSeqRef.current !== normalRequestSeqAtStart;
+
+        if (
+          activeSessionIdRef.current !== sessionId ||
+          (!isSilent && hasNewerNormalRequest) ||
+          (isSilent && hasNormalRequestAfterSilent)
+        ) {
           return;
         }
 
-        setMessages([]);
-        setExpandedSources(new Set());
+        if (!isSilent) {
+          replaceMessages([]);
+        }
+        if (!options.preserveSources) {
+          setExpandedSources(new Set());
+        }
         setErrorMessage(handleRequestError(error));
       } finally {
-        if (messageRequestSeqRef.current === requestSeq) {
+        if (
+          !isSilent &&
+          normalMessageRequestSeqRef.current === normalRequestSeq
+        ) {
           setIsLoadingMessages(false);
         }
       }
     },
-    [handleRequestError],
+    [handleRequestError, replaceMessages, scrollMessagesToBottom],
   );
 
   const loadSessions = useCallback(
@@ -688,7 +890,7 @@ export function RagChatWorkspace({
 
       try {
         const response = await getKnowledgeBaseChatSessions(knowledgeBase.id);
-        const sortedSessions = normalizeChatSessions(response);
+        const sortedSessions = applySessions(response);
         const preferredNumericId = preferredSessionId
           ? Number(preferredSessionId)
           : NaN;
@@ -699,8 +901,6 @@ export function RagChatWorkspace({
           preferredSession ??
           (preferredSessionId ? null : sortedSessions[0] ?? null);
 
-        sessionsRef.current = sortedSessions;
-        setSessions(sortedSessions);
         selectSession(nextActiveSession?.id ?? null, {
           syncUrl: !preferredSessionId || !!nextActiveSession,
         });
@@ -712,7 +912,7 @@ export function RagChatWorkspace({
         if (nextActiveSession) {
           await loadMessages(nextActiveSession.id);
         } else {
-          setMessages([]);
+          replaceMessages([]);
           setExpandedSources(new Set());
         }
       } catch (error) {
@@ -724,7 +924,14 @@ export function RagChatWorkspace({
         setIsLoadingSessions(false);
       }
     },
-    [handleRequestError, knowledgeBase.id, loadMessages, selectSession],
+    [
+      applySessions,
+      handleRequestError,
+      knowledgeBase.id,
+      loadMessages,
+      replaceMessages,
+      selectSession,
+    ],
   );
 
   useEffect(() => {
@@ -745,11 +952,18 @@ export function RagChatWorkspace({
       });
       const normalizedSession = normalizeChatSession(session);
 
-      setSessions((currentSessions) =>
-        normalizeChatSessions([normalizedSession, ...currentSessions]),
-      );
+      setSessions((currentSessions) => {
+        const nextSessions = normalizeChatSessions([
+          normalizedSession,
+          ...currentSessions,
+        ]);
+
+        sessionsRef.current = nextSessions;
+        return nextSessions;
+      });
+      void refreshUnreadCount();
       selectSession(normalizedSession.id);
-      setMessages([]);
+      replaceMessages([]);
       setExpandedSources(new Set());
       toast.success("已新建会话");
 
@@ -768,17 +982,56 @@ export function RagChatWorkspace({
     }
   };
 
+  const replaceSession = useCallback(
+    (session: ChatSessionResponse) => {
+      const normalizedSession = normalizeChatSession(session);
+
+      setSessions((currentSessions) => {
+        const nextSessions = normalizeChatSessions(
+          currentSessions.map((item) =>
+            item.id === normalizedSession.id ? normalizedSession : item,
+          ),
+        );
+
+        sessionsRef.current = nextSessions;
+        return nextSessions;
+      });
+      void refreshUnreadCount();
+
+      return normalizedSession;
+    },
+    [refreshUnreadCount],
+  );
+
   const handleOpenSession = useCallback(
     async (sessionId: number) => {
       if (sessionId === activeSessionIdRef.current) {
         return;
       }
 
-      setMessages([]);
+      const targetSession = sessionsRef.current.find(
+        (session) => session.id === sessionId,
+      );
+
+      replaceMessages([]);
       selectSession(sessionId);
       await loadMessages(sessionId);
+
+      if (targetSession?.unread) {
+        try {
+          replaceSession(await updateChatSession(sessionId, { unread: false }));
+        } catch (error) {
+          setErrorMessage(handleRequestError(error));
+        }
+      }
     },
-    [loadMessages, selectSession],
+    [
+      handleRequestError,
+      loadMessages,
+      replaceMessages,
+      replaceSession,
+      selectSession,
+    ],
   );
 
   const handleMissingSession = useCallback(
@@ -792,6 +1045,7 @@ export function RagChatWorkspace({
 
       sessionsRef.current = sortedRemainingSessions;
       setSessions(sortedRemainingSessions);
+      void refreshUnreadCount();
 
       if (!wasActive) {
         return;
@@ -803,11 +1057,11 @@ export function RagChatWorkspace({
       if (nextSession) {
         await loadMessages(nextSession.id);
       } else {
-        setMessages([]);
+        replaceMessages([]);
         setExpandedSources(new Set());
       }
     },
-    [loadMessages, selectSession],
+    [loadMessages, refreshUnreadCount, replaceMessages, selectSession],
   );
 
   const openRenameDialog = (session: ChatSessionResponse) => {
@@ -843,15 +1097,8 @@ export function RagChatWorkspace({
       const response = await updateChatSession(editingSession.id, {
         title: nextTitle,
       });
-      const updatedSession = normalizeChatSession(response);
 
-      setSessions((currentSessions) =>
-        normalizeChatSessions(
-          currentSessions.map((session) =>
-            session.id === updatedSession.id ? updatedSession : session,
-          ),
-        ),
-      );
+      replaceSession(response);
       setEditingSession(null);
       toast.success("会话已重命名");
     } catch (error) {
@@ -877,16 +1124,33 @@ export function RagChatWorkspace({
       const response = await updateChatSession(session.id, {
         pinned: !session.pinned,
       });
-      const updatedSession = normalizeChatSession(response);
+      const updatedSession = replaceSession(response);
 
-      setSessions((currentSessions) =>
-        normalizeChatSessions(
-          currentSessions.map((item) =>
-            item.id === updatedSession.id ? updatedSession : item,
-          ),
-        ),
-      );
       toast.success(updatedSession.pinned ? "会话已置顶" : "已取消置顶");
+    } catch (error) {
+      if (isAxiosError(error) && error.response?.status === 404) {
+        toast.error("会话不存在，已从列表移除");
+        await handleMissingSession(session.id);
+        return;
+      }
+
+      setErrorMessage(handleRequestError(error));
+    } finally {
+      setMutatingSessionId(null);
+    }
+  };
+
+  const handleMarkUnread = async (session: ChatSessionResponse) => {
+    if (session.unread) {
+      return;
+    }
+
+    setMutatingSessionId(session.id);
+    setErrorMessage("");
+
+    try {
+      replaceSession(await updateChatSession(session.id, { unread: true }));
+      toast.success("已设为未读");
     } catch (error) {
       if (isAxiosError(error) && error.response?.status === 404) {
         toast.error("会话不存在，已从列表移除");
@@ -929,6 +1193,122 @@ export function RagChatWorkspace({
     }
   };
 
+  const refreshSessionsForPolling = useCallback(async () => {
+    const response = await getKnowledgeBaseChatSessions(knowledgeBase.id);
+
+    return applySessions(response);
+  }, [applySessions, knowledgeBase.id]);
+
+  const pollGenerationResult = useCallback(
+    async (sessionId: number) => {
+      let attempts = 0;
+
+      while (attempts < MAX_GENERATION_POLL_ATTEMPTS) {
+        attempts += 1;
+        await new Promise((resolve) => window.setTimeout(resolve, POLL_INTERVAL_MS));
+
+        const nextSessions = await refreshSessionsForPolling();
+        const targetSession = nextSessions.find(
+          (session) => session.id === sessionId,
+        );
+        const isActiveTarget = activeSessionIdRef.current === sessionId;
+
+        if (isActiveTarget) {
+          await loadMessages(sessionId, {
+            preserveSources: true,
+            scrollOnNewAssistant: true,
+            silent: true,
+          });
+        }
+
+        if (!targetSession) {
+          if (isActiveTarget) {
+            setGenerationNotice("这个会话不存在，或你没有访问权限。");
+          }
+          return;
+        }
+
+        if (targetSession.status === "IDLE") {
+          if (isActiveTarget) {
+            setGenerationNotice("");
+            await loadMessages(sessionId, {
+              preserveSources: true,
+              scrollOnNewAssistant: true,
+              silent: true,
+            });
+          }
+          return;
+        }
+
+        if (targetSession.status === "FAILED") {
+          if (isActiveTarget) {
+            setGenerationNotice(
+              `回答生成失败：${getSessionGenerationError(targetSession)}`,
+            );
+            await loadMessages(sessionId, {
+              preserveSources: true,
+              scrollToBottom: true,
+              silent: true,
+            });
+          }
+          return;
+        }
+      }
+
+      if (activeSessionIdRef.current === sessionId) {
+        setGenerationNotice(GENERATION_TIMEOUT_MESSAGE);
+        await loadMessages(sessionId, {
+          preserveSources: true,
+          silent: true,
+        });
+      }
+    },
+    [loadMessages, refreshSessionsForPolling],
+  );
+
+  useEffect(() => {
+    if (!sessions.some((session) => session.status === "GENERATING")) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      void refreshSessionsForPolling()
+        .then((nextSessions) => {
+          const activeSession = nextSessions.find(
+            (session) => session.id === activeSessionIdRef.current,
+          );
+
+          if (activeSession?.status === "GENERATING") {
+            void loadMessages(activeSession.id, {
+              preserveSources: true,
+              scrollOnNewAssistant: true,
+              silent: true,
+            });
+          } else if (activeSession?.status === "FAILED") {
+            setGenerationNotice(
+              `回答生成失败：${getSessionGenerationError(activeSession)}`,
+            );
+            void loadMessages(activeSession.id, {
+              preserveSources: true,
+              silent: true,
+            });
+          } else if (activeSession?.status === "IDLE") {
+            setGenerationNotice("");
+          }
+        })
+        .catch((error: unknown) => {
+          setErrorMessage(handleRequestError(error));
+        });
+    }, POLL_INTERVAL_MS);
+
+    return () => window.clearInterval(intervalId);
+  }, [
+    handleRequestError,
+    loadMessages,
+    refreshSessionsForPolling,
+    sessions,
+  ]);
+
   useEffect(() => {
     if (!initialSessionId || isLoadingSessions) {
       return;
@@ -947,16 +1327,16 @@ export function RagChatWorkspace({
       !sessionsRef.current.some((session) => session.id === targetSessionId)
     ) {
       setErrorMessage("这个会话不存在，或你没有访问权限。");
-      setMessages([]);
+      replaceMessages([]);
       setExpandedSources(new Set());
       activeSessionIdRef.current = null;
       setActiveSessionId(null);
       return;
     }
 
-    setMessages([]);
+    replaceMessages([]);
     void handleOpenSession(targetSessionId);
-  }, [handleOpenSession, initialSessionId, isLoadingSessions]);
+  }, [handleOpenSession, initialSessionId, isLoadingSessions, replaceMessages]);
 
   const handleSubmit = async (payload: ChatComposerPayload) => {
     if (isSendingRef.current) {
@@ -987,41 +1367,70 @@ export function RagChatWorkspace({
         createdAt: new Date().toISOString(),
       };
 
-      setMessages((currentMessages) => [...currentMessages, userMessage]);
+      updateMessages((currentMessages) => [...currentMessages, userMessage]);
+      scrollMessagesToBottom();
 
       const response = await sendChatSessionMessage(session.id, {
         content,
         limit: DEFAULT_CHAT_LIMIT,
       });
+      const savedUserMessage = response.userMessage ?? userMessage;
+      const nextSession = response.session
+        ? normalizeChatSession(response.session)
+        : {
+            ...session,
+            status: "GENERATING" as const,
+            unread: false,
+            updatedAt: savedUserMessage.createdAt,
+          };
 
-      setMessages((currentMessages) => [
-        ...currentMessages,
-        response.message,
-      ]);
-      setSessions((currentSessions) =>
-        normalizeChatSessions(
+      updateMessages((currentMessages) => {
+        const withoutOptimisticMessage = currentMessages.filter(
+          (message) => message.id !== userMessage.id,
+        );
+        const withSavedUserMessage = [
+          ...withoutOptimisticMessage,
+          savedUserMessage,
+        ];
+
+        return response.message
+          ? [...withSavedUserMessage, response.message]
+          : withSavedUserMessage;
+      });
+      scrollMessagesToBottom();
+      setSessions((currentSessions) => {
+        const nextSessions = normalizeChatSessions(
           currentSessions.map((item) =>
             item.id === session.id
               ? {
                   ...item,
+                  ...nextSession,
                   title:
                     item.title === "新会话"
                       ? getDefaultSessionTitle(content)
-                      : item.title,
-                  updatedAt: response.message.createdAt,
+                      : nextSession.title,
                 }
               : item,
           ),
-        ),
-      );
+        );
+
+        sessionsRef.current = nextSessions;
+        return nextSessions;
+      });
+      void refreshUnreadCount();
+      void refreshTodayUsage();
       setExpandedSources(new Set());
+      void pollGenerationResult(session.id).catch((error: unknown) => {
+        setErrorMessage(handleRequestError(error));
+      });
     } catch (error) {
-      setMessages((currentMessages) =>
+      updateMessages((currentMessages) =>
         currentMessages.filter((message) => message.id >= 0),
       );
       setErrorMessage(handleRequestError(error));
       throw error;
     } finally {
+      await refreshTodayUsage();
       isSendingRef.current = false;
       setIsSending(false);
     }
@@ -1050,7 +1459,7 @@ export function RagChatWorkspace({
       className={cn(
         isEmbedded
           ? "flex h-full min-h-0 flex-col overflow-hidden bg-white text-slate-900"
-          : "grid h-full min-h-[640px] grid-cols-1 overflow-hidden bg-white text-slate-900 xl:grid-cols-[240px_minmax(0,1fr)_320px]",
+          : "grid h-full min-h-0 grid-cols-1 grid-rows-[minmax(9rem,0.32fr)_minmax(0,1fr)_minmax(9rem,0.32fr)] overflow-hidden bg-white text-slate-900 xl:grid-cols-[240px_minmax(0,1fr)_320px] xl:grid-rows-1",
         className,
       )}
     >
@@ -1141,6 +1550,7 @@ export function RagChatWorkspace({
                     onRename={() => openRenameDialog(session)}
                     onDelete={() => setDeletingSession(session)}
                     onTogglePin={() => void handleTogglePin(session)}
+                    onMarkUnread={() => void handleMarkUnread(session)}
                   />
                 ))}
               </div>
@@ -1206,7 +1616,7 @@ export function RagChatWorkspace({
               </Button>
             )}
             <SearchCheck className="size-4" />
-            非流式回答 · 会结合当前会话上下文
+            后台生成 · 会结合当前会话上下文
           </div>
         </header>
 
@@ -1220,7 +1630,10 @@ export function RagChatWorkspace({
           </div>
         )}
 
-        <div className="min-h-0 flex-1 overflow-auto bg-white px-4 py-5 lg:px-6">
+        <div
+          ref={messageScrollRef}
+          className="min-h-0 flex-1 overflow-auto bg-white px-4 py-5 lg:px-6"
+        >
           <div className="mx-auto flex max-w-[820px] flex-col gap-5">
             {isLoadingMessages ? (
               <div className="flex flex-col gap-4">
@@ -1235,14 +1648,43 @@ export function RagChatWorkspace({
               <EmptyConversation knowledgeBaseName={knowledgeBase.name} />
             )}
 
-            {isSending && (
+            {showGenerationPending && (
               <div className="flex items-center gap-3 rounded-[8px] border border-blue-100 bg-blue-50/60 px-4 py-3 text-xs text-slate-600">
                 <Loader2 className="size-4 animate-spin text-blue-600" />
-                正在检索相关片段并生成回答...
+                问题已发送，正在等待后台生成结果...
               </div>
             )}
 
-            {latestAssistantMessage && !isSending && (
+            {activeGenerationNotice && (
+              <div
+                role="alert"
+                className="flex flex-col gap-3 rounded-[8px] border border-red-200 bg-red-50 px-4 py-3 text-sm leading-6 text-red-700 sm:flex-row sm:items-start sm:justify-between"
+              >
+                <div className="flex min-w-0 items-start gap-3">
+                  <TriangleAlert className="mt-0.5 size-4 shrink-0" />
+                  <div className="min-w-0">
+                    <div className="font-medium">回答没有生成完成</div>
+                    <p className="mt-1 break-words text-xs leading-5">
+                      {activeGenerationNotice}
+                    </p>
+                  </div>
+                </div>
+                {shouldShowModelSettingsLink && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 shrink-0 self-start border-red-200 bg-white text-xs text-red-700 hover:bg-red-100 hover:text-red-800"
+                    onClick={() => navigate("/Settings")}
+                  >
+                    <Settings2 data-icon="inline-start" />
+                    去 Settings 检查模型配置
+                  </Button>
+                )}
+              </div>
+            )}
+
+            {latestAssistantMessage && !showGenerationPending && (
               <div
                 className={cn(
                   "rounded-[8px] border px-4 py-3 text-xs text-slate-600",
@@ -1279,10 +1721,10 @@ export function RagChatWorkspace({
             onSubmit={handleSubmit}
             disabled={isLoadingSessions || isLoadingMessages}
             isSubmitting={isSending}
-            submitLabel={isSending ? "生成中" : "发送"}
+            submitLabel={isSending ? "已发送" : "发送"}
             showAttachmentButton={false}
             showContextControls={false}
-            helperText="Enter 发送，Shift + Enter 换行。会结合当前会话上下文回答，非流式输出。"
+            helperText="Enter 发送，Shift + Enter 换行。发送后会先展示你的问题，再轮询后台生成结果。"
           />
         </footer>
       </main>

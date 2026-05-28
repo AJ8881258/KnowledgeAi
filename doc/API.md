@@ -44,7 +44,9 @@ Chat 会话说明：
 - Chat 会话仍归当前用户自己所有，不共享其他成员的会话历史。
 - 成员可以基于共享知识库创建自己的会话。
 
-## 已实现接口
+## 已实现接口与阶段契约
+
+说明：已实现接口按当前代码状态标记；进入当前阶段但尚未实现的接口会在对应小节用“阶段 X 待实现契约”明确标注，方便前后端按同一契约开发。
 
 ### 注册
 
@@ -946,6 +948,7 @@ GET /api/health
 | 请求方式 | `GET` |
 | 请求路径 | `/api/settings/model` |
 | 是否需要登录 | 是 |
+| 状态 | 阶段 13 已实现 |
 
 请求示例：
 
@@ -959,21 +962,211 @@ Authorization: Bearer <accessToken>
 ```json
 {
   "configured": true,
-  "mode": "ENVIRONMENT",
   "model": "gpt-4.1-mini",
+  "baseUrl": "https://api.openai.com/v1",
   "baseUrlConfigured": true,
   "apiKeyConfigured": true,
   "timeoutSeconds": 60,
-  "editable": false
+  "updatedAt": "2026-05-26T10:00:00Z"
 }
 ```
 
 说明：
 
-- 阶段 8 已实现，用于 `/Settings` 页面只读展示模型配置状态。
-- 当前学习版模型配置由后端环境变量管理，`mode` 为 `ENVIRONMENT`。
-- 不返回 API key 明文，也不返回 base URL 明文。
-- `editable` 当前为 `false`，前端不提供模型配置保存入口。
+- 阶段 13 已将该接口升级为当前用户级模型配置状态读取。
+- `baseUrl` 会返回当前用户保存的 OpenAI-compatible 服务地址，用于 Settings 刷新后回显和继续获取模型列表。
+- 接口永远不返回 API Key 明文，也不返回 `encryptedApiKey`；`apiKeyConfigured` 只表示是否已保存 Key。
+- `baseUrlConfigured` 表示是否已配置 Base URL。
+- 阶段 13 后不再返回 `mode: "ENVIRONMENT"`、`editable` 等只读阶段字段；前端也不再展示“配置模式 / 后端环境变量”“保存入口 / 本阶段只读展示”等文案。
+- 用户未保存模型配置时，后端可继续使用环境变量作为本地开发兜底，但 Settings 页面不展示为“后端环境变量模式”。
+
+### 保存模型配置
+
+| 项目 | 内容 |
+|---|---|
+| 请求方式 | `PATCH` |
+| 请求路径 | `/api/settings/model` |
+| 是否需要登录 | 是 |
+| 状态 | 阶段 13 已实现 |
+
+请求示例：
+
+```http
+PATCH /api/settings/model
+Authorization: Bearer <accessToken>
+Content-Type: application/json
+```
+
+```json
+{
+  "baseUrl": "https://api.openai.com/v1",
+  "apiKey": "sk-...",
+  "model": "gpt-4.1-mini",
+  "timeoutSeconds": 60
+}
+```
+
+成功响应示例：
+
+```json
+{
+  "configured": true,
+  "model": "gpt-4.1-mini",
+  "baseUrl": "https://api.openai.com/v1",
+  "baseUrlConfigured": true,
+  "apiKeyConfigured": true,
+  "timeoutSeconds": 60,
+  "updatedAt": "2026-05-26T10:00:00Z"
+}
+```
+
+规则：
+
+- `baseUrl` 保存 OpenAI-compatible 根地址，例如 `https://api.openai.com/v1`；后端调用 Chat Completions 时会追加 `/chat/completions`。
+- 如果用户误填完整接口地址，例如 `https://api.openai.com/v1/chat/completions`，后端会规范化保存为 `https://api.openai.com/v1`。
+- 如果 Base URL 缺少 `/v1` 根路径、不是合法 URL，或带有 user-info，返回 `400`，不保存配置。
+- `apiKey` 为空或未传时表示不覆盖已保存 Key。
+- 阶段 13 收尾后不再提供单独清除 API Key 入口；用户需要更换 Key 时，重新填写新的 `apiKey` 覆盖旧 Key。
+- API Key 必须由后端加密保存；加密密钥建议来自环境变量，例如 `KNOWFLOW_MODEL_SECRET_KEY` 或配置项 `knowflow.model.secret-key`。
+- 如果用户传入 `apiKey` 但后端未配置加密密钥，必须拒绝保存并返回明确错误。
+- 响应体与 `GET /api/settings/model` 一致，会返回 `baseUrl` 但不返回 API Key 明文或 `encryptedApiKey`。
+- 保存失败、模型供应商错误或加密错误都必须脱敏，不泄露 API Key、Authorization header、完整供应商错误或内部密钥。
+
+失败情况：
+
+| 状态码 | 原因 |
+|---|---|
+| `400` | Base URL、model 或 timeoutSeconds 不合法，Base URL 不是 OpenAI-compatible `/v1` 根地址，或配置不完整 |
+| `401` | 未登录或 token 无效 |
+| `500` | 加密密钥缺失、加密失败或保存失败；错误信息必须脱敏 |
+
+### 获取模型列表
+
+| 项目 | 内容 |
+|---|---|
+| 请求方式 | `POST` |
+| 请求路径 | `/api/settings/model/models` |
+| 是否需要登录 | 是 |
+| 状态 | 阶段 13 已实现 |
+
+请求示例：
+
+使用本次输入的 Base URL 和 API Key：
+
+```json
+{
+  "baseUrl": "https://api.openai.com/v1",
+  "apiKey": "sk-..."
+}
+```
+
+也可以复用当前用户已保存的配置：
+
+```json
+{}
+```
+
+或者使用本次输入的 Base URL + 当前用户已保存的 API Key：
+
+```json
+{
+  "baseUrl": "https://api.openai.com/v1"
+}
+```
+
+成功响应示例：
+
+```json
+{
+  "models": [
+    {
+      "id": "gpt-4.1-mini",
+      "name": "gpt-4.1-mini"
+    }
+  ]
+}
+```
+
+规则：
+
+- 后端优先使用用户本次传入的 Base URL 和 API Key；请求体缺少 `baseUrl` 或 `apiKey` 时，复用当前用户已保存的 Base URL 或已保存并解密后的 API Key。
+- 该接口只用于拉取可选模型列表，不把供应商模型固定写死到后端枚举。
+- 该接口默认不保存 API Key；保存仍由 `PATCH /api/settings/model` 完成。
+- 如果最终缺少 Base URL 或 API Key，返回 `400`。
+- 失败时返回脱敏错误，不返回 API Key、完整 Authorization header 或供应商敏感错误。
+
+### 测试模型连接（可选）
+
+| 项目 | 内容 |
+|---|---|
+| 请求方式 | `POST` |
+| 请求路径 | `/api/settings/model/test` |
+| 是否需要登录 | 是 |
+| 状态 | 阶段 13 可选契约 |
+
+说明：
+
+- 如果阶段 13 时间足够，可以实现该接口用于 Settings 的“测试连接”按钮。
+- 如果暂不实现，前端不应展示可点击的假测试按钮。
+- 测试失败同样必须脱敏。
+
+### 获取偏好设置
+
+| 项目 | 内容 |
+|---|---|
+| 请求方式 | `GET` |
+| 请求路径 | `/api/settings/preferences` |
+| 是否需要登录 | 是 |
+| 状态 | 阶段 13 已实现 |
+
+成功响应示例：
+
+```json
+{
+  "language": "zh-CN",
+  "timezone": "Asia/Shanghai"
+}
+```
+
+说明：
+
+- `language` 第一版只保存偏好，预留后续 i18n，不要求阶段 13 做全站多语言。
+- `timezone` 用于前端时间显示和后端“今日交谈次数”的日界线。
+- 如果用户未保存过偏好，后端可返回默认 `zh-CN` 和浏览器传入/服务端默认时区；前端默认可使用 `Intl.DateTimeFormat().resolvedOptions().timeZone`。
+
+### 保存偏好设置
+
+| 项目 | 内容 |
+|---|---|
+| 请求方式 | `PATCH` |
+| 请求路径 | `/api/settings/preferences` |
+| 是否需要登录 | 是 |
+| 状态 | 阶段 13 已实现 |
+
+请求示例：
+
+```json
+{
+  "language": "zh-CN",
+  "timezone": "Asia/Shanghai"
+}
+```
+
+成功响应示例：
+
+```json
+{
+  "language": "zh-CN",
+  "timezone": "Asia/Shanghai"
+}
+```
+
+失败情况：
+
+| 状态码 | 原因 |
+|---|---|
+| `400` | language 或 timezone 不合法 |
+| `401` | 未登录或 token 无效 |
 
 ### 获取 RAG 参数
 
@@ -1060,7 +1253,7 @@ Content-Type: application/json
 
 ## 规划中接口
 
-规划中接口单独列出，必须明确标记为“尚未实现”。
+规划中接口单独列出，必须明确标记为“尚未实现”。阶段 13 的当前开发契约已写入上方对应小节，避免前后端重复维护两套描述。
 
 ### Auth
 
@@ -1068,31 +1261,19 @@ Content-Type: application/json
 |---|---|---|---|
 | `POST` | `/api/auth/logout` | 退出登录 | 规划中 |
 
-### Settings
-
-> 状态：阶段 8 只实现模型配置状态读取；用户级模型配置保存后续再做。
-
-| 请求方式 | 请求路径 | 用途 | 状态 |
-|---|---|---|---|
-| `PATCH` | `/api/settings/model` | 保存用户级模型配置 | 后续规划 |
-
-说明：
-
-- 如果未来实现用户级模型配置，必须明确密钥保存方式、脱敏返回规则和作用域。
-- API key 不能以明文返回前端。
-
 ### Chat / RAG
 
-> 状态：阶段 6 RAG 问答 MVP 已完成。第一版做非流式 RAG 问答，支持会话、消息、引用来源、会话重命名、删除、置顶和取消置顶。流式接口暂不实现，保留为后续规划。
+> 状态：阶段 6 RAG 问答 MVP 已完成。阶段 13 将在不新增 SSE 的前提下，把 Chat 发送改造成异步生成，并为会话增加未读和生成状态。流式接口暂不实现，保留为后续规划。
 
 | 请求方式 | 请求路径 | 用途 | 状态 |
 |---|---|---|---|
 | `POST` | `/api/knowledge-bases/{knowledgeBaseId}/chat/sessions` | 创建会话 | 阶段 6 已实现 |
-| `GET` | `/api/knowledge-bases/{knowledgeBaseId}/chat/sessions` | 获取会话列表 | 阶段 6 已实现，包含 `pinned` |
-| `PATCH` | `/api/chat/sessions/{sessionId}` | 重命名、置顶或取消置顶会话 | 阶段 6 已实现 |
+| `GET` | `/api/knowledge-bases/{knowledgeBaseId}/chat/sessions` | 获取会话列表 | 阶段 6 已实现；阶段 13 增加 `unread`、`status` |
+| `PATCH` | `/api/chat/sessions/{sessionId}` | 重命名、置顶、取消置顶、标记未读/已读 | 阶段 6 已实现；阶段 13 增加 `unread` |
 | `DELETE` | `/api/chat/sessions/{sessionId}` | 删除会话 | 阶段 6 已实现 |
 | `GET` | `/api/chat/sessions/{sessionId}/messages` | 获取会话消息 | 阶段 6 已实现 |
-| `POST` | `/api/chat/sessions/{sessionId}/messages` | 发送问题并获取回答 | 阶段 6 已实现 |
+| `POST` | `/api/chat/sessions/{sessionId}/messages` | 发送问题并创建后台生成任务 | 阶段 13 已实现异步契约 |
+| `GET` | `/api/chat/usage/today?timezone=Asia/Shanghai` | 获取今日交谈次数 | 阶段 13 已实现 |
 | `POST` | `/api/chat/sessions/{sessionId}/messages/stream` | 流式问答 | 后续规划，尚未实现 |
 
 #### 创建会话
@@ -1119,6 +1300,8 @@ Content-Type: application/json
   "knowledgeBaseId": 2,
   "title": "登录流程问答",
   "pinned": false,
+  "unread": false,
+  "status": "IDLE",
   "createdAt": "2026-05-16T10:00:00Z",
   "updatedAt": "2026-05-16T10:00:00Z"
 }
@@ -1146,6 +1329,8 @@ Authorization: Bearer <accessToken>
     "knowledgeBaseId": 2,
     "title": "登录流程问答",
     "pinned": true,
+    "unread": false,
+    "status": "IDLE",
     "createdAt": "2026-05-16T10:00:00Z",
     "updatedAt": "2026-05-16T10:05:00Z"
   }
@@ -1163,6 +1348,12 @@ pinned desc -> updatedAt desc -> id desc
 - 会话列表只返回当前用户自己的会话。
 - 共享知识库不会暴露其他成员的会话历史。
 
+阶段 13 说明：
+
+- `unread` 表示当前用户是否有未读会话提醒；已读会话不需要额外展示“已读”文案。
+- `status` 建议使用 `IDLE`、`GENERATING`、`FAILED`。`GENERATING` 表示后台正在生成回答，`FAILED` 表示上一次后台生成失败。
+- 前端可以轮询会话列表和当前会话消息列表，用于发现非当前会话生成完成后的未读状态。
+
 #### 修改会话
 
 ```http
@@ -1176,7 +1367,8 @@ Content-Type: application/json
 ```json
 {
   "title": "新的会话标题",
-  "pinned": true
+  "pinned": true,
+  "unread": false
 }
 ```
 
@@ -1186,6 +1378,7 @@ Content-Type: application/json
 |---|---|---|---|
 | `title` | string | 否 | 传入时 trim 后不能为空，建议长度不超过 200 |
 | `pinned` | boolean | 否 | `true` 表示置顶，`false` 表示取消置顶 |
+| `unread` | boolean | 否 | 阶段 13 新增；`true` 表示手动设为未读，`false` 表示标记已读 |
 
 成功响应示例：
 
@@ -1195,10 +1388,20 @@ Content-Type: application/json
   "knowledgeBaseId": 2,
   "title": "新的会话标题",
   "pinned": true,
+  "unread": false,
+  "status": "IDLE",
+  "lastErrorMessage": null,
   "createdAt": "2026-05-16T10:00:00Z",
   "updatedAt": "2026-05-16T10:08:00Z"
 }
 ```
+
+阶段 13 说明：
+
+- 前端点击进入未读会话后，调用该接口传 `unread: false` 标记已读。
+- 会话菜单新增“设为未读”时，调用该接口传 `unread: true`。
+- 已读状态不需要额外文案，只有未读会话展示“未读”标记。
+- `lastErrorMessage` 是后台生成失败时返回给前端的脱敏错误字段；它不会包含 API Key、Authorization header、完整 Base URL、model 或供应商原始错误。
 
 失败情况：
 
@@ -1271,7 +1474,7 @@ Authorization: Bearer <accessToken>
 ]
 ```
 
-#### 发送问题并获取回答
+#### 发送问题并创建后台生成任务
 
 ```http
 POST /api/chat/sessions/{sessionId}/messages
@@ -1292,22 +1495,23 @@ Content-Type: application/json
 
 ```json
 {
-  "message": {
-    "id": 11,
+  "userMessage": {
+    "id": 10,
     "sessionId": 1,
-    "role": "ASSISTANT",
-    "content": "根据当前知识库资料，JWT 登录流程是...",
-    "sources": [
-      {
-        "documentId": 2,
-        "documentName": "auth.md",
-        "chunkId": 8,
-        "chunkIndex": 0,
-        "content": "登录成功后生成 JWT...",
-        "score": 0.42
-      }
-    ],
-    "createdAt": "2026-05-16T10:01:10Z"
+    "role": "USER",
+    "content": "JWT 登录流程是什么？",
+    "sources": [],
+    "createdAt": "2026-05-16T10:01:00Z"
+  },
+  "session": {
+    "id": 1,
+    "knowledgeBaseId": 2,
+    "title": "登录流程问答",
+    "pinned": false,
+    "unread": false,
+    "status": "GENERATING",
+    "createdAt": "2026-05-16T10:00:00Z",
+    "updatedAt": "2026-05-16T10:01:00Z"
   }
 }
 ```
@@ -1315,13 +1519,18 @@ Content-Type: application/json
 规则：
 
 - `sessionId` 必须属于当前登录用户。
+- 阶段 13 该接口只同步保存用户消息并把会话状态置为 `GENERATING`，随后由后端后台任务完成检索、Prompt 构造、模型调用、助手消息和引用来源保存。
+- 前端通过轮询 `GET /api/chat/sessions/{sessionId}/messages` 和会话列表获取生成结果。
 - 后端先确认当前用户拥有该会话，并且仍是会话所属知识库成员，再基于该知识库检索 chunks，构造 prompt 调用模型。
 - 当前 `sources` 来自阶段 9 PostgreSQL 全文检索结果，`score` 表示全文检索相关度分数。
 - `limit` 为空时默认 `5`，大于 `20` 时按 `20` 处理。
 - 模型调用失败时返回明确错误，不返回或泄露密钥。
-- 阶段 10 已增强多轮上下文、空检索降级提示和引用来源展示；默认使用当前会话最近 6 条以内历史消息进入 prompt，并限制总长度。
-- 阶段 10 空检索默认不调用模型，返回助手降级消息，`sources` 为空数组，不伪造引用来源。
-- 阶段 10 模型调用失败继续返回脱敏错误，不泄露 API key、base URL、model 或供应商敏感错误。
+- 阶段 10 已增强多轮上下文和引用来源展示；默认使用当前会话最近 6 条以内历史消息进入 prompt，并限制总长度。
+- 阶段 13 收尾修复后，空检索不再跳过模型：后端仍使用当前用户自己的模型配置生成回答，但 `sources` 必须为空数组，且 prompt 会要求模型说明“当前没有可引用的知识库片段”，不能伪造引用来源。
+- 阶段 13 Chat 模型调用优先使用当前用户保存的模型配置；未保存时允许回退后端环境变量作为本地开发兜底。
+- 模型 Base URL 必须是 OpenAI-compatible 根地址，例如 `https://api.openai.com/v1`；历史或误填的完整 `/chat/completions` 地址会被规范化到 `/v1` 后再调用。
+- 阶段 13 允许多个会话同时处于 `GENERATING`。如果非当前会话后台生成完成，后端把该会话 `unread` 标记为 `true`。
+- 阶段 13 模型调用失败继续返回脱敏错误，不泄露 API key、完整 Base URL、model 或供应商敏感错误，并把会话状态更新为 `FAILED`，会话列表通过 `lastErrorMessage` 返回脱敏失败原因。
 - 如新增流式接口，必须先补充 SSE 契约。
 
 失败情况：
@@ -1332,3 +1541,33 @@ Content-Type: application/json
 | `401` | 未登录或 token 无效 |
 | `404` | 会话不存在，或不属于当前登录用户 |
 | `500` | 模型调用或消息保存失败 |
+
+#### 获取今日交谈次数
+
+```http
+GET /api/chat/usage/today?timezone=Asia/Shanghai
+Authorization: Bearer <accessToken>
+```
+
+成功响应示例：
+
+```json
+{
+  "date": "2026-05-26",
+  "timezone": "Asia/Shanghai",
+  "messageCount": 12
+}
+```
+
+规则：
+
+- 统计当前 JWT 用户在指定时区当天发送的 `USER` 消息数量。
+- `timezone` 为空时，后端可以使用当前用户偏好时区；如果偏好也不存在，则使用默认时区。
+- 该接口用于侧边栏底部显示“今日交谈 N 次”。
+
+失败情况：
+
+| 状态码 | 原因 |
+|---|---|
+| `400` | timezone 不合法 |
+| `401` | 未登录或 token 无效 |

@@ -20,6 +20,8 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -84,7 +86,7 @@ class Stage10RagExperienceTests {
             createChatMessage(sessionId, i % 2 == 0 ? "ASSISTANT" : "USER", "stage10-current-history-0" + i);
         }
 
-        MvcResult result = mockMvc.perform(post("/api/chat/sessions/{sessionId}/messages", sessionId)
+        mockMvc.perform(post("/api/chat/sessions/{sessionId}/messages", sessionId)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -94,9 +96,9 @@ class Stage10RagExperienceTests {
                                 }
                                 """))
                 .andExpect(status().isOk())
-                .andReturn();
+                .andExpect(jsonPath("$.session.status").value("GENERATING"));
 
-        String prompt = readAssistantContent(result);
+        String prompt = waitForAssistantContent(token, sessionId);
 
         assertThat(prompt)
                 .contains("stage10-current-history-03")
@@ -142,7 +144,7 @@ class Stage10RagExperienceTests {
         createChatMessage(sameUserOtherKbSessionId, "USER", "stage10-leak-same-user-other-kb");
         createChatMessage(otherUserSessionId, "USER", "stage10-leak-other-user-session");
 
-        MvcResult result = mockMvc.perform(post("/api/chat/sessions/{sessionId}/messages", sessionId)
+        mockMvc.perform(post("/api/chat/sessions/{sessionId}/messages", sessionId)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -152,9 +154,9 @@ class Stage10RagExperienceTests {
                                 }
                                 """))
                 .andExpect(status().isOk())
-                .andReturn();
+                .andExpect(jsonPath("$.session.status").value("GENERATING"));
 
-        String prompt = readAssistantContent(result);
+        String prompt = waitForAssistantContent(token, sessionId);
 
         assertThat(prompt)
                 .contains("stage10-safe-current-session-history")
@@ -166,13 +168,13 @@ class Stage10RagExperienceTests {
     }
 
     @Test
-    void emptyRetrievalSavesFallbackAssistantMessageWithNoSourcesAndDoesNotCallModel() throws Exception {
+    void emptyRetrievalCallsModelAndSavesAssistantMessageWithNoSources() throws Exception {
         Long userId = createUser("stage10_empty_retrieval");
         String token = loginAndGetToken("stage10_empty_retrieval");
         Long knowledgeBaseId = createKnowledgeBase(userId, "Stage10 Empty KB");
         Long sessionId = createChatSession(userId, knowledgeBaseId, "Empty Retrieval Session");
 
-        MvcResult result = mockMvc.perform(post("/api/chat/sessions/{sessionId}/messages", sessionId)
+        mockMvc.perform(post("/api/chat/sessions/{sessionId}/messages", sessionId)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -182,14 +184,14 @@ class Stage10RagExperienceTests {
                                 }
                                 """))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.message.sources.length()").value(0))
-                .andReturn();
+                .andExpect(jsonPath("$.session.status").value("GENERATING"));
 
-        JsonNode message = objectMapper.readTree(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
-                .get("message");
+        JsonNode message = waitForAssistantMessage(token, sessionId);
 
-        assertThat(message.get("content").asText()).isNotBlank();
-        assertThat(modelClient.callCount()).isZero();
+        assertThat(message.get("content").asText())
+                .contains("当前没有可引用的知识库片段")
+                .contains("stage10 no matching chunks");
+        assertThat(modelClient.callCount()).isEqualTo(1);
         assertThat(countMessages(sessionId)).isEqualTo(2);
         assertThat(countAssistantSources(sessionId)).isZero();
     }
@@ -218,7 +220,7 @@ class Stage10RagExperienceTests {
                                 """))
                 .andExpect(status().isOk());
 
-        MvcResult result = mockMvc.perform(post("/api/chat/sessions/{sessionId}/messages", sessionId)
+        mockMvc.perform(post("/api/chat/sessions/{sessionId}/messages", sessionId)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -228,12 +230,13 @@ class Stage10RagExperienceTests {
                                 }
                                 """))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.message.sources.length()").value(2))
-                .andExpect(jsonPath("$.message.sources[0].chunkId").value(firstChunkId))
-                .andExpect(jsonPath("$.message.sources[1].chunkId").value(secondChunkId))
-                .andReturn();
+                .andExpect(jsonPath("$.session.status").value("GENERATING"));
 
-        String prompt = readAssistantContent(result);
+        JsonNode message = waitForAssistantMessage(token, sessionId);
+        assertThat(message.get("sources").size()).isEqualTo(2);
+        assertThat(message.get("sources").get(0).get("chunkId").asLong()).isEqualTo(firstChunkId);
+        assertThat(message.get("sources").get(1).get("chunkId").asLong()).isEqualTo(secondChunkId);
+        String prompt = message.get("content").asText();
 
         assertThat(prompt)
                 .contains("first-included-marker")
@@ -261,14 +264,15 @@ class Stage10RagExperienceTests {
                                   "limit": 5
                                 }
                                 """))
-                .andExpect(status().isInternalServerError())
-                .andExpect(jsonPath("$.message").value("AI model call failed"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.session.status").value("GENERATING"))
                 .andExpect(content().string(not(containsString("stage10-test-secret"))))
                 .andExpect(content().string(not(containsString("127.0.0.1"))))
                 .andExpect(content().string(not(containsString("stage10-test-model"))));
 
+        waitForSessionStatus(token, userId, knowledgeBaseId, sessionId, "FAILED");
         assertThat(modelClient.callCount()).isEqualTo(1);
-        assertThat(countMessages(sessionId)).isZero();
+        assertThat(countMessages(sessionId)).isEqualTo(1);
         assertThat(countAssistantSources(sessionId)).isZero();
     }
 
@@ -378,11 +382,74 @@ class Stage10RagExperienceTests {
                 content);
     }
 
-    private String readAssistantContent(MvcResult result) throws Exception {
-        return objectMapper.readTree(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
-                .get("message")
-                .get("content")
-                .asText();
+    private String waitForAssistantContent(String token, Long sessionId) throws Exception {
+        return waitForAssistantMessage(token, sessionId).get("content").asText();
+    }
+
+    private JsonNode waitForAssistantMessage(String token, Long sessionId) throws Exception {
+        final JsonNode[] found = new JsonNode[1];
+        waitUntil(() -> {
+            List<JsonNode> messages = readMessages(token, sessionId);
+            for (int index = messages.size() - 1; index >= 0; index--) {
+                JsonNode message = messages.get(index);
+                if ("ASSISTANT".equals(message.get("role").asText())) {
+                    found[0] = message;
+                    return true;
+                }
+            }
+            return false;
+        });
+        return found[0];
+    }
+
+    private void waitForSessionStatus(String token, Long userId, Long knowledgeBaseId, Long sessionId, String status) throws Exception {
+        waitUntil(() -> {
+            MvcResult result = mockMvc.perform(post("/api/knowledge-bases/{knowledgeBaseId}/search", knowledgeBaseId)
+                            .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {
+                                      "query": "status probe",
+                                      "limit": 1
+                                    }
+                                    """))
+                    .andExpect(status().isOk())
+                    .andReturn();
+            String currentStatus = jdbcTemplate.queryForObject(
+                    "select status from chat_sessions where id = ? and user_id = ?",
+                    String.class,
+                    sessionId,
+                    userId);
+            return status.equals(currentStatus);
+        });
+    }
+
+    private List<JsonNode> readMessages(String token, Long sessionId) throws Exception {
+        MvcResult result = mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/chat/sessions/{sessionId}/messages", sessionId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk())
+                .andReturn();
+        List<JsonNode> messages = new ArrayList<>();
+        for (JsonNode message : objectMapper.readTree(result.getResponse().getContentAsString(StandardCharsets.UTF_8))) {
+            messages.add(message);
+        }
+        return messages;
+    }
+
+    private void waitUntil(CheckedBooleanSupplier condition) throws Exception {
+        long deadline = System.nanoTime() + 5_000_000_000L;
+        while (System.nanoTime() < deadline) {
+            if (condition.getAsBoolean()) {
+                return;
+            }
+            Thread.sleep(100);
+        }
+        throw new AssertionError("Condition was not met before timeout");
+    }
+
+    @FunctionalInterface
+    private interface CheckedBooleanSupplier {
+        boolean getAsBoolean() throws Exception;
     }
 
     private int countMessages(Long sessionId) {
@@ -483,7 +550,7 @@ class Stage10RagExperienceTests {
         private boolean fail;
 
         @Override
-        public synchronized String chat(String prompt, double temperature) {
+        public synchronized String chat(Long userId, String prompt, double temperature) {
             callCount++;
             if (fail) {
                 throw new IllegalStateException("provider leaked apiKey=stage10-test-secret baseUrl=http://127.0.0.1:9999/v1 model=stage10-test-model");

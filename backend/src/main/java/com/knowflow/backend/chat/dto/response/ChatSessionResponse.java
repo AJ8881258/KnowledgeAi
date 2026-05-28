@@ -20,6 +20,13 @@ public class ChatSessionResponse {
     private Long knowledgeBaseId;
     private String title;
     private Boolean pinned;
+    private Boolean unread;
+    private String status;
+    /**
+     * 最近一次后台生成失败的脱敏错误。
+     * 只在 session.status = FAILED 时给前端展示，不包含 API Key、Authorization、完整 Base URL、model 或供应商原始错误。
+     */
+    private String lastErrorMessage;
     private OffsetDateTime createdAt;
     private OffsetDateTime updatedAt;
 
@@ -28,6 +35,9 @@ public class ChatSessionResponse {
         this.knowledgeBaseId = chatSession.getKnowledgeBaseId();
         this.title = chatSession.getTitle();
         this.pinned = chatSession.getPinned();
+        this.unread = chatSession.getUnread();
+        this.status = chatSession.getStatus();
+        this.lastErrorMessage = chatSession.getLastErrorMessage();
         this.createdAt = chatSession.getCreatedAt();
         this.updatedAt = chatSession.getUpdatedAt();
     }

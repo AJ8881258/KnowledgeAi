@@ -4,7 +4,7 @@
 
 KnowFlow AI 是一个智能知识库问答平台。目标是让用户上传学习资料、项目文档或产品文档后，可以基于自己的资料进行问答。
 
-阶段 12：权限与团队协作已完成。项目已经具备文档上传、切片、PostgreSQL 全文检索、非流式 RAG 问答、最近 6 条以内多轮上下文、空检索降级、引用来源、会话保存、会话管理、Settings 真实接后端、前端体验整理、后端稳定性测试和单个知识库共享协作能力。知识库可以按已注册用户名添加成员，并通过 `OWNER` / `EDITOR` / `VIEWER` 三角色控制查看、编辑、文档维护、检索、Chat 和成员管理权限；暂不做团队空间、组织后台、邀请邮件或公开链接。
+阶段 13：用户模型配置、偏好设置与多会话协同增强已完成。项目已经具备文档上传、切片、PostgreSQL 全文检索、非流式 RAG 问答、最近 6 条以内多轮上下文、引用来源、会话保存、会话管理、Settings 真实接后端、前端体验整理、后端稳定性测试、单个知识库共享协作、用户级 OpenAI-compatible 配置、语言时区、未读会话、后台生成和今日交谈次数能力。当前进入阶段 14：部署与运维，重点是环境配置、启动复现、构建产物、部署脚本、日志健康检查和数据库备份恢复。
 
 - 前端页面能调用真实后端接口。
 - 后端能连接 PostgreSQL。
@@ -12,7 +12,7 @@ KnowFlow AI 是一个智能知识库问答平台。目标是让用户上传学�
 - 用户可以注册、登录。
 - 前端可以读取后端知识库和文档数据。
 
-阶段 6 第一版复用阶段 5 的 PostgreSQL 关键词检索结果构造 prompt，已完成非流式问答、引用来源、会话和消息保存，并补齐会话重命名、删除、置顶/取消置顶。`/Chat/{sessionId}` 切换会话时只刷新消息区域，`/KnowledgeBases/{id}` 只保留文档检索测试区。阶段 9 已将普通关键词匹配升级为 PostgreSQL 全文检索；阶段 10 已补齐非流式多轮上下文、空检索降级和引用来源体验；embedding、pgvector、流式输出和多模型选择仍放在后续扩展。
+阶段 6 第一版复用阶段 5 的 PostgreSQL 关键词检索结果构造 prompt，已完成非流式问答、引用来源、会话和消息保存，并补齐会话重命名、删除、置顶/取消置顶。`/Chat/{sessionId}` 切换会话时只刷新消息区域，`/KnowledgeBases/{id}` 只保留文档检索测试区。阶段 9 已将普通关键词匹配升级为 PostgreSQL 全文检索；阶段 10 已补齐非流式多轮上下文和引用来源体验；阶段 13 已支持空检索仍调用当前用户模型配置生成回答但 `sources` 为空；embedding、pgvector、流式输出和多模型选择仍放在后续扩展。
 
 ## 当前技术栈
 
@@ -57,7 +57,7 @@ KnowFlow AI 是一个智能知识库问答平台。目标是让用户上传学�
 - 文档列表、详情、删除和 chunk 查询接口。
 - 知识库内文档关键词检索接口：`POST /api/knowledge-bases/{knowledgeBaseId}/search`。
 - RAG/Chat 接口：创建会话、会话列表、修改会话、删除会话、消息列表、发送问题并保存引用来源。
-- RAG 体验增强：发送问题时默认加入当前会话最近 6 条以内历史消息；空检索不调用模型并返回助手降级消息；引用来源与实际 prompt 上下文保持一致。
+- RAG 体验增强：发送问题时默认加入当前会话最近 6 条以内历史消息；空检索仍调用当前用户模型配置生成回答但不保存引用来源；引用来源与实际 prompt 上下文保持一致。
 - 知识库成员协作：`OWNER` 管理成员和删除知识库，`EDITOR` 维护文档和内容，`VIEWER` 只读检索与问答。
 - 注册接口。
 - 登录接口，成功后返回 JWT `accessToken`。
@@ -85,8 +85,8 @@ KnowFlow AI 是一个智能知识库问答平台。目标是让用户上传学�
 - `/KnowledgeBases/{id}` 当前只保留文档检索测试区，不再承载 RAG 对话入口。
 - Dashboard 已改为从真实知识库、文档和会话接口汇总当前账号状态，不再使用旧静态 mock 统计。
 - KnowledgeBases 和 Chat 会通过现有文档列表接口补齐文档数、chunk 数和可检索来源数。
-- Settings 已移除假模型测试、假 API Key、假导出和假删除账号入口，只保留当前后端能力能支撑的设置说明和退出登录。
-- Settings 已接入真实后端：邮箱资料、模型配置状态、RAG 参数和删除当前账号。
+- Settings 已接入真实后端：邮箱资料、用户级模型配置、语言时区偏好、RAG 参数和删除当前账号。
+- 阶段 13 前端已接入用户级模型配置表单、动态模型列表、语言时区保存、Chat 未读/生成中状态、顶部未读角标和侧边栏今日交谈次数；API Key 由后端加密保存，前端不明文回显，Base URL 可由后端回显用于刷新后继续获取模型列表；模型配置不再提供单独清除 API Key 入口，空 API Key 不覆盖，重新填写才覆盖。
 
 ## 当前架构选择
 
@@ -116,10 +116,12 @@ Browser -> Vite Dev Server -> Spring Boot Backend -> PostgreSQL
 - `knowledge_bases`
 - `documents`
 - `document_chunks`
-- `chat_sessions`：支持 `pinned` 字段，用于会话置顶排序。
+- `chat_sessions`：支持 `pinned`、`unread` 和生成状态字段，用于会话置顶、未读提醒和异步生成状态展示。
 - `chat_messages`
 - `chat_message_sources`：阶段 6 建议新增，用于保存回答引用来源。
 - `knowledge_base_members`：用于保存知识库成员和 `OWNER` / `EDITOR` / `VIEWER` 角色。
+- `user_model_settings`：阶段 13 已新增，用于保存当前用户的模型 Base URL、加密 API Key、模型名和超时时间。
+- `user_preferences`：阶段 13 已新增，用于保存当前用户语言和时区偏好。
 
 当前 RAG 问答链路：
 
@@ -145,11 +147,14 @@ Frontend Chat UI
 
 当前优先级：
 
-1. 阶段 12 已完成：个人知识库已扩展为单个知识库共享协作。
-2. 第一版成员添加方式固定为已注册用户名，不做邮箱邀请、公开链接、团队空间或组织后台。
-3. 第一版角色固定为 `OWNER` / `EDITOR` / `VIEWER`：`OWNER` 管理成员和删除知识库，`EDITOR` 维护文档和内容，`VIEWER` 只读检索与问答。
-4. Chat 会话仍按当前用户隔离，共享知识库不共享其他成员的会话历史。
-5. 下一阶段进入部署与运维整理，优先补齐生产配置、启动复现、部署流程、日志排查和数据库备份恢复。
+1. 阶段 14 当前优先做部署与运维收尾，不新增业务功能。
+2. 明确本地、测试、生产环境变量和密钥管理方式，尤其是 JWT、数据库、模型供应商和用户 API Key 加密密钥。
+3. 整理前端生产构建、后端打包、数据库启动和完整本地复现流程。
+4. 补齐 Docker Compose 或等价启动脚本，让数据库、后端和前端预览流程可按文档复现。
+5. 补齐 PostgreSQL 备份和恢复说明，至少提供可执行命令和注意事项。
+6. 明确后端日志、健康检查、Swagger/OpenAPI 在生产环境的启用/关闭建议。
+7. 更新 README，使新开发者或答辩验收者能按步骤启动、登录、配置模型、上传文档并发起 Chat。
+8. 阶段 14 收尾时仍需通过 `pnpm build`、目标前端检查和 `cd backend && .\mvnw.cmd test`。
 
 ## 本地开发命令
 
@@ -175,15 +180,19 @@ docker compose up -d
 - 前端：`http://localhost:5173`
 - 后端：`http://localhost:8080`
 
-阶段 6 模型配置建议：
+阶段 13 模型配置建议：
 
 ```properties
+# 本地开发兜底配置：用户未保存模型配置时可以使用
 knowflow.ai.base-url=
 knowflow.ai.api-key=
 knowflow.ai.model=
 knowflow.ai.timeout-seconds=60
+
+# 用户级 API Key 加密密钥：local profile 已提供学习联调用默认值；非 local 或生产环境应由环境变量覆盖
+knowflow.model.secret-key=
 ```
 
-密钥不要写入仓库。模型服务商未固定前，默认按 OpenAI-compatible Chat Completions 风格设计。
+密钥不要把生产值写入仓库。阶段 13 默认按 OpenAI-compatible Chat Completions 和 `/models` 风格设计；用户自己的 API Key 只能加密保存，接口和前端都不能明文回显。
 
 Flyway 规则：已经执行过的迁移文件不要修改；后续表结构变化新增 `V4__...sql`、`V5__...sql` 等迁移文件。
