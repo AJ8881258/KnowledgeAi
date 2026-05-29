@@ -67,6 +67,11 @@ type ChatComposerProps = {
   showAttachmentButton?: boolean;
   showContextControls?: boolean;
   helperText?: string;
+  modelOptions?: ChatModel[];
+  selectedModelId?: string;
+  onModelChange?: (modelId: string) => void;
+  isLoadingModels?: boolean;
+  modelError?: string;
 };
 
 const MAX_CHAT_MESSAGE_LENGTH = 4000;
@@ -126,6 +131,11 @@ export function ChatComposer({
   showAttachmentButton = true,
   showContextControls = true,
   helperText = "Shift + Enter 换行，Enter 发送",
+  modelOptions,
+  selectedModelId,
+  onModelChange,
+  isLoadingModels = false,
+  modelError = "",
 }: ChatComposerProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [chatInput, setChatInput] = useState("");
@@ -135,12 +145,16 @@ export function ChatComposer({
   const [attachmentSheetOpen, setAttachmentSheetOpen] = useState(false);
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   const [attachmentError, setAttachmentError] = useState("");
+  const availableModels = modelOptions?.length ? modelOptions : chatModels;
+  const currentModelId = selectedModelId ?? modelId;
   const visibleAttachments = showAttachmentButton ? attachments : [];
   const hasMessageContent =
     chatInput.trim().length > 0 || visibleAttachments.length > 0;
   const isBusy = disabled || isSubmitting;
   const selectedModel =
-    chatModels.find((model) => model.id === modelId) ?? chatModels[0];
+    availableModels.find((model) => model.id === currentModelId) ??
+    availableModels[0] ??
+    chatModels[0];
   const chatLineCount = Math.max(
     2,
     chatInput.split("\n").length + Math.floor(chatInput.length / 72),
@@ -210,7 +224,7 @@ export function ChatComposer({
     const payload = {
       message: chatInput.trim(),
       attachments: visibleAttachments,
-      modelId,
+      modelId: selectedModel.id,
       ragEnabled: showContextControls ? ragEnabled : true,
     };
 
@@ -334,11 +348,23 @@ export function ChatComposer({
                       type="button"
                       variant="outline"
                       size="sm"
-                      className="h-8 rounded-[6px] border-slate-200 px-3 text-xs font-medium tracking-normal normal-case"
-                      disabled={isBusy}
+                      className="h-8 max-w-full min-w-0 rounded-[6px] border-slate-200 px-3 text-xs font-medium tracking-normal normal-case sm:max-w-[15rem]"
+                      disabled={
+                        isBusy || isLoadingModels || availableModels.length === 0
+                      }
+                      title={selectedModel.label}
                     >
-                      <Bot data-icon="inline-start" />
-                      {selectedModel.label}
+                      {isLoadingModels ? (
+                        <Loader2
+                          data-icon="inline-start"
+                          className="animate-spin"
+                        />
+                      ) : (
+                        <Bot data-icon="inline-start" />
+                      )}
+                      <span className="min-w-0 truncate">
+                        {selectedModel.label}
+                      </span>
                       <ChevronDown data-icon="inline-end" />
                     </Button>
                   </DropdownMenuTrigger>
@@ -347,18 +373,24 @@ export function ChatComposer({
                     className="w-48 rounded-[8px]"
                   >
                     <DropdownMenuGroup>
-                      {chatModels.map((model) => (
+                      {availableModels.map((model) => (
                         <DropdownMenuItem
                           key={model.id}
-                          onSelect={() => setModelId(model.id)}
+                          title={model.label}
+                          onSelect={() => {
+                            setModelId(model.id);
+                            onModelChange?.(model.id);
+                          }}
                         >
                           <Check
                             className={cn(
                               "opacity-0",
-                              model.id === modelId && "opacity-100",
+                              model.id === selectedModel.id && "opacity-100",
                             )}
                           />
-                          {model.label}
+                          <span className="min-w-0 truncate">
+                            {model.label}
+                          </span>
                         </DropdownMenuItem>
                       ))}
                     </DropdownMenuGroup>
@@ -367,6 +399,12 @@ export function ChatComposer({
               </>
             )}
           </div>
+
+          {modelError && showContextControls && (
+            <p className="w-full text-xs leading-5 text-orange-600">
+              {modelError}
+            </p>
+          )}
 
           <div className="flex shrink-0 items-center justify-end gap-2">
             <span className="text-xs text-slate-500">

@@ -224,6 +224,10 @@ public class ChatService {
         // 会话创建后成员权限也可能被移除，所以发送消息前必须重新校验知识库成员身份。
         accessService.requireMember(session.getKnowledgeBaseId(), userId);
         String question = normalizeContent(request == null ? null : request.getContent());
+        String requestedModel = normalizeOptionalModel(request == null ? null : request.getModel());
+        if (requestedModel != null) {
+            settingsService.updateCurrentModelFromChat(userId, requestedModel);
+        }
 
         List<ChatMessage> historyMessages = loadPromptHistory(session, userId);
 
@@ -240,7 +244,8 @@ public class ChatService {
                 userId,
                 session.getKnowledgeBaseId(),
                 question,
-                historyMessages
+                historyMessages,
+                requestedModel
         );
 
         return new SendMessageResponse(
@@ -307,6 +312,18 @@ public class ChatService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "content is empty");
         }
         return content.trim();
+    }
+
+    /**
+     * @param model Chat 请求体中可选的模型 ID
+     * @return trim 后的模型 ID；未传或空白时返回 null
+     * @Desc 请求级 model 只用于当前用户本次发送和同步 Settings，不参与 Base URL/API Key 解析。
+     */
+    private String normalizeOptionalModel(String model) {
+        if (model == null || model.trim().isBlank()) {
+            return null;
+        }
+        return model.trim();
     }
 
     /**

@@ -1,16 +1,17 @@
 package com.knowflow.backend.chat.dto.request;
 
-
 import lombok.Data;
 
 /**
- * @class 发送消息请求实体
- * @content 消息内容
- * @limit 限制引用来源数量
+ * Chat 发送消息请求。
+ *
+ * @param content 用户本轮问题正文，不能为空。
+ * @param limit 保留兼容字段，当前异步 RAG 生成以用户 Settings 的 topK/maxContextChunks 为准。
+ * @param model 可选的本次生成模型 ID；传入时后端会同步保存为当前用户 Settings 的当前模型。
  */
-
 @Data
 public class SendMessageRequest {
     private String content;
     private Integer limit;
+    private String model;
 }

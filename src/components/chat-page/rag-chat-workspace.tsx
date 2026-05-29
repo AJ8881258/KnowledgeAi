@@ -36,6 +36,13 @@ import {
   type ChatSessionResponse,
 } from "@/api/chat";
 import {
+  fetchModelList,
+  getModelSettings,
+  updateModelSettings,
+  type ModelListItem,
+  type ModelSettingsResponse,
+} from "@/api/settings";
+import {
   ChatComposer,
   type ChatComposerPayload,
 } from "@/components/chat/ChatComposer";
@@ -186,6 +193,39 @@ function getDefaultSessionTitle(content: string) {
   return title.slice(0, 24) || "新会话";
 }
 
+function mapModelOption(model: ModelListItem) {
+  return {
+    id: model.id,
+    label: model.name || model.id,
+  };
+}
+
+function buildModelOptions(
+  modelSettings: ModelSettingsResponse | null,
+  models: ModelListItem[],
+) {
+  const options = models.map(mapModelOption);
+  const savedModel = modelSettings?.model?.trim();
+
+  if (savedModel && !options.some((model) => model.id === savedModel)) {
+    return [
+      {
+        id: savedModel,
+        label: savedModel,
+      },
+      ...options,
+    ];
+  }
+
+  return options;
+}
+
+function getMessageSources(message: ChatMessageResponse | null | undefined) {
+  return [...(message?.sources ?? [])].sort(
+    (first, second) => second.score - first.score,
+  );
+}
+
 function getSessionGenerationError(session: ChatSessionResponse | null | undefined) {
   const errorMessage =
     session?.lastErrorMessage?.trim() || session?.generationError?.trim();
@@ -206,6 +246,18 @@ function isModelConfigurationError(message: string) {
   );
 }
 
+function sanitizeSensitiveMessage(message: string) {
+  return message
+    .replace(
+      /authorization\s*:\s*bearer\s+[^\s,;]+/gi,
+      "Authorization: Bearer ***",
+    )
+    .replace(/bearer\s+[A-Za-z0-9._~+/=-]{12,}/gi, "Bearer ***")
+    .replace(/sk-[A-Za-z0-9._-]{8,}/gi, "sk-***")
+    .replace(/api[_-]?key\s*[:=]\s*[^\s,;]+/gi, "API Key ***")
+    .replace(/https?:\/\/[^\s"'<>]+/gi, "[Base URL]");
+}
+
 function getBackendErrorMessage(error: unknown) {
   if (!isAxiosError(error)) {
     return "";
@@ -223,7 +275,9 @@ function getBackendErrorMessage(error: unknown) {
 
   const message = (responseData as { message?: unknown }).message;
 
-  return typeof message === "string" ? message.trim() : "";
+  return typeof message === "string"
+    ? sanitizeSensitiveMessage(message.trim())
+    : "";
 }
 
 function getChatErrorMessage(error: unknown) {
@@ -259,7 +313,15 @@ function getChatErrorMessage(error: unknown) {
   return "操作失败，请稍后重试。";
 }
 
-function MessageBubble({ message }: { message: ChatMessageResponse }) {
+function MessageBubble({
+  message,
+  selected,
+  onSelectAssistantMessage,
+}: {
+  message: ChatMessageResponse;
+  selected?: boolean;
+  onSelectAssistantMessage?: (messageId: number) => void;
+}) {
   const isUser = message.role === "USER";
   const messageSources = message.sources ?? [];
 
@@ -284,7 +346,13 @@ function MessageBubble({ message }: { message: ChatMessageResponse }) {
       <span className="mt-1 flex size-10 shrink-0 items-center justify-center rounded-full bg-blue-50 text-blue-600 ring-1 ring-blue-100">
         <Bot className="size-5" />
       </span>
-      <article className="min-w-0 flex-1 rounded-[8px] border border-slate-200 bg-white p-4 text-sm leading-7 text-slate-700 shadow-sm">
+      <article
+        className={cn(
+          "min-w-0 flex-1 rounded-[8px] border bg-white p-4 text-sm leading-7 text-slate-700 shadow-sm transition-colors",
+          selected ? "border-blue-300 ring-2 ring-blue-100" : "border-slate-200",
+        )}
+        onClick={() => onSelectAssistantMessage?.(message.id)}
+      >
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
           <span className="font-medium text-slate-700">
             {getMessageRoleLabel(message.role)}
@@ -626,6 +694,14 @@ export function RagChatWorkspace({
   const [expandedSources, setExpandedSources] = useState<Set<string>>(
     () => new Set(),
   );
+  const [selectedAssistantMessageId, setSelectedAssistantMessageId] =
+    useState<number | null>(null);
+  const [modelSettings, setModelSettings] =
+    useState<ModelSettingsResponse | null>(null);
+  const [modelOptions, setModelOptions] = useState<ModelListItem[]>([]);
+  const [selectedModelId, setSelectedModelId] = useState("");
+  const [isLoadingModels, setIsLoadingModels] = useState(false);
+  const [modelError, setModelError] = useState("");
   const refreshUnreadCount = useChatStatusStore(
     (state) => state.refreshUnreadCount,
   );
@@ -635,6 +711,7 @@ export function RagChatWorkspace({
   const activeSessionIdRef = useRef<number | null>(null);
   const sessionsRef = useRef<ChatSessionResponse[]>([]);
   const messagesRef = useRef<ChatMessageResponse[]>([]);
+  const selectedModelIdRef = useRef("");
   const messageScrollRef = useRef<HTMLDivElement>(null);
   const latestInitialSessionIdRef = useRef(initialSessionId);
   const onSessionChangeRef = useRef(onSessionChange);
@@ -646,14 +723,27 @@ export function RagChatWorkspace({
   const latestAssistantMessage = [...messages]
     .reverse()
     .find((message) => message.role === "ASSISTANT");
-  const latestSources = useMemo(
+  const selectedAssistantMessage = useMemo(
     () =>
-      [...(latestAssistantMessage?.sources ?? [])].sort(
-        (first, second) => second.score - first.score,
-      ),
-    [latestAssistantMessage],
+      messages.find(
+        (message) =>
+          message.role === "ASSISTANT" &&
+          message.id === selectedAssistantMessageId,
+      ) ??
+      latestAssistantMessage ??
+      null,
+    [latestAssistantMessage, messages, selectedAssistantMessageId],
   );
+  const selectedSources = useMemo(
+    () => getMessageSources(selectedAssistantMessage),
+    [selectedAssistantMessage],
+  );
+  const latestSources = selectedSources;
   const hasLatestSources = latestSources.length > 0;
+  const composerModelOptions = useMemo(
+    () => buildModelOptions(modelSettings, modelOptions),
+    [modelOptions, modelSettings],
+  );
   const isActiveSessionGenerating = activeSession?.status === "GENERATING";
   const isActiveSessionFailed = activeSession?.status === "FAILED";
   const activeGenerationError = !isSending && isActiveSessionFailed
@@ -682,6 +772,10 @@ export function RagChatWorkspace({
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
+
+  useEffect(() => {
+    selectedModelIdRef.current = selectedModelId;
+  }, [selectedModelId]);
 
   useEffect(() => {
     latestInitialSessionIdRef.current = initialSessionId;
@@ -718,6 +812,56 @@ export function RagChatWorkspace({
     [],
   );
 
+  const loadModelConfiguration = useCallback(async () => {
+    setIsLoadingModels(true);
+    setModelError("");
+
+    try {
+      const settings = await getModelSettings();
+      setModelSettings(settings);
+
+      const savedModel = settings.model?.trim() ?? "";
+      setSelectedModelId(savedModel);
+      selectedModelIdRef.current = savedModel;
+
+      try {
+        const response = await fetchModelList({});
+        setModelOptions(response.models);
+      } catch (error) {
+        setModelOptions([]);
+
+        if (isAxiosError(error) && error.response?.status === 401) {
+          onUnauthorizedRef.current();
+          return;
+        }
+
+        setModelError(
+          getBackendErrorMessage(error) ||
+            "模型列表获取失败，将使用已保存模型发送。",
+        );
+      }
+    } catch (error) {
+      if (isAxiosError(error) && error.response?.status === 401) {
+        onUnauthorizedRef.current();
+        return;
+      }
+
+      setModelError(
+        getBackendErrorMessage(error) || "模型配置加载失败，请先到 Settings 保存配置。",
+      );
+    } finally {
+      setIsLoadingModels(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      void loadModelConfiguration();
+    }, 0);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [loadModelConfiguration]);
+
   const scrollMessagesToBottom = useCallback(() => {
     window.requestAnimationFrame(() => {
       const messageScroll = messageScrollRef.current;
@@ -733,6 +877,22 @@ export function RagChatWorkspace({
   const replaceMessages = useCallback((nextMessages: ChatMessageResponse[]) => {
     messagesRef.current = nextMessages;
     setMessages(nextMessages);
+    const latestAssistant = [...nextMessages]
+      .reverse()
+      .find((message) => message.role === "ASSISTANT");
+
+    setSelectedAssistantMessageId((currentId) => {
+      if (
+        currentId &&
+        nextMessages.some(
+          (message) => message.role === "ASSISTANT" && message.id === currentId,
+        )
+      ) {
+        return currentId;
+      }
+
+      return latestAssistant?.id ?? null;
+    });
   }, []);
 
   const updateMessages = useCallback(
@@ -910,7 +1070,7 @@ export function RagChatWorkspace({
         }
 
         if (nextActiveSession) {
-          await loadMessages(nextActiveSession.id);
+          await loadMessages(nextActiveSession.id, { scrollToBottom: true });
         } else {
           replaceMessages([]);
           setExpandedSources(new Set());
@@ -1015,7 +1175,7 @@ export function RagChatWorkspace({
 
       replaceMessages([]);
       selectSession(sessionId);
-      await loadMessages(sessionId);
+      await loadMessages(sessionId, { scrollToBottom: true });
 
       if (targetSession?.unread) {
         try {
@@ -1370,9 +1530,12 @@ export function RagChatWorkspace({
       updateMessages((currentMessages) => [...currentMessages, userMessage]);
       scrollMessagesToBottom();
 
+      const selectedModel =
+        payload.modelId.trim() || selectedModelIdRef.current.trim();
       const response = await sendChatSessionMessage(session.id, {
         content,
         limit: DEFAULT_CHAT_LIMIT,
+        ...(selectedModel ? { model: selectedModel } : {}),
       });
       const savedUserMessage = response.userMessage ?? userMessage;
       const nextSession = response.session
@@ -1450,6 +1613,42 @@ export function RagChatWorkspace({
 
       return nextSources;
     });
+  };
+
+  const handleModelChange = async (modelId: string) => {
+    const nextModelId = modelId.trim();
+
+    setSelectedModelId(nextModelId);
+    selectedModelIdRef.current = nextModelId;
+    setModelError("");
+
+    if (
+      !modelSettings?.baseUrl ||
+      !modelSettings.timeoutSeconds ||
+      !nextModelId
+    ) {
+      return;
+    }
+
+    try {
+      const nextSettings = await updateModelSettings({
+        baseUrl: modelSettings.baseUrl,
+        model: nextModelId,
+        timeoutSeconds: modelSettings.timeoutSeconds,
+      });
+
+      setModelSettings(nextSettings);
+    } catch (error) {
+      if (isAxiosError(error) && error.response?.status === 401) {
+        onUnauthorizedRef.current();
+        return;
+      }
+
+      setModelError(
+        getBackendErrorMessage(error) ||
+          "模型选择已用于本次 Chat 发送，但同步 Settings 失败。",
+      );
+    }
   };
 
   const hasMessages = messages.length > 0;
@@ -1642,7 +1841,15 @@ export function RagChatWorkspace({
               </div>
             ) : hasMessages ? (
               messages.map((message) => (
-                <MessageBubble key={message.id} message={message} />
+                <MessageBubble
+                  key={message.id}
+                  message={message}
+                  selected={
+                    message.role === "ASSISTANT" &&
+                    message.id === selectedAssistantMessage?.id
+                  }
+                  onSelectAssistantMessage={setSelectedAssistantMessageId}
+                />
               ))
             ) : (
               <EmptyConversation knowledgeBaseName={knowledgeBase.name} />
@@ -1684,7 +1891,7 @@ export function RagChatWorkspace({
               </div>
             )}
 
-            {latestAssistantMessage && !showGenerationPending && (
+            {selectedAssistantMessage && !showGenerationPending && (
               <div
                 className={cn(
                   "rounded-[8px] border px-4 py-3 text-xs text-slate-600",
@@ -1707,7 +1914,7 @@ export function RagChatWorkspace({
                     </span>
                   </span>
                   <span className="shrink-0 text-slate-500">
-                    {formatCompactDateTime(latestAssistantMessage.createdAt)}
+                    {formatCompactDateTime(selectedAssistantMessage.createdAt)}
                   </span>
                 </div>
               </div>
@@ -1723,7 +1930,12 @@ export function RagChatWorkspace({
             isSubmitting={isSending}
             submitLabel={isSending ? "已发送" : "发送"}
             showAttachmentButton={false}
-            showContextControls={false}
+            showContextControls={composerModelOptions.length > 0 || isLoadingModels}
+            modelOptions={composerModelOptions}
+            selectedModelId={selectedModelId}
+            onModelChange={(modelId) => void handleModelChange(modelId)}
+            isLoadingModels={isLoadingModels}
+            modelError={modelError}
             helperText="Enter 发送，Shift + Enter 换行。发送后会先展示你的问题，再轮询后台生成结果。"
           />
         </footer>
@@ -1755,7 +1967,7 @@ export function RagChatWorkspace({
                 />
               ))}
             </div>
-          ) : latestAssistantMessage ? (
+          ) : selectedAssistantMessage ? (
             <div className="rounded-[8px] border border-dashed border-slate-200 px-4 py-8 text-center">
               <Info className="mx-auto size-7 text-slate-300" />
               <h3 className="mt-3 text-sm font-semibold text-slate-800">

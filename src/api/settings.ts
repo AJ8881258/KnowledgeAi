@@ -39,9 +39,14 @@ export type UserPreferenceResponse = {
 export type UpdateUserPreferenceRequest = UserPreferenceResponse;
 
 export type ModelConnectionTestRequest = {
-  baseUrl: string;
-  apiKey: string;
-  model: string;
+  baseUrl?: string;
+  apiKey?: string;
+  model?: string;
+};
+
+export type ModelConnectionTestResponse = {
+  success: boolean;
+  message: string;
 };
 
 export type RagSettingsResponse = {
@@ -70,6 +75,17 @@ export async function updateModelSettings(request: UpdateModelSettingsRequest) {
 export async function fetchModelList(request: FetchModelListRequest) {
   const response = await http.post<ModelListResponse>(
     "/settings/model/models",
+    request,
+  );
+
+  return response.data;
+}
+
+export async function testModelConnection(
+  request: ModelConnectionTestRequest,
+) {
+  const response = await http.post<ModelConnectionTestResponse>(
+    "/settings/model/test",
     request,
   );
 

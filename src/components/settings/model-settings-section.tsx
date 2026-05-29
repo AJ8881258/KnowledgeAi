@@ -1,17 +1,20 @@
-import { type FormEvent, useMemo, useState } from "react";
+import { type FormEvent, useId, useState } from "react";
 import {
   CheckCircle2,
   Eye,
   EyeOff,
-  Info,
   KeyRound,
   Loader2,
   RefreshCw,
   Save,
+  ShieldCheck,
+  ShieldX,
 } from "lucide-react";
 
 import {
   type FetchModelListRequest,
+  type ModelConnectionTestRequest,
+  type ModelConnectionTestResponse,
   type ModelListItem,
   type ModelSettingsResponse,
   type UpdateModelSettingsRequest,
@@ -24,14 +27,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
   SectionCard,
   SettingsErrorState,
   SettingsSkeleton,
@@ -40,7 +35,6 @@ import {
 } from "@/components/settings/settings-components";
 
 const DEFAULT_TIMEOUT_SECONDS = 60;
-const MANUAL_MODEL_VALUE = "__manual__";
 
 type ModelSettingsDraft = {
   baseUrl: string;
@@ -55,10 +49,14 @@ type ModelSettingsSectionProps = {
   error: string;
   saving: boolean;
   fetchingModels: boolean;
+  testingModel: boolean;
   modelOptions: ModelListItem[];
   modelFetchError: string;
   onRetry: () => void;
   onFetchModels: (request: FetchModelListRequest) => Promise<void>;
+  onTestModel: (
+    request: ModelConnectionTestRequest,
+  ) => Promise<ModelConnectionTestResponse | null>;
   onSave: (request: UpdateModelSettingsRequest) => Promise<boolean>;
 };
 
@@ -106,20 +104,10 @@ function validateDraft(
   }
 
   if (!draft.apiKey.trim() && !settings?.apiKeyConfigured) {
-    return "首次保存模型配置时需要填写 API Key。";
+    return "首次保存或测试模型配置时需要填写 API Key。";
   }
 
   return "";
-}
-
-function getModelSelectValue(draftModel: string, modelOptions: ModelListItem[]) {
-  if (!draftModel) {
-    return "";
-  }
-
-  return modelOptions.some((model) => model.id === draftModel)
-    ? draftModel
-    : MANUAL_MODEL_VALUE;
 }
 
 export function ModelSettingsSection({
@@ -128,10 +116,12 @@ export function ModelSettingsSection({
   error,
   saving,
   fetchingModels,
+  testingModel,
   modelOptions,
   modelFetchError,
   onRetry,
   onFetchModels,
+  onTestModel,
   onSave,
 }: ModelSettingsSectionProps) {
   const [draft, setDraft] = useState<ModelSettingsDraft>(() =>
@@ -139,26 +129,33 @@ export function ModelSettingsSection({
   );
   const [showApiKey, setShowApiKey] = useState(false);
   const [formError, setFormError] = useState("");
-  const modelSelectValue = useMemo(
-    () => getModelSelectValue(draft.model, modelOptions),
-    [draft.model, modelOptions],
-  );
+  const [testResult, setTestResult] =
+    useState<ModelConnectionTestResponse | null>(null);
+  const modelDatalistId = useId();
 
   function updateDraft(key: keyof ModelSettingsDraft, value: string) {
-    setDraft((current) => {
-      return {
-        ...current,
-        [key]: value,
-      };
-    });
+    setDraft((current) => ({
+      ...current,
+      [key]: value,
+    }));
     setFormError("");
+    setTestResult(null);
   }
 
   async function handleFetchModels() {
     const baseUrl = normalizeUrl(draft.baseUrl || settings?.baseUrl || "");
     const apiKey = draft.apiKey.trim();
+    const request: FetchModelListRequest = {};
 
-    if (!baseUrl) {
+    if (baseUrl) {
+      request.baseUrl = baseUrl;
+    }
+
+    if (apiKey) {
+      request.apiKey = apiKey;
+    }
+
+    if (!baseUrl && !settings?.baseUrlConfigured) {
       setFormError("请先填写 Base URL。");
       return;
     }
@@ -168,7 +165,32 @@ export function ModelSettingsSection({
       return;
     }
 
-    await onFetchModels(apiKey ? { baseUrl, apiKey } : { baseUrl });
+    await onFetchModels(request);
+  }
+
+  async function handleTestModel() {
+    const validationError = validateDraft(draft, settings);
+
+    if (validationError) {
+      setFormError(validationError);
+      setTestResult(null);
+      return;
+    }
+
+    const apiKey = draft.apiKey.trim();
+    const request: ModelConnectionTestRequest = {
+      baseUrl: normalizeUrl(draft.baseUrl),
+      model: draft.model.trim(),
+    };
+
+    if (apiKey) {
+      request.apiKey = apiKey;
+    }
+
+    const result = await onTestModel(request);
+
+    setTestResult(result);
+    setFormError("");
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -220,7 +242,7 @@ export function ModelSettingsSection({
         ) : error ? (
           <SettingsErrorState message={error} onRetry={onRetry} />
         ) : settings ? (
-          <form className="flex flex-col gap-5" onSubmit={handleSubmit}>
+          <form className="flex min-w-0 flex-col gap-5" onSubmit={handleSubmit}>
             <div className="flex flex-wrap gap-2">
               <StatusPill
                 status={settings.configured ? "配置已保存" : "需要补齐配置"}
@@ -232,18 +254,18 @@ export function ModelSettingsSection({
               />
             </div>
 
-            <div className="grid gap-4 lg:grid-cols-2">
+            <div className="grid min-w-0 gap-4 lg:grid-cols-2">
               <TextField
                 id="model-base-url"
                 label="Base URL"
                 value={draft.baseUrl}
                 placeholder="https://api.openai.com/v1"
-                disabled={saving || fetchingModels}
+                disabled={saving || fetchingModels || testingModel}
                 error={formError.includes("Base URL") ? formError : undefined}
                 helpText={
                   settings.baseUrlConfigured
-                    ? "填写 OpenAI-compatible 根地址，例如 https://api.openai.com/v1；不要填写完整 /chat/completions。已保存的 Base URL 会回显，重新填写会覆盖保存。"
-                    : "填写 OpenAI-compatible 根地址，例如 https://api.openai.com/v1；不要填写完整 /chat/completions。"
+                    ? "Base URL 会回显；重新填写会覆盖已保存地址。"
+                    : "填写 OpenAI-compatible 根地址，例如 https://api.openai.com/v1。"
                 }
                 onChange={(value) => updateDraft("baseUrl", value)}
               />
@@ -254,13 +276,11 @@ export function ModelSettingsSection({
                 type={showApiKey ? "text" : "password"}
                 value={draft.apiKey}
                 placeholder={
-                  settings.apiKeyConfigured
-                    ? "已保存，可重新填写覆盖"
-                    : "填写 API Key"
+                  settings.apiKeyConfigured ? "已保存，可重新填写覆盖" : "填写 API Key"
                 }
-                disabled={saving || fetchingModels}
+                disabled={saving || fetchingModels || testingModel}
                 error={formError.includes("API Key") ? formError : undefined}
-                helpText="不填写时不会覆盖已保存 Key；不会写入组件级 localStorage。"
+                helpText="不填写时不会覆盖已保存 Key；获取模型列表和测试模型可复用已保存 Key。"
                 onChange={(value) => updateDraft("apiKey", value)}
                 action={
                   <Button
@@ -269,7 +289,9 @@ export function ModelSettingsSection({
                     size="icon-xs"
                     aria-label={showApiKey ? "隐藏 API Key" : "显示 API Key"}
                     className="ml-2 rounded-[5px] text-slate-500 hover:bg-slate-100"
-                    disabled={saving || fetchingModels || !draft.apiKey}
+                    disabled={
+                      saving || fetchingModels || testingModel || !draft.apiKey
+                    }
                     onClick={() => setShowApiKey((current) => !current)}
                   >
                     {showApiKey ? <EyeOff /> : <Eye />}
@@ -277,57 +299,36 @@ export function ModelSettingsSection({
                 }
               />
 
-              <div className="flex flex-col gap-2">
-                <label
-                  htmlFor="model-select"
-                  className="text-sm font-normal text-slate-700"
-                >
-                  Chat Model
-                </label>
+              <div className="flex min-w-0 flex-col gap-2">
+                <TextField
+                  id="model-name"
+                  label="Chat Model"
+                  value={draft.model}
+                  placeholder="gpt-4.1-mini"
+                  disabled={saving || testingModel}
+                  error={formError.includes("模型") ? formError : undefined}
+                  helpText={
+                    modelFetchError ||
+                    "可手动输入模型 ID；获取模型列表后也可在此输入框中选择。"
+                  }
+                  inputProps={{
+                    list: modelDatalistId,
+                  }}
+                  onChange={(value) => updateDraft("model", value)}
+                />
+                <datalist id={modelDatalistId}>
+                  {modelOptions.map((model) => (
+                    <option key={model.id} value={model.id}>
+                      {model.name || model.id}
+                    </option>
+                  ))}
+                </datalist>
                 <div className="flex min-w-0 flex-col gap-2 sm:flex-row">
-                  <Select
-                    value={modelSelectValue}
-                    disabled={saving || fetchingModels || modelOptions.length === 0}
-                    onValueChange={(value) => {
-                      if (value !== MANUAL_MODEL_VALUE) {
-                        updateDraft("model", value);
-                      }
-                    }}
-                  >
-                    <SelectTrigger
-                      id="model-select"
-                      className="h-10 min-w-0 flex-1 rounded-[5px] border border-slate-200 bg-white px-3 text-sm normal-case tracking-normal text-slate-700 focus-visible:border-blue-400 focus-visible:ring-2 focus-visible:ring-blue-100"
-                    >
-                      <SelectValue
-                        placeholder={
-                          modelOptions.length > 0
-                            ? "请选择模型"
-                            : "先获取模型列表"
-                        }
-                      />
-                    </SelectTrigger>
-                    <SelectContent position="popper" className="max-w-[min(420px,90vw)]">
-                      <SelectGroup>
-                        {draft.model && modelSelectValue === MANUAL_MODEL_VALUE && (
-                          <SelectItem value={MANUAL_MODEL_VALUE}>
-                            {draft.model}
-                          </SelectItem>
-                        )}
-                        {modelOptions.map((model) => (
-                          <SelectItem key={model.id} value={model.id}>
-                            <span className="min-w-0 truncate">
-                              {model.name || model.id}
-                            </span>
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
                   <Button
                     type="button"
                     variant="outline"
-                    className="h-10 shrink-0 rounded-[6px] tracking-normal normal-case"
-                    disabled={saving || fetchingModels}
+                    className="h-10 min-w-0 rounded-[6px] normal-case tracking-normal sm:w-auto"
+                    disabled={saving || fetchingModels || testingModel}
                     onClick={() => void handleFetchModels()}
                   >
                     {fetchingModels ? (
@@ -337,20 +338,21 @@ export function ModelSettingsSection({
                     )}
                     获取模型列表
                   </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-10 min-w-0 rounded-[6px] normal-case tracking-normal sm:w-auto"
+                    disabled={saving || fetchingModels || testingModel}
+                    onClick={() => void handleTestModel()}
+                  >
+                    {testingModel ? (
+                      <Loader2 data-icon="inline-start" className="animate-spin" />
+                    ) : (
+                      <ShieldCheck data-icon="inline-start" />
+                    )}
+                    测试模型
+                  </Button>
                 </div>
-                <TextField
-                  id="model-name"
-                  label="手动模型名称"
-                  value={draft.model}
-                  placeholder="gpt-4.1-mini"
-                  disabled={saving}
-                  error={formError.includes("模型") ? formError : undefined}
-                  helpText={
-                    modelFetchError ||
-                    "可从模型列表选择，也可以手动输入兼容服务返回的模型 ID。"
-                  }
-                  onChange={(value) => updateDraft("model", value)}
-                />
               </div>
 
               <TextField
@@ -359,37 +361,41 @@ export function ModelSettingsSection({
                 type="number"
                 value={draft.timeoutSeconds}
                 placeholder="60"
-                disabled={saving}
+                disabled={saving || testingModel}
                 error={formError.includes("超时") ? formError : undefined}
                 helpText="允许范围 1-300 秒。"
                 onChange={(value) => updateDraft("timeoutSeconds", value)}
               />
             </div>
 
-            {(formError || modelFetchError) && (
+            {(formError || modelFetchError || testResult) && (
               <div
                 role="alert"
-                className="rounded-[6px] border border-orange-200 bg-orange-50 px-3 py-2 text-sm text-orange-700"
+                className={
+                  testResult?.success
+                    ? "flex min-w-0 items-start gap-2 rounded-[6px] border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700"
+                    : "flex min-w-0 items-start gap-2 rounded-[6px] border border-orange-200 bg-orange-50 px-3 py-2 text-sm text-orange-700"
+                }
               >
-                {formError || modelFetchError}
+                {testResult?.success ? (
+                  <ShieldCheck className="mt-0.5 size-4 shrink-0" />
+                ) : (
+                  <ShieldX className="mt-0.5 size-4 shrink-0" />
+                )}
+                <span className="min-w-0 break-words">
+                  {testResult?.message || formError || modelFetchError}
+                </span>
               </div>
             )}
 
-            <div className="flex items-start gap-3 rounded-[6px] border border-blue-100 bg-blue-50/70 p-3 text-sm text-blue-800">
-              <Info className="mt-0.5 size-4 shrink-0" />
-              <p className="min-w-0 leading-5">
-                保存成功只表示配置已写入后端，不代表模型调用一定可用。进入 Chat 前请先获取模型列表，确认 Base URL、API Key 和模型权限可用；后续如启用测试连接，以测试通过为准。
-              </p>
-            </div>
-
-            <div className="flex flex-col gap-3 rounded-[6px] border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 flex-col gap-3 rounded-[6px] border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600 sm:flex-row sm:items-center sm:justify-between">
               <span className="inline-flex min-w-0 items-center gap-2">
                 {settings.configured ? (
                   <CheckCircle2 className="size-4 shrink-0 text-emerald-600" />
                 ) : (
                   <KeyRound className="size-4 shrink-0 text-orange-500" />
                 )}
-                <span>
+                <span className="min-w-0 break-words">
                   {settings.configured
                     ? `当前已保存模型：${settings.model}`
                     : "保存 Base URL、API Key、模型和超时时间后，Chat 将优先使用当前用户配置。"}
@@ -403,7 +409,11 @@ export function ModelSettingsSection({
             </div>
 
             <div className="flex justify-end">
-              <Button type="submit" size="sm" disabled={saving || fetchingModels}>
+              <Button
+                type="submit"
+                size="sm"
+                disabled={saving || fetchingModels || testingModel}
+              >
                 {saving ? (
                   <Loader2 data-icon="inline-start" className="animate-spin" />
                 ) : (

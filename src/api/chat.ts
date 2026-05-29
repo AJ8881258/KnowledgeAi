@@ -44,6 +44,7 @@ export type UpdateChatSessionRequest = {
 export type SendChatMessageRequest = {
   content: string;
   limit?: number;
+  model?: string;
 };
 
 export type SendChatMessageResponse = {

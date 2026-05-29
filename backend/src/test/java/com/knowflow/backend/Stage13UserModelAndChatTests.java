@@ -394,6 +394,45 @@ class Stage13UserModelAndChatTests {
     }
 
     @Test
+    void chatRequestModelOverridesThisGenerationAndSyncsCurrentUserSettingsOnly() throws Exception {
+        modelServer.returnChatCompletion("stage13 requested model answer");
+        Long userAId = createUser("stage13_request_model_a");
+        Long userBId = createUser("stage13_request_model_b");
+        String userAToken = loginAndGetToken("stage13_request_model_a");
+        String userBToken = loginAndGetToken("stage13_request_model_b");
+
+        saveModelSettings(userAToken, "stage13-request-model-a-key", "stage13-original-model-a");
+        saveModelSettings(userBToken, "stage13-request-model-b-key", "stage13-original-model-b");
+
+        Long knowledgeBaseId = createKnowledgeBase(userAId, "Stage13 Request Model KB");
+        createMembership(knowledgeBaseId, userAId, "OWNER");
+        Long sessionId = createSession(knowledgeBaseId, userAToken, "Request model session");
+
+        mockMvc.perform(post("/api/chat/sessions/{sessionId}/messages", sessionId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + userAToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "content": "使用这次选择的模型",
+                                  "limit": 5,
+                                  "model": "stage13-requested-model-a"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.session.status").value("GENERATING"));
+
+        waitForSessionStatus(userAToken, knowledgeBaseId, sessionId, "IDLE");
+        waitForAssistantMessage(userAToken, sessionId);
+
+        assertThat(modelServer.requestBodies()).anySatisfy(body ->
+                assertThat(body).contains("\"model\":\"stage13-requested-model-a\""));
+        assertThat(readSavedModel("stage13_request_model_a")).isEqualTo("stage13-requested-model-a");
+        assertThat(readSavedModel("stage13_request_model_b")).isEqualTo("stage13-original-model-b");
+        assertThat(modelServer.authorizationHeaders()).contains("Bearer stage13-request-model-a-key");
+        assertThat(modelServer.authorizationHeaders()).doesNotContain("Bearer stage13-request-model-b-key");
+    }
+
+    @Test
     void sessionUnreadStatusAndAsyncEmptyRetrievalFlowWorkTogether() throws Exception {
         modelServer.returnChatCompletion("stage13 empty retrieval model answer");
         Long userId = createUser("stage13_async_owner");
@@ -441,7 +480,43 @@ class Stage13UserModelAndChatTests {
         JsonNode assistantMessage = waitForAssistantMessage(token, sessionId);
         assertThat(assistantMessage.get("content").asText()).isEqualTo("stage13 empty retrieval model answer");
         assertThat(assistantMessage.get("sources").size()).isZero();
+        assertThat(modelServer.requestBodies()).anySatisfy(body ->
+                assertThat(body).contains("当前没有可引用的知识库片段"));
         assertThat(modelServer.authorizationHeaders()).contains("Bearer stage13-empty-key");
+    }
+
+    @Test
+    void generationFailureMarksSessionUnreadIndependentlyFromFailedStatus() throws Exception {
+        modelServer.returnSensitiveFailure("provider leaked stage13-unread-failure-key Authorization stage13-unread-failure-model");
+        Long userId = createUser("stage13_unread_failure_owner");
+        String token = loginAndGetToken("stage13_unread_failure_owner");
+        saveModelSettings(token, "stage13-unread-failure-key", "stage13-unread-failure-model");
+        Long knowledgeBaseId = createKnowledgeBase(userId, "Stage13 Unread Failure KB");
+        createMembership(knowledgeBaseId, userId, "OWNER");
+        Long sessionId = createSession(knowledgeBaseId, token, "Unread failure session");
+
+        mockMvc.perform(patch("/api/chat/sessions/{sessionId}", sessionId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "unread": false
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.unread").value(false));
+
+        sendAsyncMessage(token, sessionId, "触发失败");
+
+        waitForSessionStatus(token, knowledgeBaseId, sessionId, "FAILED");
+        JsonNode failedSession = readSessions(token, knowledgeBaseId).stream()
+                .filter(session -> session.get("id").asLong() == sessionId)
+                .findFirst()
+                .orElseThrow();
+
+        assertThat(failedSession.get("status").asText()).isEqualTo("FAILED");
+        assertThat(failedSession.get("unread").asBoolean()).isTrue();
+        assertThat(readUnread(sessionId)).isTrue();
     }
 
     @Test
@@ -845,6 +920,24 @@ class Stage13UserModelAndChatTests {
                 userId);
     }
 
+    private String readSavedModel(String username) {
+        Long userId = jdbcTemplate.queryForObject("select id from users where username = ?", Long.class, username);
+        return jdbcTemplate.queryForObject("""
+                        select model
+                        from user_model_settings
+                        where user_id = ?
+                        """,
+                String.class,
+                userId);
+    }
+
+    private Boolean readUnread(Long sessionId) {
+        return jdbcTemplate.queryForObject(
+                "select unread from chat_sessions where id = ?",
+                Boolean.class,
+                sessionId);
+    }
+
     private boolean tableExists(String tableName) {
         Boolean exists = jdbcTemplate.queryForObject("""
                         select exists (
@@ -967,6 +1060,7 @@ class Stage13UserModelAndChatTests {
     private static class Stage13ModelServer implements AutoCloseable {
         private final HttpServer server;
         private final List<String> authorizationHeaders = new CopyOnWriteArrayList<>();
+        private final List<String> requestBodies = new CopyOnWriteArrayList<>();
         private volatile Predicate<String> handlerMode = path -> true;
         private volatile int status = 200;
         private volatile String body = "{\"data\":[]}";
@@ -984,6 +1078,10 @@ class Stage13UserModelAndChatTests {
 
         List<String> authorizationHeaders() {
             return authorizationHeaders;
+        }
+
+        List<String> requestBodies() {
+            return requestBodies;
         }
 
         void returnModels(String modelId) {
@@ -1028,6 +1126,7 @@ class Stage13UserModelAndChatTests {
 
         private void handle(HttpExchange exchange) throws IOException {
             authorizationHeaders.add(exchange.getRequestHeaders().getFirst(HttpHeaders.AUTHORIZATION));
+            requestBodies.add(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
             byte[] responseBody;
             int responseStatus;
             if (handlerMode.test(exchange.getRequestURI().getPath())) {

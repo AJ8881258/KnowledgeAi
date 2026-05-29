@@ -1,4 +1,5 @@
 import { type ReactNode } from "react";
+import type { InputHTMLAttributes } from "react";
 import { CircleAlert, CircleHelp } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -118,6 +119,7 @@ export function TextField({
   helpText,
   onChange,
   action,
+  inputProps,
 }: {
   id?: string;
   label: string;
@@ -130,6 +132,10 @@ export function TextField({
   helpText?: string;
   onChange?: (value: string) => void;
   action?: ReactNode;
+  inputProps?: Omit<
+    InputHTMLAttributes<HTMLInputElement>,
+    "id" | "type" | "value" | "readOnly" | "disabled" | "placeholder" | "onChange"
+  >;
 }) {
   return (
     <Field className="gap-2" data-invalid={Boolean(error)}>
@@ -156,6 +162,7 @@ export function TextField({
           aria-invalid={Boolean(error)}
           onChange={(event) => onChange?.(event.target.value)}
           className="h-8 border-0 px-0 text-sm text-slate-700 focus-visible:border-0 disabled:cursor-not-allowed disabled:text-slate-500"
+          {...inputProps}
         />
         {action}
       </div>

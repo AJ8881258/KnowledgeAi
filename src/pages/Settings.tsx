@@ -14,10 +14,13 @@ import {
   getModelSettings,
   getRagSettings,
   getUserPreferences,
+  testModelConnection,
   updateModelSettings,
   updateRagSettings,
   updateUserPreferences,
   type FetchModelListRequest,
+  type ModelConnectionTestRequest,
+  type ModelConnectionTestResponse,
   type ModelListItem,
   type ModelSettingsResponse,
   type RagSettingsResponse,
@@ -29,6 +32,16 @@ import { DangerZoneSection } from "@/components/settings/danger-zone-section";
 import { ModelSettingsSection } from "@/components/settings/model-settings-section";
 import { RagSettingsSection } from "@/components/settings/rag-settings-section";
 import { normalizeRagSettings } from "@/components/settings/settings-rag";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { useAuthStore } from "@/store/auth";
 import { useChatStatusStore } from "@/store/chat-status";
 
@@ -46,6 +59,22 @@ function getErrorMessage(error: unknown, fallback: string) {
   }
 
   return fallback;
+}
+
+function sanitizeSensitiveMessage(message: string) {
+  return message
+    .replace(
+      /authorization\s*:\s*bearer\s+[^\s,;]+/gi,
+      "Authorization: Bearer ***",
+    )
+    .replace(/bearer\s+[A-Za-z0-9._~+/=-]{12,}/gi, "Bearer ***")
+    .replace(/sk-[A-Za-z0-9._-]{8,}/gi, "sk-***")
+    .replace(/api[_-]?key\s*[:=]\s*[^\s,;]+/gi, "API Key ***")
+    .replace(/https?:\/\/[^\s"'<>]+/gi, "[Base URL]");
+}
+
+function getSafeErrorMessage(error: unknown, fallback: string) {
+  return sanitizeSensitiveMessage(getErrorMessage(error, fallback));
 }
 
 function isUnauthorized(error: unknown) {
@@ -111,9 +140,11 @@ export default function Settings() {
   const [savingProfile, setSavingProfile] = useState(false);
   const [savingModel, setSavingModel] = useState(false);
   const [fetchingModels, setFetchingModels] = useState(false);
+  const [testingModel, setTestingModel] = useState(false);
   const [savingPreferences, setSavingPreferences] = useState(false);
   const [savingRag, setSavingRag] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
+  const [logoutDialogOpen, setLogoutDialogOpen] = useState(false);
 
   const handleUnauthorized = useCallback(() => {
     if (handledUnauthorizedRef.current) {
@@ -293,10 +324,40 @@ export default function Settings() {
       }
 
       setModelFetchError(
-        getErrorMessage(error, "模型列表获取失败，请检查 Base URL 和 API Key。"),
+        getSafeErrorMessage(error, "模型列表获取失败，请检查 Base URL 和 API Key。"),
       );
     } finally {
       setFetchingModels(false);
+    }
+  }
+
+  async function handleTestModelConnection(
+    request: ModelConnectionTestRequest,
+  ): Promise<ModelConnectionTestResponse | null> {
+    setTestingModel(true);
+
+    try {
+      const response = await testModelConnection(request);
+
+      return {
+        ...response,
+        message: sanitizeSensitiveMessage(response.message),
+      };
+    } catch (error) {
+      if (isUnauthorized(error)) {
+        handleUnauthorized();
+        return null;
+      }
+
+      return {
+        success: false,
+        message: getSafeErrorMessage(
+          error,
+          "模型测试失败，请检查 Base URL、API Key 和模型权限。",
+        ),
+      };
+    } finally {
+      setTestingModel(false);
     }
   }
 
@@ -363,8 +424,14 @@ export default function Settings() {
     }
   }
 
+  function handleLogout() {
+    clearSession();
+    navigate("/login", { replace: true });
+  }
+
   return (
-    <div className="flex w-full flex-col gap-4 p-3 text-slate-900 lg:p-4">
+    <>
+      <div className="flex w-full min-w-0 flex-col gap-4 p-3 text-slate-900 lg:p-4">
       <AccountProfileSection
         key={currentUser ? `${currentUser.id}-${currentUser.email ?? ""}` : "empty-user"}
         user={currentUser}
@@ -379,10 +446,7 @@ export default function Settings() {
         onRetry={loadProfile}
         onSave={handleSaveProfile}
         onRetryPreferences={loadPreferences}
-        onLogout={() => {
-          clearSession();
-          navigate("/login", { replace: true });
-        }}
+        onLogout={() => setLogoutDialogOpen(true)}
       />
 
       <ModelSettingsSection
@@ -396,10 +460,12 @@ export default function Settings() {
         error={errors.model}
         saving={savingModel}
         fetchingModels={fetchingModels}
+        testingModel={testingModel}
         modelOptions={modelOptions}
         modelFetchError={modelFetchError}
         onRetry={loadModelSettings}
         onFetchModels={handleFetchModels}
+        onTestModel={handleTestModelConnection}
         onSave={handleSaveModelSettings}
       />
 
@@ -424,6 +490,26 @@ export default function Settings() {
           onDeleteAccount={handleDeleteAccount}
         />
       )}
-    </div>
+      </div>
+
+      <AlertDialog open={logoutDialogOpen} onOpenChange={setLogoutDialogOpen}>
+        <AlertDialogContent className="rounded-[8px]">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="font-sans text-lg normal-case tracking-normal">
+              确认退出登录？
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              退出后会清除当前登录状态，并返回登录页。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogAction type="button" onClick={handleLogout}>
+              确认退出
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }

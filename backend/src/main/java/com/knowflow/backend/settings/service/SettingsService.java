@@ -188,6 +188,26 @@ public class SettingsService {
 
     /**
      * @param userId 当前 JWT 用户 ID
+     * @param model  Chat 页面本次发送时选择的模型 ID
+     * @Desc 只同步当前用户 Settings 中的 model 字段，保留已保存的 Base URL/API Key/timeout。
+     * 与完整保存 Settings 不同，本方法不接收 Base URL/API Key，避免 Chat 请求覆盖或泄露鉴权配置。
+     */
+    @Transactional
+    public void updateCurrentModelFromChat(Long userId, String model) {
+        String normalizedModel = normalizeRequiredText(model, "model");
+        UserModelSettings current = userModelSettingsRepository.findByUserId(userId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Model settings are incomplete"));
+        if (!hasText(current.getBaseUrl()) || !hasText(current.getEncryptedApiKey())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Model settings are incomplete");
+        }
+
+        current.setModel(normalizedModel);
+        userModelSettingsRepository.upsert(current);
+    }
+
+
+    /**
+     * @param userId 当前 JWT 用户 ID
      * @return 当前用户偏好；没有保存过时返回默认偏好
      * @Desc language 只保存偏好，timezone 给今日交谈次数和前端时间展示使用。
      */

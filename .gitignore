@@ -7,10 +7,12 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-#env
-.codex
-.playwright-mcp
+# Local agent/tooling state
 .claude/
+.codex/
+.idea/
+.playwright-mcp/
+.vscode/
 
 node_modules
 dist
@@ -18,9 +20,6 @@ dist-ssr
 *.local
 
 # Editor directories and files
-.vscode/*
-!.vscode/extensions.json
-.idea
 .DS_Store
 Thumbs.db
 *.suo
@@ -28,10 +27,3 @@ Thumbs.db
 *.njsproj
 *.sln
 *.sw?
-
-
-### Codex ###
-.codex/
-.codex/environments/
-AGENTS.md
-CLAUDE.md

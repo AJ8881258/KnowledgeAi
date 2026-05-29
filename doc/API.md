@@ -1095,20 +1095,46 @@ Content-Type: application/json
 - 如果最终缺少 Base URL 或 API Key，返回 `400`。
 - 失败时返回脱敏错误，不返回 API Key、完整 Authorization header 或供应商敏感错误。
 
-### 测试模型连接（可选）
+### 测试模型连接
 
 | 项目 | 内容 |
 |---|---|
 | 请求方式 | `POST` |
 | 请求路径 | `/api/settings/model/test` |
 | 是否需要登录 | 是 |
-| 状态 | 阶段 13 可选契约 |
+| 状态 | 阶段 14 已正式接入前端 |
 
 说明：
 
-- 如果阶段 13 时间足够，可以实现该接口用于 Settings 的“测试连接”按钮。
-- 如果暂不实现，前端不应展示可点击的假测试按钮。
-- 测试失败同样必须脱敏。
+- Settings 页面用该接口验证当前用户的 OpenAI-compatible 配置是否真实可用。
+- 请求体允许传入本次表单里的 `baseUrl`、`apiKey`、`model`；字段为空时后端复用当前用户已保存的配置。
+- 该接口会真实调用模型供应商，但不会保存 API Key；保存仍由 `PATCH /api/settings/model` 完成。
+- 测试成功或失败都必须脱敏，不返回 API Key、完整 Authorization header、完整 Base URL、model 或供应商敏感原始错误。
+
+请求示例：
+
+```json
+{
+  "baseUrl": "https://api.openai.com/v1",
+  "apiKey": "<new-api-key>",
+  "model": "gpt-4.1-mini"
+}
+```
+
+也可以复用已保存配置：
+
+```json
+{}
+```
+
+成功响应示例：
+
+```json
+{
+  "success": true,
+  "message": "模型连接测试成功"
+}
+```
 
 ### 获取偏好设置
 
@@ -1487,7 +1513,8 @@ Content-Type: application/json
 ```json
 {
   "content": "JWT 登录流程是什么？",
-  "limit": 5
+  "limit": 5,
+  "model": "gpt-4.1-mini"
 }
 ```
 
@@ -1520,17 +1547,20 @@ Content-Type: application/json
 
 - `sessionId` 必须属于当前登录用户。
 - 阶段 13 该接口只同步保存用户消息并把会话状态置为 `GENERATING`，随后由后端后台任务完成检索、Prompt 构造、模型调用、助手消息和引用来源保存。
+- 阶段 14 请求体新增可选 `model`。传入时后端会把它作为本次生成模型，并同步保存为当前用户 Settings 的当前模型；Base URL 和 API Key 仍只来自当前用户已保存配置，不能通过 Chat 请求覆盖。
 - 前端通过轮询 `GET /api/chat/sessions/{sessionId}/messages` 和会话列表获取生成结果。
 - 后端先确认当前用户拥有该会话，并且仍是会话所属知识库成员，再基于该知识库检索 chunks，构造 prompt 调用模型。
 - 当前 `sources` 来自阶段 9 PostgreSQL 全文检索结果，`score` 表示全文检索相关度分数。
 - `limit` 为空时默认 `5`，大于 `20` 时按 `20` 处理。
+- `model` 为空时使用当前用户 Settings 中保存的模型；如果用户没有完整模型配置，则允许按本地开发兜底配置处理。
 - 模型调用失败时返回明确错误，不返回或泄露密钥。
 - 阶段 10 已增强多轮上下文和引用来源展示；默认使用当前会话最近 6 条以内历史消息进入 prompt，并限制总长度。
 - 阶段 13 收尾修复后，空检索不再跳过模型：后端仍使用当前用户自己的模型配置生成回答，但 `sources` 必须为空数组，且 prompt 会要求模型说明“当前没有可引用的知识库片段”，不能伪造引用来源。
 - 阶段 13 Chat 模型调用优先使用当前用户保存的模型配置；未保存时允许回退后端环境变量作为本地开发兜底。
 - 模型 Base URL 必须是 OpenAI-compatible 根地址，例如 `https://api.openai.com/v1`；历史或误填的完整 `/chat/completions` 地址会被规范化到 `/v1` 后再调用。
-- 阶段 13 允许多个会话同时处于 `GENERATING`。如果非当前会话后台生成完成，后端把该会话 `unread` 标记为 `true`。
-- 阶段 13 模型调用失败继续返回脱敏错误，不泄露 API key、完整 Base URL、model 或供应商敏感错误，并把会话状态更新为 `FAILED`，会话列表通过 `lastErrorMessage` 返回脱敏失败原因。
+- 阶段 13 允许多个会话同时处于 `GENERATING`。后台生成成功后后端把该会话 `unread` 标记为 `true`，前端进入会话后会标记已读。
+- 阶段 14 明确成功/失败状态与已读/未读状态分离：后台生成成功或失败都会把会话标记为 `unread: true`，但 Header 角标只按 `unread` 统计，前端通过 `status` 区分 `IDLE` 或 `FAILED`。
+- 阶段 13/14 模型调用失败继续返回脱敏错误，不泄露 API key、完整 Base URL、model 或供应商敏感错误，并通过会话列表的 `lastErrorMessage` 返回脱敏失败原因。
 - 如新增流式接口，必须先补充 SSE 契约。
 
 失败情况：
