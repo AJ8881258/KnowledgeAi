@@ -13,6 +13,7 @@ lerna-debug.log*
 .idea/
 .playwright-mcp/
 .vscode/
+do.md
 
 # Environment files
 .env
