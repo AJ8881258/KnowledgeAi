@@ -57,6 +57,25 @@ export function formatFileSize(bytes: number) {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
+export function formatCount(value?: number | null) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return "-";
+  }
+
+  return new Intl.NumberFormat("zh-CN").format(Math.round(value));
+}
+
+export function formatQualityWarning(value: string) {
+  const warningLabels: Record<string, string> = {
+    NO_CHUNKS: "暂无可检索片段",
+    DOCUMENT_TOO_SHORT: "文档正文偏短",
+    CHUNK_TOO_SHORT: "存在过短片段",
+    CHUNK_TOO_LONG: "存在过长片段",
+  };
+
+  return warningLabels[value] ?? value;
+}
+
 export function getDocumentType(filename: string) {
   const dot = filename.lastIndexOf(".");
   const extension = dot >= 0 ? filename.slice(dot + 1).toLowerCase() : "";

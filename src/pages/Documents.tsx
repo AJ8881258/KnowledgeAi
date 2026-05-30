@@ -4,7 +4,18 @@ import { isAxiosError } from "axios";
 import { useLocation, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
 
-import { deleteDocument, getDocument, getDocumentChunks, getKnowledgeBaseDocuments, uploadKnowledgeBaseDocument, type DocumentChunkResponse } from "@/api/documents";
+import {
+  deleteDocument,
+  generateDocumentSummary,
+  getDocument,
+  getDocumentChunks,
+  getDocumentQuality,
+  getKnowledgeBaseDocuments,
+  reprocessDocument,
+  uploadKnowledgeBaseDocument,
+  type DocumentChunkResponse,
+  type DocumentQualityResponse,
+} from "@/api/documents";
 import { getKnowledgeBases, type KnowledgeBaseResponse } from "@/api/knowledge-bases";
 import { DocumentDetails, EmptyDocumentDetails } from "@/components/documents/document-details";
 import { DocumentTable } from "@/components/documents/document-table";
@@ -58,6 +69,9 @@ const Documents = () => {
   const [documentToDelete, setDocumentToDelete] = useState<DocumentItem | null>(
     null,
   );
+  const [documentToReprocess, setDocumentToReprocess] =
+    useState<DocumentItem | null>(null);
+  const [quality, setQuality] = useState<DocumentQualityResponse | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [pageSize, setPageSize] = useState<PageSize>(20);
   const [currentPage, setCurrentPage] = useState(1);
@@ -65,10 +79,17 @@ const Documents = () => {
   const [isLoadingDocuments, setIsLoadingDocuments] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [reprocessingDocumentId, setReprocessingDocumentId] = useState<
+    number | null
+  >(null);
+  const [isLoadingQuality, setIsLoadingQuality] = useState(false);
+  const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
   const [isLoadingChunks, setIsLoadingChunks] = useState(false);
   const [knowledgeBaseLoadError, setKnowledgeBaseLoadError] = useState("");
   const [documentLoadError, setDocumentLoadError] = useState("");
   const [chunkError, setChunkError] = useState("");
+  const [qualityError, setQualityError] = useState("");
+  const [summaryError, setSummaryError] = useState("");
 
   const hasKnowledgeBaseId = Boolean(knowledgeBaseId);
   const currentKnowledgeBase = knowledgeBases.find(
@@ -81,7 +102,7 @@ const Documents = () => {
     ? canMutateKnowledgeBaseDocuments(currentKnowledgeBaseModel)
     : false;
   const documentMutationDisabledReason =
-    "当前角色为只读，只能查看、检索和进入 Chat 问答，不能上传或删除文档。";
+    "当前角色为只读，只能查看和检索文档，不能上传、删除或重新处理文档。";
   const currentKnowledgeBaseLabel = hasKnowledgeBaseId
     ? currentKnowledgeBase?.name ?? `知识库 #${knowledgeBaseId}`
     : "";
@@ -211,6 +232,9 @@ const Documents = () => {
     setCurrentPage(1);
     setChunks([]);
     setChunkError("");
+    setQuality(null);
+    setQualityError("");
+    setSummaryError("");
   };
 
   const handleTypeTabChange = (value: TypeTab) => {
@@ -258,6 +282,9 @@ const Documents = () => {
     setSelectedDocumentId(doc.id);
     setChunks([]);
     setChunkError("");
+    setQuality(null);
+    setQualityError("");
+    setSummaryError("");
 
     try {
       const detail = await getDocument(doc.id);
@@ -299,6 +326,83 @@ const Documents = () => {
       setChunkError(getApiErrorMessage(error));
     } finally {
       setIsLoadingChunks(false);
+    }
+  };
+
+  const loadQuality = async () => {
+    if (!selectedDocument) {
+      return;
+    }
+
+    setIsLoadingQuality(true);
+    setQualityError("");
+
+    try {
+      const response = await getDocumentQuality(selectedDocument.id);
+      setQuality(response);
+      setDocuments((currentDocuments) =>
+        currentDocuments.map((currentDocument) =>
+          currentDocument.id === selectedDocument.id
+            ? {
+                ...currentDocument,
+                status: response.status,
+                chunkCount: response.chunkCount,
+                charCount: response.charCount,
+                averageChunkLength: response.averageChunkLength,
+                qualityWarnings: response.qualityWarnings,
+                updatedAt: response.updatedAt,
+              }
+            : currentDocument,
+        ),
+      );
+    } catch (error) {
+      if (isAxiosError(error) && error.response?.status === 401) {
+        handleApiError(error);
+        return;
+      }
+
+      setQualityError(getApiErrorMessage(error));
+    } finally {
+      setIsLoadingQuality(false);
+    }
+  };
+
+  const handleGenerateSummary = async () => {
+    if (!selectedDocument || isGeneratingSummary) {
+      return;
+    }
+
+    setIsGeneratingSummary(true);
+    setSummaryError("");
+
+    try {
+      const response = await generateDocumentSummary(selectedDocument.id, {
+        maxLength: 500,
+      });
+
+      setDocuments((currentDocuments) =>
+        currentDocuments.map((currentDocument) =>
+          currentDocument.id === selectedDocument.id
+            ? {
+                ...currentDocument,
+                summary: response.summary,
+                updatedAt: response.updatedAt,
+              }
+            : currentDocument,
+        ),
+      );
+      toast.success("文档摘要已生成");
+    } catch (error) {
+      if (isAxiosError(error) && error.response?.status === 401) {
+        handleApiError(error);
+        return;
+      }
+
+      const message = getApiErrorMessage(error);
+      setSummaryError(message);
+      toast.error(message);
+    } finally {
+      setIsGeneratingSummary(false);
     }
   };
 
@@ -386,11 +490,68 @@ const Documents = () => {
       toast.success(`已删除文档：${documentToDelete.originalFilename}`);
       setDocumentToDelete(null);
       setChunks([]);
+      setQuality(null);
       await loadDocuments();
     } catch (error) {
       handleApiError(error);
     } finally {
       setIsDeleting(false);
+    }
+  };
+
+  const confirmReprocessDocument = async () => {
+    if (!documentToReprocess || reprocessingDocumentId) {
+      return;
+    }
+
+    if (!canMutateDocuments) {
+      toast.error(documentMutationDisabledReason);
+      setDocumentToReprocess(null);
+      return;
+    }
+
+    setReprocessingDocumentId(documentToReprocess.id);
+    setChunkError("");
+    setQualityError("");
+    setSummaryError("");
+
+    try {
+      const response = await reprocessDocument(documentToReprocess.id);
+      const nextDocument = mapDocument(response);
+
+      setDocuments((currentDocuments) =>
+        currentDocuments.map((currentDocument) =>
+          currentDocument.id === nextDocument.id
+            ? nextDocument
+            : currentDocument,
+        ),
+      );
+      setDocumentToReprocess(null);
+
+      if (selectedDocumentId === nextDocument.id) {
+        setQuality(null);
+        await Promise.all([
+          getDocumentQuality(nextDocument.id)
+            .then(setQuality)
+            .catch((error) => setQualityError(getApiErrorMessage(error))),
+          chunks.length > 0
+            ? getDocumentChunks(nextDocument.id)
+                .then(setChunks)
+                .catch((error) => setChunkError(getApiErrorMessage(error)))
+            : Promise.resolve(),
+        ]);
+      }
+
+      await loadDocuments();
+      toast.success(
+        nextDocument.status === "FAILED"
+          ? "重新处理已完成，但文档仍处于失败状态"
+          : "文档已重新处理",
+      );
+    } catch (error) {
+      handleApiError(error);
+    } finally {
+      setReprocessingDocumentId(null);
     }
   };
 
@@ -433,10 +594,14 @@ const Documents = () => {
         paginationItems={paginationItems}
         pageSize={pageSize}
         isDeleting={isDeleting}
+        reprocessingDocumentId={reprocessingDocumentId}
         canDeleteDocuments={canMutateDocuments}
+        canReprocessDocuments={canMutateDocuments}
         deleteDisabledReason={documentMutationDisabledReason}
+        reprocessDisabledReason={documentMutationDisabledReason}
         onSelectDocument={(doc) => void selectDocument(doc)}
         onDeleteDocument={setDocumentToDelete}
+        onReprocessDocument={setDocumentToReprocess}
         onPageChange={setCurrentPage}
         onPageSizeChange={handlePageSizeChange}
       />
@@ -504,7 +669,18 @@ const Documents = () => {
             chunks={chunks}
             isLoadingChunks={isLoadingChunks}
             chunkError={chunkError}
+            quality={quality}
+            isLoadingQuality={isLoadingQuality}
+            qualityError={qualityError}
+            isGeneratingSummary={isGeneratingSummary}
+            summaryError={summaryError}
+            isReprocessing={reprocessingDocumentId === selectedDocument.id}
+            canReprocess={canMutateDocuments}
+            reprocessDisabledReason={documentMutationDisabledReason}
             onLoadChunks={() => void loadChunks()}
+            onLoadQuality={() => void loadQuality()}
+            onGenerateSummary={() => void handleGenerateSummary()}
+            onReprocess={() => setDocumentToReprocess(selectedDocument)}
             onNavigateChat={() => navigate("/Chat")}
             onClose={() => setSelectedDocumentId(null)}
           />
@@ -546,6 +722,47 @@ const Documents = () => {
               }}
             >
               {isDeleting ? "删除中..." : "确认删除"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={Boolean(documentToReprocess)}
+        onOpenChange={(open) => {
+          if (!open && !reprocessingDocumentId) {
+            setDocumentToReprocess(null);
+          }
+        }}
+      >
+        <AlertDialogContent className="rounded-[8px]">
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {documentToReprocess?.status === "FAILED"
+                ? "重试失败文档"
+                : "重新处理文档"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              确认重新解析“{documentToReprocess?.originalFilename}”并替换当前
+              chunks 吗？处理完成后，检索和 Chat 引用会使用新的 chunks。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              disabled={Boolean(reprocessingDocumentId)}
+              className="rounded-[6px] tracking-normal normal-case"
+            >
+              取消
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={Boolean(reprocessingDocumentId)}
+              className="rounded-[6px] tracking-normal normal-case"
+              onClick={(event) => {
+                event.preventDefault();
+                void confirmReprocessDocument();
+              }}
+            >
+              {reprocessingDocumentId ? "处理中..." : "确认重新处理"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

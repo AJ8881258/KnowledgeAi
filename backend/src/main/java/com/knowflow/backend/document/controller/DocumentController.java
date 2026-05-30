@@ -1,11 +1,12 @@
 package com.knowflow.backend.document.controller;
 
-import java.util.ArrayList;
-import java.util.List;
-
+import com.knowflow.backend.chat.model.ChatModelClient;
+import com.knowflow.backend.document.dto.request.GenerateDocumentSummaryRequest;
 import com.knowflow.backend.document.dto.request.SearchDocumentRequest;
 import com.knowflow.backend.document.dto.response.DocumentChunkResponse;
+import com.knowflow.backend.document.dto.response.DocumentQualityResponse;
 import com.knowflow.backend.document.dto.response.DocumentResponse;
+import com.knowflow.backend.document.dto.response.DocumentSummaryResponse;
 import com.knowflow.backend.document.dto.response.SearchDocumentResponse;
 import com.knowflow.backend.document.dto.response.SearchResultResponse;
 import com.knowflow.backend.document.entity.Document;
@@ -17,6 +18,7 @@ import com.knowflow.backend.knowledgebase.service.KnowledgeBaseAccessService;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -29,48 +31,64 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.util.ArrayList;
+import java.util.List;
+
+import static com.knowflow.backend.common.model.ModelProviderErrors.safeMessage;
 import static com.knowflow.backend.common.utils.AuthUtils.getCurrentUserId;
 
 @RestController
 @RequestMapping("/api")
 public class DocumentController {
 
-    private static final long MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;//大小
-    private static final int CHUNK_SIZE = 1000;//区块大小
-    private static final int CHUNK_OVERLAP = 150;//重叠量
-    private static final int CONTENT_TYPE_MAX_LENGTH = 64;//内容类型最大长度
+    private static final long MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
+    private static final int CHUNK_SIZE = 1000;
+    private static final int CHUNK_OVERLAP = 150;
+    private static final int CONTENT_TYPE_MAX_LENGTH = 64;
 
-    private static final String STATUS_UPLOADED = "UPLOADED";//上传中
-    private static final String STATUS_PROCESSING = "PROCESSING";//处理中
-    private static final String STATUS_INDEXED = "INDEXED";//已索引
-    private static final String STATUS_FAILED = "FAILED";//失败
+    private static final String STATUS_UPLOADED = "UPLOADED";
+    private static final String STATUS_PROCESSING = "PROCESSING";
+    private static final String STATUS_INDEXED = "INDEXED";
+    private static final String STATUS_FAILED = "FAILED";
 
-    private static final int DEFAULT_SEARCH_LIMIT = 5;//默认搜索限制
-    private static final int MAX_SEARCH_LIMIT = 20;//最大搜索限制
+    private static final int DEFAULT_SEARCH_LIMIT = 5;
+    private static final int MAX_SEARCH_LIMIT = 20;
+    private static final int MIN_USEFUL_DOCUMENT_CHARS = 100;
+    private static final int SHORT_CHUNK_WARNING_LENGTH = 20;
+    private static final int LONG_CHUNK_WARNING_LENGTH = 1800;
+    private static final int SUMMARY_INPUT_MAX_CHARS = 12_000;
+    private static final int DEFAULT_SUMMARY_OUTPUT_MAX_CHARS = 500;
+    private static final int MAX_SUMMARY_OUTPUT_MAX_CHARS = 4_000;
 
     private final KnowledgeBaseAccessService accessService;
     private final DocumentRepository documentRepository;
     private final DocumentChunkRepository documentChunkRepository;
     private final DocumentTextExtractor documentTextExtractor;
+    private final ChatModelClient chatModelClient;
+    private final TransactionTemplate transactionTemplate;
 
     public DocumentController(
             KnowledgeBaseAccessService accessService,
             DocumentRepository documentRepository,
             DocumentChunkRepository documentChunkRepository,
-            DocumentTextExtractor documentTextExtractor) {
+            DocumentTextExtractor documentTextExtractor,
+            ChatModelClient chatModelClient,
+            TransactionTemplate transactionTemplate) {
         this.accessService = accessService;
         this.documentRepository = documentRepository;
         this.documentChunkRepository = documentChunkRepository;
         this.documentTextExtractor = documentTextExtractor;
+        this.chatModelClient = chatModelClient;
+        this.transactionTemplate = transactionTemplate;
     }
 
     /**
-     * 上传指定数据库的文档
+     * Uploads and synchronously indexes a document for a knowledge base.
      *
-     * @param knowledgeBaseId
-     * @param file
-     * @param jwt
-     * @return
+     * @param knowledgeBaseId target knowledge base ID
+     * @param file uploaded source file
+     * @param jwt current authenticated user
+     * @return saved document metadata plus chunk quality metrics
      */
     @PostMapping("/knowledge-bases/{knowledgeBaseId}/documents")
     @ResponseStatus(HttpStatus.CREATED)
@@ -79,14 +97,9 @@ public class DocumentController {
             @RequestPart("file") MultipartFile file,
             @AuthenticationPrincipal Jwt jwt) {
         Long userId = getCurrentUserId(jwt);
-
-        // Stage 12: upload is a write action, so OWNER / EDITOR can proceed and VIEWER gets 403.
         accessService.requireEditor(knowledgeBaseId, userId);
-
-        // 验证文件是否符合要求
         validateBasicFile(file);
 
-        // 创建文档实体
         Document document = new Document();
         document.setKnowledgeBaseId(knowledgeBaseId);
         document.setOriginalFilename(file.getOriginalFilename());
@@ -96,106 +109,62 @@ public class DocumentController {
         document.setErrorMessage(null);
         document.setCreatedBy(userId);
 
-        // 插入文档
         int insertedRows = documentRepository.insert(document);
         if (insertedRows != 1) {
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "document upload failed");
         }
 
-        // 更新文档状态为处理中
         documentRepository.updateStatusByIdAndCreatedBy(document.getId(), userId, STATUS_PROCESSING, null);
 
-        // 提取文档文本
         try {
             String text = documentTextExtractor.extract(file);
             if (text.isBlank()) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Document content is blank");
             }
 
-            // 分块文本
-            List<String> chunks = splitText(text);
-            for (int index = 0; index < chunks.size(); index++) {
-                String content = chunks.get(index);
-                // 创建文档块实体
-                DocumentChunk chunk = new DocumentChunk();
-                chunk.setDocumentId(document.getId());
-                chunk.setKnowledgeBaseId(knowledgeBaseId);
-                chunk.setChunkIndex(index);
-                chunk.setContent(content);
-                chunk.setCharCount(content.length());
-                // 插入文档块实体
-                documentChunkRepository.insert(chunk);
-            }
-            // 更新文档状态为已索引
+            saveChunks(document.getId(), knowledgeBaseId, splitText(text));
             documentRepository.updateStatusByIdAndCreatedBy(document.getId(), userId, STATUS_INDEXED, null);
-            // 获取文档实体确认索引状态
-            Document saved = getAccessibleDocumentOr404(document.getId(), userId);
-            // 统计文档块数量
-            Long chunkCount = documentChunkRepository.countByDocumentId(saved.getId());
-            return new DocumentResponse(saved, chunkCount);
+            return toDocumentResponse(getAccessibleDocumentOr404(document.getId(), userId));
         } catch (DocumentTextExtractor.ExtractionFailure exception) {
-            //捕获文本提取异常
             failDocument(document.getId(), userId, exception.getUserMessage());
             throw new ResponseStatusException(exception.getStatus(), exception.getUserMessage());
         } catch (ResponseStatusException exception) {
-            //捕获其他异常
             String safeMessage = safeReason(exception);
             failDocument(document.getId(), userId, safeMessage);
             throw new ResponseStatusException(resolveStatus(exception), safeMessage);
         } catch (Exception exception) {
-            //捕获最终无法预估的异常
             failDocument(document.getId(), userId, "Document processing failed");
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Process document failed");
         }
     }
 
-
     /**
-     * 获取指定数据库的所有文档
-     *
-     * @param knowledgeBaseId
-     * @param jwt
-     * @return
+     * Lists documents visible to the current knowledge-base member.
      */
     @GetMapping("/knowledge-bases/{knowledgeBaseId}/documents")
     public List<DocumentResponse> listDocuments(@PathVariable Long knowledgeBaseId, @AuthenticationPrincipal Jwt jwt) {
         Long userId = getCurrentUserId(jwt);
-        // 检查数据库是否存在
         accessService.requireMember(knowledgeBaseId, userId);
-        // 查询所有文档
         return documentRepository.findAllByKnowledgeBaseId(knowledgeBaseId)
                 .stream()
-                .map(document -> new DocumentResponse(
-                        document,
-                        documentChunkRepository.countByDocumentId(document.getId())))
+                .map(this::toDocumentResponse)
                 .toList();
     }
 
     /**
-     * 搜索指定数据库中的文档
-     * @param knowledgeBaseId
-     * @param request
-     * @param jwt
-     * @return
+     * Searches indexed chunks in a knowledge base. Summaries are intentionally not queried here.
      */
     @PostMapping("/knowledge-bases/{knowledgeBaseId}/search")
     public SearchDocumentResponse searchDocuments(
             @PathVariable Long knowledgeBaseId,
-            @RequestBody SearchDocumentRequest request, //讲json转换为SearchDocumentRequest对象
+            @RequestBody SearchDocumentRequest request,
             @AuthenticationPrincipal Jwt jwt) {
         Long userId = getCurrentUserId(jwt);
-
-        // 检查数据库是否存在
-        // Stage 12: search is read access for every member; non-members still receive 404.
         accessService.requireMember(knowledgeBaseId, userId);
 
-
-        // 规范搜索查询
         String query = normalizeSearchQuery(request == null ? null : request.getQuery());
         Integer limit = normalizeSearchLimit(request == null ? null : request.getLimit());
 
-
-        // 搜索文档块
         List<SearchResultResponse> results = documentChunkRepository.searchIndexedChunks(
                 knowledgeBaseId,
                 userId,
@@ -204,44 +173,124 @@ public class DocumentController {
         return new SearchDocumentResponse(query, results);
     }
 
-
     /**
-     * 获取指定文档的详细信息
-     * @param documentId
-     * @param jwt
-     * @return
+     * Returns document details plus Stage 15 quality fields.
      */
     @GetMapping("/documents/{documentId}")
     public DocumentResponse getDocument(@PathVariable Long documentId, @AuthenticationPrincipal Jwt jwt) {
         Long userId = getCurrentUserId(jwt);
-        Document document = getAccessibleDocumentOr404(documentId, userId);
-        Long chunkCount = documentChunkRepository.countByDocumentId(documentId);
-        return new DocumentResponse(document, chunkCount);
+        return toDocumentResponse(getAccessibleDocumentOr404(documentId, userId));
     }
 
+    /**
+     * Returns chunk-based quality metrics for a document.
+     *
+     * @param documentId document ID
+     * @param jwt current user
+     * @return chunk count, character totals, length distribution, and simple warnings
+     */
+    @GetMapping("/documents/{documentId}/quality")
+    public DocumentQualityResponse getDocumentQuality(@PathVariable Long documentId, @AuthenticationPrincipal Jwt jwt) {
+        Long userId = getCurrentUserId(jwt);
+        Document document = getAccessibleDocumentOr404(documentId, userId);
+        return buildQuality(document);
+    }
 
     /**
-     * 获取指定文档的所有块
-     * @param documentId
-     * @param jwt
-     * @return
+     * Reprocesses an existing document by rebuilding text from current chunks.
+     *
+     * <p>The current schema does not store original file bytes or a storage path, so this first Stage 15
+     * implementation cannot re-extract failed documents that never produced chunks. For rebuildable documents,
+     * old chunks are deleted and new chunks are inserted in the same transaction so future search and Chat
+     * citations can only use the replacement chunks.</p>
+     *
+     * @param documentId document ID
+     * @param jwt current user; OWNER/EDITOR allowed, VIEWER gets 403, non-members get 404
+     * @return reprocessed document details
+     */
+    @PostMapping("/documents/{documentId}/reprocess")
+    public DocumentResponse reprocessDocument(@PathVariable Long documentId, @AuthenticationPrincipal Jwt jwt) {
+        Long userId = getCurrentUserId(jwt);
+        Document document = getAccessibleDocumentOr404(documentId, userId);
+        accessService.requireEditor(document.getKnowledgeBaseId(), userId);
+
+        // 先把状态置为 PROCESSING，让前端能明确看到用户触发了重新处理。
+        documentRepository.updateStatusById(documentId, STATUS_PROCESSING, null);
+        String rebuiltText = documentChunkRepository.concatenateContentByDocumentId(documentId);
+        if (rebuiltText == null || rebuiltText.isBlank()) {
+            String safeMessage = "Document cannot be reprocessed because no indexed text is available";
+            documentRepository.updateStatusById(documentId, STATUS_FAILED, safeMessage);
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, safeMessage);
+        }
+
+        try {
+            List<String> chunks = splitText(rebuiltText);
+            transactionTemplate.executeWithoutResult(status -> {
+                documentChunkRepository.deleteByDocumentId(documentId);
+                saveChunks(documentId, document.getKnowledgeBaseId(), chunks);
+                documentRepository.updateStatusById(documentId, STATUS_INDEXED, null);
+            });
+            return toDocumentResponse(getAccessibleDocumentOr404(documentId, userId));
+        } catch (ResponseStatusException exception) {
+            String safeMessage = safeReason(exception);
+            documentRepository.updateStatusById(documentId, STATUS_FAILED, safeMessage);
+            throw new ResponseStatusException(resolveStatus(exception), safeMessage);
+        } catch (RuntimeException exception) {
+            documentRepository.updateStatusById(documentId, STATUS_FAILED, "Document processing failed");
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Document processing failed");
+        }
+    }
+
+    /**
+     * Generates and stores a document summary from real chunks.
+     *
+     * <p>The summary is document metadata only. It is never written to document_chunks or chat_message_sources,
+     * so it cannot replace real chunks as a Chat citation source.</p>
+     *
+     * @param documentId document ID
+     * @param jwt current user; every knowledge-base member can generate/view a summary
+     * @return generated summary and update timestamp
+     */
+    @PostMapping("/documents/{documentId}/summary")
+    public DocumentSummaryResponse summarizeDocument(
+            @PathVariable Long documentId,
+            @RequestBody(required = false) GenerateDocumentSummaryRequest request,
+            @AuthenticationPrincipal Jwt jwt) {
+        Long userId = getCurrentUserId(jwt);
+        Document document = getAccessibleDocumentOr404(documentId, userId);
+        int maxLength = normalizeSummaryMaxLength(request == null ? null : request.getMaxLength());
+        String rebuiltText = documentChunkRepository.concatenateContentByDocumentId(documentId);
+        if (rebuiltText == null || rebuiltText.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Document has no indexed text to summarize");
+        }
+
+        try {
+            String prompt = buildSummaryPrompt(document, limitLength(rebuiltText, SUMMARY_INPUT_MAX_CHARS), maxLength);
+            String summary = normalizeSummary(chatModelClient.chat(userId, prompt, 0.2), maxLength);
+            documentRepository.updateSummaryById(documentId, summary);
+            Document saved = getAccessibleDocumentOr404(documentId, userId);
+            return new DocumentSummaryResponse(saved.getId(), saved.getSummary(), saved.getSummaryUpdatedAt());
+        } catch (RuntimeException exception) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, safeMessage(exception));
+        }
+    }
+
+    /**
+     * Lists real chunks for a document. Summaries are not mixed into this response.
      */
     @GetMapping("/documents/{documentId}/chunks")
     public List<DocumentChunkResponse> listChunks(@PathVariable Long documentId, @AuthenticationPrincipal Jwt jwt) {
         Long userId = getCurrentUserId(jwt);
-        getAccessibleDocumentOr404(documentId,userId);
+        getAccessibleDocumentOr404(documentId, userId);
 
         return documentChunkRepository.findAllByDocumentId(documentId)
                 .stream()
-                .map(DocumentChunkResponse::new)//等价于 chunk -> new DocumentChunkResponse(chunk)
+                .map(DocumentChunkResponse::new)
                 .toList();
     }
 
-
     /**
-     * 删除指定文档
-     * @param documentId
-     * @param jwt
+     * Deletes a document and its chunks. OWNER/EDITOR may delete; VIEWER receives 403.
      */
     @DeleteMapping("/documents/{documentId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
@@ -256,7 +305,6 @@ public class DocumentController {
         }
     }
 
-    // 规范搜索查询
     private String normalizeSearchQuery(String query) {
         if (query == null || query.trim().isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "query is empty");
@@ -264,7 +312,6 @@ public class DocumentController {
         return query.trim();
     }
 
-    // 规范搜索限制
     private Integer normalizeSearchLimit(Integer limit) {
         if (limit == null) {
             return DEFAULT_SEARCH_LIMIT;
@@ -275,7 +322,6 @@ public class DocumentController {
         return Math.min(limit, MAX_SEARCH_LIMIT);
     }
 
-    // 分块文本算法
     private List<String> splitText(String text) {
         List<String> chunks = new ArrayList<>();
         int start = 0;
@@ -290,7 +336,6 @@ public class DocumentController {
             if (end >= textLength) {
                 break;
             }
-            // Overlap keeps nearby context when a sentence is split on a chunk boundary.
             start = end - CHUNK_OVERLAP;
         }
         if (chunks.isEmpty()) {
@@ -299,7 +344,22 @@ public class DocumentController {
         return chunks;
     }
 
-    // 验证文件是否符合要求
+    /**
+     * Persists chunks with consistent chunk_index and char_count for upload and reprocess paths.
+     */
+    private void saveChunks(Long documentId, Long knowledgeBaseId, List<String> chunks) {
+        for (int index = 0; index < chunks.size(); index++) {
+            String content = chunks.get(index);
+            DocumentChunk chunk = new DocumentChunk();
+            chunk.setDocumentId(documentId);
+            chunk.setKnowledgeBaseId(knowledgeBaseId);
+            chunk.setChunkIndex(index);
+            chunk.setContent(content);
+            chunk.setCharCount(content.length());
+            documentChunkRepository.insert(chunk);
+        }
+    }
+
     private void validateBasicFile(MultipartFile file) {
         if (file == null || file.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "File is required");
@@ -318,19 +378,15 @@ public class DocumentController {
         if (contentType == null || contentType.isBlank()) {
             return null;
         }
-        // Long Office MIME types are kept as metadata but capped to the documents.content_type column size.
         return contentType.length() > CONTENT_TYPE_MAX_LENGTH
                 ? contentType.substring(0, CONTENT_TYPE_MAX_LENGTH)
                 : contentType;
     }
 
-
-    // 处理文档处理失败并更新失败状态
     private void failDocument(Long documentId, Long userId, String safeMessage) {
         documentRepository.updateStatusByIdAndCreatedBy(documentId, userId, STATUS_FAILED, safeMessage);
     }
 
-    // 处理异常消息，确保不为空
     private String safeReason(ResponseStatusException exception) {
         if (exception.getReason() == null || exception.getReason().isBlank()) {
             return "Document processing failed";
@@ -338,25 +394,101 @@ public class DocumentController {
         return exception.getReason();
     }
 
-    /**
-     * 解析异常状态码
-     * @param exception
-     * @return
-     */
     private HttpStatus resolveStatus(ResponseStatusException exception) {
         HttpStatus status = HttpStatus.resolve(exception.getStatusCode().value());
         return status == null ? HttpStatus.INTERNAL_SERVER_ERROR : status;
     }
 
-    /**
-     * 获取可访问文档
-     * @param documentId
-     * @param userId
-     * @return
-     */
     private Document getAccessibleDocumentOr404(Long documentId, Long userId) {
         return documentRepository.findAccessibleById(documentId, userId)
-                // 非成员访问文档也返回 404，避免通过 documentId 探测资源。
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Document not found"));
+    }
+
+    private DocumentResponse toDocumentResponse(Document document) {
+        return new DocumentResponse(document, buildQuality(document));
+    }
+
+    /**
+     * Computes Stage 15 quality metrics from document_chunks only.
+     */
+    private DocumentQualityResponse buildQuality(Document document) {
+        Long documentId = document.getId();
+        Long chunkCount = documentChunkRepository.countByDocumentId(documentId);
+        Long charCount = documentChunkRepository.sumCharCountByDocumentId(documentId);
+        Integer minChunkLength = documentChunkRepository.minCharCountByDocumentId(documentId);
+        Integer maxChunkLength = documentChunkRepository.maxCharCountByDocumentId(documentId);
+        double average = chunkCount == null || chunkCount == 0
+                ? 0.0
+                : (charCount == null ? 0.0 : (double) charCount / chunkCount);
+        return new DocumentQualityResponse(
+                documentId,
+                document.getStatus(),
+                chunkCount == null ? 0L : chunkCount,
+                charCount == null ? 0L : charCount,
+                average,
+                minChunkLength == null ? 0 : minChunkLength,
+                maxChunkLength == null ? 0 : maxChunkLength,
+                buildQualityWarnings(chunkCount, charCount, minChunkLength, maxChunkLength),
+                document.getUpdatedAt());
+    }
+
+    private List<String> buildQualityWarnings(Long chunkCount, Long charCount, Integer minChunkLength, Integer maxChunkLength) {
+        List<String> warnings = new ArrayList<>();
+        if (chunkCount == null || chunkCount == 0) {
+            warnings.add("NO_CHUNKS");
+        }
+        if (charCount == null || charCount < MIN_USEFUL_DOCUMENT_CHARS) {
+            warnings.add("DOCUMENT_TOO_SHORT");
+        }
+        if (minChunkLength != null && minChunkLength > 0 && minChunkLength < SHORT_CHUNK_WARNING_LENGTH) {
+            warnings.add("CHUNK_TOO_SHORT");
+        }
+        if (maxChunkLength != null && maxChunkLength > LONG_CHUNK_WARNING_LENGTH) {
+            warnings.add("CHUNK_TOO_LONG");
+        }
+        return warnings;
+    }
+
+    private String buildSummaryPrompt(Document document, String sourceText, int maxLength) {
+        return """
+                You are KnowFlow AI's document summary assistant.
+                Write a concise Chinese summary from the document content below.
+                Keep the summary within %d characters.
+                Focus on topics, key facts, and RAG-relevant points.
+                Do not invent facts, do not output citations, and do not reveal system or provider configuration.
+                Document name: %s
+                Document content:
+                %s
+                """.formatted(maxLength, document.getOriginalFilename(), sourceText);
+    }
+
+    private String limitLength(String value, int maxLength) {
+        return value.length() <= maxLength ? value : value.substring(0, maxLength);
+    }
+
+    /**
+     * Normalizes the user-facing summary text and enforces the maxLength request parameter.
+     */
+    private String normalizeSummary(String summary, int maxLength) {
+        if (summary == null || summary.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "AI model call failed");
+        }
+        return limitLength(summary.trim(), maxLength);
+    }
+
+    /**
+     * Normalizes requested summary length.
+     *
+     * @param maxLength optional client requested maximum output characters
+     * @return bounded character limit used for both prompt instruction and final truncation
+     */
+    private int normalizeSummaryMaxLength(Integer maxLength) {
+        if (maxLength == null) {
+            return DEFAULT_SUMMARY_OUTPUT_MAX_CHARS;
+        }
+        if (maxLength < 1) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "maxLength must be >=1");
+        }
+        return Math.min(maxLength, MAX_SUMMARY_OUTPUT_MAX_CHARS);
     }
 }

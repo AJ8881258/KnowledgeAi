@@ -4,9 +4,9 @@
 
 ## 当前阶段状态
 
-**阶段 15 规划中，待实现。**
+**阶段 15 已完成。**
 
-阶段 15 聚焦文档处理质量和 RAG 可信度：让用户能看到文档是否处理得好、失败后能重试、必要时能重新处理文档，并为文档生成摘要。不要在本阶段引入 SSE、embedding/pgvector、OCR、PPT/Excel 解析、消息队列或复杂任务中心。
+阶段 15 聚焦文档处理质量和 RAG 可信度：让用户能看到文档是否处理得好、必要时能重新处理文档，并为文档生成摘要。本阶段未引入 SSE、embedding/pgvector、OCR、PPT/Excel 解析、消息队列或复杂任务中心。
 
 ## 后端目标
 
@@ -16,15 +16,15 @@
 - 确保检索和 Chat 引用继续只来自真实 chunks，不伪造来源。
 - 保持知识库成员权限模型：`OWNER` / `EDITOR` 可修改文档，`VIEWER` 只能查看。
 
-## 计划接口
+## 已实现接口
 
-以 `doc/API.md` 为准，阶段 15 规划接口包括：
+以 `doc/API.md` 为准，阶段 15 已实现接口包括：
 
 - `POST /api/documents/{documentId}/reprocess`
 - `GET /api/documents/{documentId}/quality`
 - `POST /api/documents/{documentId}/summary`
 
-如果实现过程中调整路径、字段或状态语义，必须同步 `doc/API.md`。
+接口字段、权限和边界已同步到 `doc/API.md`。
 
 ## 实现要求
 
@@ -36,12 +36,13 @@
 2. 文档重新处理
    - `POST /api/documents/{documentId}/reprocess` 只允许 `OWNER` / `EDITOR`。
    - `VIEWER` 返回 `403`，非成员返回 `404`。
-   - 重新处理应复用已保存的原始文件或当前项目已有的可重建文本来源；如果当前存储结构无法重建，必须明确返回可理解错误，不要假装成功。
-   - 成功后替换旧 chunks，并让后续检索和 Chat 引用使用新 chunks。
-   - 失败时写入脱敏 `errorMessage`，状态和 chunks 处理策略必须一致。
+   - 当前第一版未保存原始文件二进制或原始文件路径，因此重新处理基于已有 chunks 拼接文本后重新切片；如果当前存储结构无法重建，明确返回 `400`，不要假装成功。
+   - 成功后在事务内替换旧 chunks，并让后续检索和 Chat 引用使用新 chunks。
+   - chunk 替换失败时旧 chunks 回滚保留，随后写入脱敏 `errorMessage` 并置为 `FAILED`，避免半替换数据。
 
 3. 失败重试
-   - `FAILED` 文档应能通过重新处理接口重试。
+   - 有 chunks 的 `FAILED` 文档可通过重新处理接口重试。
+   - 无 chunks 的 `FAILED` 文档会返回 `400`，提示当前没有可重建文本；真正无文件重试需要后续原始文件/原始文本持久化能力。
    - 错误信息不能暴露服务器绝对路径、内部堆栈、供应商密钥或环境变量。
 
 4. 文档摘要
@@ -76,4 +77,12 @@ cd backend
 .\mvnw.cmd test
 ```
 
-如新增针对单个测试类的快速验证，也要在最终完成前运行全量后端测试。
+已新增 `Stage15DocumentQualityTests`，覆盖质量指标、权限、重新处理、无 chunks 失败、摘要生成、摘要长度和错误脱敏。
+
+阶段 15 收尾验证：
+
+```powershell
+cd backend
+.\mvnw.cmd -Dtest=Stage15DocumentQualityTests test
+.\mvnw.cmd test
+```

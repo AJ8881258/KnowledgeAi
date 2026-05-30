@@ -12,7 +12,12 @@ import { cn } from "@/lib/utils";
 import { FileBadge, IconButton, StatusText } from "./document-common";
 import { pageSizeOptions, typeMeta } from "./document-data";
 import type { DocumentItem, PageSize } from "./document-types";
-import { formatDateTime, formatFileSize } from "./document-utils";
+import {
+  formatCount,
+  formatDateTime,
+  formatFileSize,
+  formatQualityWarning,
+} from "./document-utils";
 
 type DocumentTableProps = {
   documents: DocumentItem[];
@@ -26,10 +31,14 @@ type DocumentTableProps = {
   paginationItems: Array<number | "ellipsis">;
   pageSize: PageSize;
   isDeleting: boolean;
+  reprocessingDocumentId?: number | null;
   canDeleteDocuments: boolean;
+  canReprocessDocuments: boolean;
   deleteDisabledReason?: string;
+  reprocessDisabledReason?: string;
   onSelectDocument: (doc: DocumentItem) => void;
   onDeleteDocument: (doc: DocumentItem) => void;
+  onReprocessDocument: (doc: DocumentItem) => void;
   onPageChange: (page: number) => void;
   onPageSizeChange: (value: PageSize) => void;
 };
@@ -46,10 +55,14 @@ export function DocumentTable({
   paginationItems,
   pageSize,
   isDeleting,
+  reprocessingDocumentId,
   canDeleteDocuments,
+  canReprocessDocuments,
   deleteDisabledReason,
+  reprocessDisabledReason,
   onSelectDocument,
   onDeleteDocument,
+  onReprocessDocument,
   onPageChange,
   onPageSizeChange,
 }: DocumentTableProps) {
@@ -94,6 +107,20 @@ export function DocumentTable({
                     </span>
                   </div>
                   <div>
+                    <span className="block text-slate-400">字符数</span>
+                    <span className="mt-1 block text-slate-700">
+                      {formatCount(doc.charCount)}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="block text-slate-400">质量提示</span>
+                    <span className="mt-1 block truncate text-slate-700">
+                      {doc.qualityWarnings?.length
+                        ? `${doc.qualityWarnings.length} 条`
+                        : "无"}
+                    </span>
+                  </div>
+                  <div>
                     <span className="block text-slate-400">大小</span>
                     <span className="mt-1 block text-slate-700">
                       {formatFileSize(doc.sizeBytes)}
@@ -113,8 +140,26 @@ export function DocumentTable({
                   >
                     <Eye />
                   </IconButton>
-                  <IconButton label="重新索引待后端支持" disabled>
-                    <RefreshCw />
+                  <IconButton
+                    label={
+                      doc.status === "FAILED"
+                        ? `重试 ${doc.originalFilename}`
+                        : `重新处理 ${doc.originalFilename}`
+                    }
+                    disabled={
+                      reprocessingDocumentId === doc.id ||
+                      !canReprocessDocuments
+                    }
+                    title={
+                      !canReprocessDocuments ? reprocessDisabledReason : undefined
+                    }
+                    onClick={() => onReprocessDocument(doc)}
+                  >
+                    <RefreshCw
+                      className={cn(
+                        reprocessingDocumentId === doc.id && "animate-spin",
+                      )}
+                    />
                   </IconButton>
                   <IconButton
                     label={`删除 ${doc.originalFilename}`}
@@ -143,6 +188,7 @@ export function DocumentTable({
                 <th className="px-4 py-4 font-medium">知识库</th>
                 <th className="px-4 py-4 font-medium">状态</th>
                 <th className="px-4 py-4 font-medium">chunks</th>
+                <th className="px-4 py-4 font-medium">质量</th>
                 <th className="px-4 py-4 font-medium">大小</th>
                 <th className="px-4 py-4 font-medium">上传时间</th>
                 <th className="px-4 py-4 font-medium">操作</th>
@@ -184,6 +230,23 @@ export function DocumentTable({
                     <td className="px-4 py-5 text-slate-600">
                       {doc.chunkCount}
                     </td>
+                    <td className="px-4 py-5">
+                      <div className="min-w-[128px] text-xs text-slate-500">
+                        <div className="text-slate-700">
+                          {formatCount(doc.charCount)} 字符
+                        </div>
+                        <div className="mt-1 truncate">
+                          平均 {formatCount(doc.averageChunkLength)} / chunk
+                        </div>
+                        {doc.qualityWarnings?.length ? (
+                          <div className="mt-1 w-fit max-w-[180px] truncate rounded-[5px] border border-amber-200 bg-amber-50 px-2 py-1 text-amber-700">
+                            {formatQualityWarning(doc.qualityWarnings[0])}
+                          </div>
+                        ) : (
+                          <div className="mt-1 text-slate-400">暂无提示</div>
+                        )}
+                      </div>
+                    </td>
                     <td className="px-4 py-5 text-slate-600">
                       {formatFileSize(doc.sizeBytes)}
                     </td>
@@ -201,8 +264,29 @@ export function DocumentTable({
                         >
                           <Eye />
                         </IconButton>
-                        <IconButton label="重新索引待后端支持" disabled>
-                          <RefreshCw />
+                        <IconButton
+                          label={
+                            doc.status === "FAILED"
+                              ? `重试 ${doc.originalFilename}`
+                              : `重新处理 ${doc.originalFilename}`
+                          }
+                          disabled={
+                            reprocessingDocumentId === doc.id ||
+                            !canReprocessDocuments
+                          }
+                          title={
+                            !canReprocessDocuments
+                              ? reprocessDisabledReason
+                              : undefined
+                          }
+                          onClick={() => onReprocessDocument(doc)}
+                        >
+                          <RefreshCw
+                            className={cn(
+                              reprocessingDocumentId === doc.id &&
+                                "animate-spin",
+                            )}
+                          />
                         </IconButton>
                         <IconButton
                           label={`删除 ${doc.originalFilename}`}
@@ -223,7 +307,7 @@ export function DocumentTable({
               ) : (
                 <tr>
                   <td
-                    colSpan={8}
+                    colSpan={9}
                     className="px-4 py-16 text-center text-sm text-slate-500"
                   >
                     当前知识库暂无文档

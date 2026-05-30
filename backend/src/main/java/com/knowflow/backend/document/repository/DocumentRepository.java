@@ -40,7 +40,7 @@ public interface DocumentRepository {
 
     @Select("""
             select id, knowledge_base_id, original_filename, content_type, size_bytes,
-                   status, error_message, created_by, created_at, updated_at
+                   status, error_message, summary, summary_updated_at, created_by, created_at, updated_at
             from documents
             where knowledge_base_id = #{knowledgeBaseId}
             order by id desc
@@ -49,7 +49,7 @@ public interface DocumentRepository {
 
     @Select("""
             select id, knowledge_base_id, original_filename, content_type, size_bytes,
-                   status, error_message, created_by, created_at, updated_at
+                   status, error_message, summary, summary_updated_at, created_by, created_at, updated_at
             from documents
             where knowledge_base_id = #{knowledgeBaseId}
               and created_by = #{userId}
@@ -61,7 +61,7 @@ public interface DocumentRepository {
 
     @Select("""
             select id, knowledge_base_id, original_filename, content_type, size_bytes,
-                   status, error_message, created_by, created_at, updated_at
+                   status, error_message, summary, summary_updated_at, created_by, created_at, updated_at
             from documents
             where id = #{id}
               and created_by = #{userId}
@@ -70,7 +70,7 @@ public interface DocumentRepository {
 
     @Select("""
             select d.id, d.knowledge_base_id, d.original_filename, d.content_type, d.size_bytes,
-                   d.status, d.error_message, d.created_by, d.created_at, d.updated_at
+                   d.status, d.error_message, d.summary, d.summary_updated_at, d.created_by, d.created_at, d.updated_at
             from documents d
             join knowledge_bases kb on kb.id = d.knowledge_base_id
             left join knowledge_base_members m
@@ -94,6 +94,41 @@ public interface DocumentRepository {
             @Param("userId") Long userId,
             @Param("status") String status,
             @Param("errorMessage") String errorMessage);
+
+    /**
+     * @param id 文档 ID
+     * @param status 新处理状态
+     * @param errorMessage 脱敏后的失败原因；成功时传 null 清除旧错误
+     * @return 更新行数
+     * @Desc 阶段 15 重处理允许 OWNER/EDITOR 操作别人上传到同一知识库的文档，
+     * 因此状态更新不能再限定 created_by，只在调用前通过知识库角色校验权限。
+     */
+    @Update("""
+            update documents
+            set status = #{status},
+                error_message = #{errorMessage},
+                updated_at = now()
+            where id = #{id}
+            """)
+    int updateStatusById(
+            @Param("id") Long id,
+            @Param("status") String status,
+            @Param("errorMessage") String errorMessage);
+
+    /**
+     * @param id 文档 ID
+     * @param summary 生成后的摘要正文
+     * @return 更新行数
+     * @Desc 摘要只落在文档记录上，用于详情展示；不会写入 document_chunks 或 chat_message_sources。
+     */
+    @Update("""
+            update documents
+            set summary = #{summary},
+                summary_updated_at = now(),
+                updated_at = now()
+            where id = #{id}
+            """)
+    int updateSummaryById(@Param("id") Long id, @Param("summary") String summary);
 
     @Delete("""
             delete from documents

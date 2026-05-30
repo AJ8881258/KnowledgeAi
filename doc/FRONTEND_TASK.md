@@ -4,9 +4,9 @@
 
 ## 当前阶段状态
 
-**阶段 15 规划中，待实现。**
+**阶段 15 已完成。**
 
-阶段 15 聚焦文档处理质量和 RAG 可信度：用户需要能在 Documents 和知识库详情中看懂文档处理结果、失败原因、chunk 质量、重新处理入口和文档摘要。不要在本阶段做 SSE、向量检索 UI、OCR/PPT/Excel UI、复杂后台任务中心或恢复知识库详情页 Chat 入口。
+阶段 15 聚焦文档处理质量和 RAG 可信度：用户可以在 Documents 和知识库详情中看懂文档处理结果、失败原因、chunk 质量、重新处理入口和文档摘要。本阶段未做 SSE、向量检索 UI、OCR/PPT/Excel UI、复杂后台任务中心或恢复知识库详情页 Chat 入口。
 
 ## 前端目标
 
@@ -20,15 +20,15 @@
 
 新增或调整 API wrapper 必须放在 `src/api/`，继续使用 axios `http` 客户端，不新增直接 `fetch`。
 
-计划接口以 `doc/API.md` 为准：
+已接入接口以 `doc/API.md` 为准：
 
 - `POST /api/documents/{documentId}/reprocess`
 - `GET /api/documents/{documentId}/quality`
 - `POST /api/documents/{documentId}/summary`
 
-需要补充或更新的类型建议：
+已补充或更新的类型：
 
-- `DocumentResponse` 增加可选质量字段：`charCount`、`averageChunkLength`、`qualityWarnings`、`summary`。
+- `DocumentResponse` 增加可选质量字段：`charCount`、`averageChunkLength`、`minChunkLength`、`maxChunkLength`、`qualityWarnings`、`summary`、`summaryUpdatedAt`。
 - 新增 `DocumentQualityResponse`。
 - 新增 `DocumentSummaryResponse`。
 
@@ -49,6 +49,7 @@
    - 请求中展示 loading 状态，避免重复提交。
    - 成功后刷新文档详情、文档列表和 chunk 列表。
    - 403 显示“当前角色无权执行此操作”；404 显示“不存在或无权访问”。
+   - 第一版后端只能基于已有 chunks 重建；无 chunks 的失败文档会显示后端返回的可理解错误，不伪造成可重试成功。
 
 4. 文档摘要
    - 提供生成摘要按钮。
@@ -71,6 +72,8 @@ pnpm eslint src/pages/Documents.tsx src/pages/KnowledgeBases.tsx src/api/documen
 ```
 
 如果全量 `pnpm lint` 仍有历史问题，只说明哪些不是本次修改范围。
+
+阶段 15 收尾已按上述命令验证，目标 ESLint 和构建结果见最终验收记录。
 
 ## 手动验收路径
 

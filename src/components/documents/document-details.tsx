@@ -1,19 +1,47 @@
-import { Eye, FileText, Loader2, MessageCircle, RefreshCw, X } from "lucide-react";
+import {
+  Eye,
+  FileText,
+  Loader2,
+  MessageCircle,
+  RefreshCw,
+  Sparkles,
+  TriangleAlert,
+  X,
+} from "lucide-react";
 
-import type { DocumentChunkResponse } from "@/api/documents";
+import type {
+  DocumentChunkResponse,
+  DocumentQualityResponse,
+} from "@/api/documents";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { statusMeta, typeMeta } from "./document-data";
 import { DetailRow, FileBadge } from "./document-common";
 import type { DocumentItem } from "./document-types";
-import { formatDateTime, formatFileSize } from "./document-utils";
+import {
+  formatCount,
+  formatDateTime,
+  formatFileSize,
+  formatQualityWarning,
+} from "./document-utils";
 
 export function DocumentDetails({
   item,
   chunks,
   isLoadingChunks,
   chunkError,
+  quality,
+  isLoadingQuality,
+  qualityError,
+  isGeneratingSummary,
+  summaryError,
+  isReprocessing,
+  canReprocess,
+  reprocessDisabledReason,
   onLoadChunks,
+  onLoadQuality,
+  onGenerateSummary,
+  onReprocess,
   onNavigateChat,
   onClose,
 }: {
@@ -21,11 +49,26 @@ export function DocumentDetails({
   chunks: DocumentChunkResponse[];
   isLoadingChunks: boolean;
   chunkError: string;
+  quality?: DocumentQualityResponse | null;
+  isLoadingQuality: boolean;
+  qualityError: string;
+  isGeneratingSummary: boolean;
+  summaryError: string;
+  isReprocessing: boolean;
+  canReprocess: boolean;
+  reprocessDisabledReason?: string;
   onLoadChunks: () => void;
+  onLoadQuality: () => void;
+  onGenerateSummary: () => void;
+  onReprocess: () => void;
   onNavigateChat?: () => void;
   onClose?: () => void;
 }) {
   const meta = statusMeta[item.status];
+  const qualityWarnings = quality?.qualityWarnings ?? item.qualityWarnings ?? [];
+  const charCount = quality?.charCount ?? item.charCount;
+  const averageChunkLength =
+    quality?.averageChunkLength ?? item.averageChunkLength;
 
   return (
     <aside className="min-h-0 border-t border-slate-200 bg-white xl:border-t-0 xl:border-l">
@@ -67,11 +110,17 @@ export function DocumentDetails({
               <Button
                 type="button"
                 variant="outline"
-                disabled
+                disabled={isReprocessing || !canReprocess}
+                title={!canReprocess ? reprocessDisabledReason : undefined}
+                onClick={onReprocess}
                 className="h-10 rounded-[5px] border-slate-200 bg-white px-4 text-sm font-medium tracking-normal text-slate-500 normal-case"
               >
-                <RefreshCw data-icon="inline-start" />
-                重新索引待后端支持
+                {isReprocessing ? (
+                  <Loader2 data-icon="inline-start" className="animate-spin" />
+                ) : (
+                  <RefreshCw data-icon="inline-start" />
+                )}
+                {item.status === "FAILED" ? "失败重试" : "重新处理"}
               </Button>
               <Button
                 type="button"
@@ -99,6 +148,11 @@ export function DocumentDetails({
                 }
               />
               <DetailRow label="Chunks 数量" value={item.chunkCount} />
+              <DetailRow label="字符数" value={formatCount(charCount)} />
+              <DetailRow
+                label="平均 chunk"
+                value={formatCount(averageChunkLength)}
+              />
               <DetailRow label="上传时间" value={formatDateTime(item.createdAt)} />
               <DetailRow label="更新时间" value={formatDateTime(item.updatedAt)} />
               {item.errorMessage && (
@@ -110,6 +164,102 @@ export function DocumentDetails({
                 />
               )}
             </div>
+          </section>
+
+          <section className="border-b border-slate-200 py-5">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <h3 className="text-base font-semibold text-slate-900">
+                处理质量
+              </h3>
+              <Button
+                type="button"
+                variant="ghost"
+                disabled={isLoadingQuality}
+                onClick={onLoadQuality}
+                className="h-8 rounded-[5px] px-2 text-xs tracking-normal text-blue-600 normal-case hover:bg-blue-50 disabled:text-slate-400"
+              >
+                {isLoadingQuality ? (
+                  <Loader2 data-icon="inline-start" className="animate-spin" />
+                ) : (
+                  <RefreshCw data-icon="inline-start" />
+                )}
+                刷新
+              </Button>
+            </div>
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <div className="rounded-[6px] border border-slate-200 bg-slate-50 px-3 py-2">
+                <div className="text-slate-500">最短 chunk</div>
+                <div className="mt-1 font-semibold text-slate-900">
+                  {formatCount(quality?.minChunkLength)}
+                </div>
+              </div>
+              <div className="rounded-[6px] border border-slate-200 bg-slate-50 px-3 py-2">
+                <div className="text-slate-500">最长 chunk</div>
+                <div className="mt-1 font-semibold text-slate-900">
+                  {formatCount(quality?.maxChunkLength)}
+                </div>
+              </div>
+            </div>
+            {qualityWarnings.length > 0 ? (
+              <div className="mt-3 flex flex-col gap-2">
+                {qualityWarnings.map((warning, index) => (
+                  <div
+                    key={`${warning}-${index}`}
+                    className="flex min-w-0 items-start gap-2 rounded-[6px] border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800"
+                  >
+                    <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
+                    <span className="min-w-0 break-words">
+                      {formatQualityWarning(warning)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="mt-3 rounded-[6px] border border-dashed border-slate-200 px-3 py-3 text-xs text-slate-500">
+                暂无质量提示。
+              </div>
+            )}
+            {qualityError && (
+              <p className="mt-3 break-words text-xs leading-5 text-red-600">
+                {qualityError}
+              </p>
+            )}
+          </section>
+
+          <section className="border-b border-slate-200 py-5">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <h3 className="text-base font-semibold text-slate-900">
+                文档摘要
+              </h3>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={isGeneratingSummary}
+                onClick={onGenerateSummary}
+                className="h-8 rounded-[5px] border-slate-200 px-3 text-xs tracking-normal text-slate-700 normal-case"
+              >
+                {isGeneratingSummary ? (
+                  <Loader2 data-icon="inline-start" className="animate-spin" />
+                ) : (
+                  <Sparkles data-icon="inline-start" />
+                )}
+                生成摘要
+              </Button>
+            </div>
+            {item.summary ? (
+              <p className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-[6px] border border-slate-200 bg-slate-50/70 p-3 text-xs leading-6 text-slate-700">
+                {item.summary}
+              </p>
+            ) : (
+              <div className="rounded-[6px] border border-dashed border-slate-200 px-3 py-4 text-xs leading-5 text-slate-500">
+                暂无摘要。摘要仅用于快速浏览，正式问答依据仍来自文档 chunks。
+              </div>
+            )}
+            {summaryError && (
+              <p className="mt-3 break-words text-xs leading-5 text-red-600">
+                {summaryError}
+              </p>
+            )}
           </section>
 
           <section className="border-b border-slate-200 py-5">

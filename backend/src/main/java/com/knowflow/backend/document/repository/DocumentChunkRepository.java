@@ -9,6 +9,7 @@ import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Delete;
 
 @Mapper
 public interface DocumentChunkRepository {
@@ -48,6 +49,50 @@ public interface DocumentChunkRepository {
             WHERE document_id = #{documentId}
             """)
     Long countByDocumentId(Long documentId);
+
+    /**
+     * @param documentId 文档 ID
+     * @return 已删除 chunk 数
+     * @Desc 阶段 15 重新处理会先删除旧 chunks 再写入新 chunks，确保检索和 Chat 引用不会继续命中旧片段。
+     */
+    @Delete("""
+            DELETE FROM document_chunks
+            WHERE document_id = #{documentId}
+            """)
+    int deleteByDocumentId(Long documentId);
+
+    /**
+     * @param documentId 文档 ID
+     * @return 拼接后的当前可重建文本；没有 chunk 时返回 null
+     * @Desc 当前项目没有保存原始文件二进制或路径，阶段 15 最小可用重处理只能从现有 chunks 重建文本。
+     */
+    @Select("""
+            SELECT string_agg(content, E'\\n\\n' ORDER BY chunk_index)
+            FROM document_chunks
+            WHERE document_id = #{documentId}
+            """)
+    String concatenateContentByDocumentId(Long documentId);
+
+    @Select("""
+            SELECT COALESCE(SUM(char_count), 0)
+            FROM document_chunks
+            WHERE document_id = #{documentId}
+            """)
+    Long sumCharCountByDocumentId(Long documentId);
+
+    @Select("""
+            SELECT COALESCE(MIN(char_count), 0)
+            FROM document_chunks
+            WHERE document_id = #{documentId}
+            """)
+    Integer minCharCountByDocumentId(Long documentId);
+
+    @Select("""
+            SELECT COALESCE(MAX(char_count), 0)
+            FROM document_chunks
+            WHERE document_id = #{documentId}
+            """)
+    Integer maxCharCountByDocumentId(Long documentId);
 
     // 根据文档 ID 查询文档片段
     @Select("""
