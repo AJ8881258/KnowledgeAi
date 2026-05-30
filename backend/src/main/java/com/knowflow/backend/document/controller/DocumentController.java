@@ -31,6 +31,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -59,6 +60,8 @@ public class DocumentController {
     private static final int SUMMARY_INPUT_MAX_CHARS = 12_000;
     private static final int DEFAULT_SUMMARY_OUTPUT_MAX_CHARS = 500;
     private static final int MAX_SUMMARY_OUTPUT_MAX_CHARS = 4_000;
+    private static final String NO_REPROCESS_SOURCE_MESSAGE =
+            "Document cannot be reprocessed because no source or indexed text is available";
 
     private final KnowledgeBaseAccessService accessService;
     private final DocumentRepository documentRepository;
@@ -99,6 +102,7 @@ public class DocumentController {
         Long userId = getCurrentUserId(jwt);
         accessService.requireEditor(knowledgeBaseId, userId);
         validateBasicFile(file);
+        byte[] sourceBytes = readUploadSourceBytes(file);
 
         Document document = new Document();
         document.setKnowledgeBaseId(knowledgeBaseId);
@@ -107,6 +111,7 @@ public class DocumentController {
         document.setSizeBytes(file.getSize());
         document.setStatus(STATUS_UPLOADED);
         document.setErrorMessage(null);
+        document.setSourceBytes(sourceBytes);
         document.setCreatedBy(userId);
 
         int insertedRows = documentRepository.insert(document);
@@ -117,11 +122,12 @@ public class DocumentController {
         documentRepository.updateStatusByIdAndCreatedBy(document.getId(), userId, STATUS_PROCESSING, null);
 
         try {
-            String text = documentTextExtractor.extract(file);
+            String text = documentTextExtractor.extract(document.getOriginalFilename(), sourceBytes);
             if (text.isBlank()) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Document content is blank");
             }
 
+            documentRepository.updateSourceTextById(document.getId(), text);
             saveChunks(document.getId(), knowledgeBaseId, splitText(text));
             documentRepository.updateStatusByIdAndCreatedBy(document.getId(), userId, STATUS_INDEXED, null);
             return toDocumentResponse(getAccessibleDocumentOr404(document.getId(), userId));
@@ -197,12 +203,11 @@ public class DocumentController {
     }
 
     /**
-     * Reprocesses an existing document by rebuilding text from current chunks.
+     * Reprocesses an existing document from the best available source.
      *
-     * <p>The current schema does not store original file bytes or a storage path, so this first Stage 15
-     * implementation cannot re-extract failed documents that never produced chunks. For rebuildable documents,
-     * old chunks are deleted and new chunks are inserted in the same transaction so future search and Chat
-     * citations can only use the replacement chunks.</p>
+     * <p>Stage 16 tries saved original bytes first, then saved extracted text, and finally the Stage 15
+     * chunks fallback for old rows. This makes failed uploads with no chunks truly retryable when their
+     * original source was stored.</p>
      *
      * @param documentId document ID
      * @param jwt current user; OWNER/EDITOR allowed, VIEWER gets 403, non-members get 404
@@ -211,26 +216,25 @@ public class DocumentController {
     @PostMapping("/documents/{documentId}/reprocess")
     public DocumentResponse reprocessDocument(@PathVariable Long documentId, @AuthenticationPrincipal Jwt jwt) {
         Long userId = getCurrentUserId(jwt);
-        Document document = getAccessibleDocumentOr404(documentId, userId);
+        Document document = getAccessibleSourceDocumentOr404(documentId, userId);
         accessService.requireEditor(document.getKnowledgeBaseId(), userId);
 
         // 先把状态置为 PROCESSING，让前端能明确看到用户触发了重新处理。
         documentRepository.updateStatusById(documentId, STATUS_PROCESSING, null);
-        String rebuiltText = documentChunkRepository.concatenateContentByDocumentId(documentId);
-        if (rebuiltText == null || rebuiltText.isBlank()) {
-            String safeMessage = "Document cannot be reprocessed because no indexed text is available";
-            documentRepository.updateStatusById(documentId, STATUS_FAILED, safeMessage);
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, safeMessage);
-        }
 
         try {
+            String rebuiltText = resolveReprocessText(document);
             List<String> chunks = splitText(rebuiltText);
             transactionTemplate.executeWithoutResult(status -> {
                 documentChunkRepository.deleteByDocumentId(documentId);
                 saveChunks(documentId, document.getKnowledgeBaseId(), chunks);
+                documentRepository.updateSourceTextById(documentId, rebuiltText);
                 documentRepository.updateStatusById(documentId, STATUS_INDEXED, null);
             });
             return toDocumentResponse(getAccessibleDocumentOr404(documentId, userId));
+        } catch (DocumentTextExtractor.ExtractionFailure exception) {
+            documentRepository.updateStatusById(documentId, STATUS_FAILED, exception.getUserMessage());
+            throw new ResponseStatusException(exception.getStatus(), exception.getUserMessage());
         } catch (ResponseStatusException exception) {
             String safeMessage = safeReason(exception);
             documentRepository.updateStatusById(documentId, STATUS_FAILED, safeMessage);
@@ -374,6 +378,20 @@ public class DocumentController {
         }
     }
 
+    /**
+     * Reads upload bytes once so the same source can be saved and parsed.
+     *
+     * @param file multipart upload body from the client
+     * @return raw file bytes to persist in documents.source_bytes
+     */
+    private byte[] readUploadSourceBytes(MultipartFile file) {
+        try {
+            return file.getBytes();
+        } catch (IOException exception) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "File reading failed");
+        }
+    }
+
     private String safeContentType(String contentType) {
         if (contentType == null || contentType.isBlank()) {
             return null;
@@ -404,8 +422,34 @@ public class DocumentController {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Document not found"));
     }
 
+    private Document getAccessibleSourceDocumentOr404(Long documentId, Long userId) {
+        return documentRepository.findAccessibleSourceById(documentId, userId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Document not found"));
+    }
+
     private DocumentResponse toDocumentResponse(Document document) {
         return new DocumentResponse(document, buildQuality(document));
+    }
+
+    /**
+     * Chooses the source text for document reprocessing.
+     *
+     * @param document document row containing optional original bytes, extracted text, and metadata
+     * @return normalized text that will replace current chunks
+     */
+    private String resolveReprocessText(Document document) {
+        if (document.getSourceBytes() != null && document.getSourceBytes().length > 0) {
+            return documentTextExtractor.extract(document.getOriginalFilename(), document.getSourceBytes());
+        }
+        if (document.getSourceText() != null && !document.getSourceText().isBlank()) {
+            return document.getSourceText();
+        }
+
+        String rebuiltText = documentChunkRepository.concatenateContentByDocumentId(document.getId());
+        if (rebuiltText == null || rebuiltText.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, NO_REPROCESS_SOURCE_MESSAGE);
+        }
+        return rebuiltText;
     }
 
     /**

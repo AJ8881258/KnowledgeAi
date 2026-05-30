@@ -1,88 +1,67 @@
-# 后端任务书：阶段 15 知识库质量与文档处理增强
+# 后端任务书：阶段 16 文档处理可靠性与真正失败重试
 
 本文档是后端 Agent 的固定入口。后端 Agent 开始实现前必须先阅读 `AGENTS.md`、`doc/STAGE_PLAN.md`、`doc/PROJECT.md`、`doc/API.md` 和本文档。
 
 ## 当前阶段状态
 
-**阶段 15 已完成。**
+**阶段 16 已完成。**
 
-阶段 15 聚焦文档处理质量和 RAG 可信度：让用户能看到文档是否处理得好、必要时能重新处理文档，并为文档生成摘要。本阶段未引入 SSE、embedding/pgvector、OCR、PPT/Excel 解析、消息队列或复杂任务中心。
+阶段 16 聚焦文档处理可靠性：上传时持久化原始来源，让失败且没有 chunks 的文档也可以真正重试。本阶段未引入后台任务队列、OCR、PPT/Excel 解析、embedding/pgvector 或 SSE。
 
-## 后端目标
+## 已完成接口和数据变更
 
-- 增强文档详情和文档列表的质量信息。
-- 支持文档重新处理和失败重试。
-- 支持文档级摘要生成。
-- 确保检索和 Chat 引用继续只来自真实 chunks，不伪造来源。
-- 保持知识库成员权限模型：`OWNER` / `EDITOR` 可修改文档，`VIEWER` 只能查看。
+- 新增 Flyway 迁移：`V12__add_document_source_content.sql`。
+- `documents` 新增内部字段：
+  - `source_bytes BYTEA`：原始上传文件 bytes。
+  - `source_text TEXT`：最近一次成功解析出的规范化文本。
+  - `source_text_updated_at TIMESTAMPTZ`：`source_text` 最近更新时间。
+- `DocumentResponse` 新增公开布尔字段：
+  - `sourceStored`：后端是否保存了原始 bytes 或解析文本。
+  - `reprocessAvailable`：当前文档是否具备可重新处理来源。
+- `POST /api/documents/{documentId}/reprocess` 语义升级为真正失败重试。
 
-## 已实现接口
+## 实现要求记录
 
-以 `doc/API.md` 为准，阶段 15 已实现接口包括：
+1. 原始来源持久化
+   - 上传时先读取并保存原始文件 bytes。
+   - 即使解析失败，文档记录也保留 `source_bytes`，便于后续修复或重试。
+   - 成功解析后保存规范化 `source_text`。
+   - `source_bytes` 和 `source_text` 不允许通过 API 响应返回。
 
-- `POST /api/documents/{documentId}/reprocess`
-- `GET /api/documents/{documentId}/quality`
-- `POST /api/documents/{documentId}/summary`
+2. 重新处理来源优先级
+   - 优先使用 `source_bytes` 按原始文件名后缀重新解析。
+   - 没有 `source_bytes` 时使用 `source_text`。
+   - 两者都没有时，兼容阶段 15 旧文档，使用已有 chunks 拼接文本。
+   - 三者都没有时返回 `400`，错误为 `Document cannot be reprocessed because no source or indexed text is available`。
 
-接口字段、权限和边界已同步到 `doc/API.md`。
+3. 事务和状态
+   - 重新处理开始时将文档置为 `PROCESSING`。
+   - 成功时在事务内删除旧 chunks、写入新 chunks、更新 `source_text`、置为 `INDEXED`。
+   - 失败时置为 `FAILED`，错误信息必须脱敏。
+   - chunk 替换失败时旧 chunks 回滚保留，避免半替换数据。
 
-## 实现要求
-
-1. 文档质量信息
-   - 为文档详情或质量接口返回 `chunkCount`、`charCount`、`averageChunkLength`、`minChunkLength`、`maxChunkLength`、`qualityWarnings`。
-   - `qualityWarnings` 第一版使用简单规则即可，例如无 chunk、正文过短、chunk 过短、chunk 过长。
-   - 质量信息只帮助用户判断文档是否适合 RAG，不改变检索排序。
-
-2. 文档重新处理
-   - `POST /api/documents/{documentId}/reprocess` 只允许 `OWNER` / `EDITOR`。
-   - `VIEWER` 返回 `403`，非成员返回 `404`。
-   - 当前第一版未保存原始文件二进制或原始文件路径，因此重新处理基于已有 chunks 拼接文本后重新切片；如果当前存储结构无法重建，明确返回 `400`，不要假装成功。
-   - 成功后在事务内替换旧 chunks，并让后续检索和 Chat 引用使用新 chunks。
-   - chunk 替换失败时旧 chunks 回滚保留，随后写入脱敏 `errorMessage` 并置为 `FAILED`，避免半替换数据。
-
-3. 失败重试
-   - 有 chunks 的 `FAILED` 文档可通过重新处理接口重试。
-   - 无 chunks 的 `FAILED` 文档会返回 `400`，提示当前没有可重建文本；真正无文件重试需要后续原始文件/原始文本持久化能力。
-   - 错误信息不能暴露服务器绝对路径、内部堆栈、供应商密钥或环境变量。
-
-4. 文档摘要
-   - `POST /api/documents/{documentId}/summary` 使用当前用户模型配置生成摘要；未配置用户模型时可回退后端环境变量配置。
-   - 摘要请求应限制输入长度和输出长度，避免 token 成本失控。
-   - 摘要保存位置可以是文档表新增字段或独立表，但必须通过 Flyway 新迁移实现，不修改已执行迁移。
-   - 摘要失败时返回脱敏错误。
-   - 摘要不能作为 Chat 引用来源；引用仍必须来自真实 chunks。
+4. 查询性能和隐私
+   - 文档列表和详情只查询来源存在性布尔值，不拉取大文件 bytes。
+   - 只有重新处理接口需要读取 `source_bytes` / `source_text`。
+   - API 响应不得暴露原始文件内容、服务器路径、内部堆栈、API Key 或供应商敏感错误。
 
 5. 注释要求
-   - 后端新增或修改功能代码必须写有价值注释或 JavaDoc。
-   - 重点说明：质量指标含义、重新处理为什么要替换 chunks、失败状态如何落库、摘要为什么不能替代引用来源、权限判断为什么区分成员和角色。
+   - 新增/修改功能代码已写入有价值的 JavaDoc 或业务注释，重点覆盖来源字段、提取器 bytes 重载、重试来源优先级、事务替换和响应字段语义。
 
-## 测试要求
+## 测试覆盖
 
-至少覆盖：
-
-- `OWNER` / `EDITOR` 可以重新处理文档。
-- `VIEWER` 重新处理文档返回 `403`。
-- 非成员访问文档重新处理或质量接口返回 `404`。
-- 重新处理成功后旧 chunks 被替换，检索使用新 chunks。
-- 重新处理失败时文档状态和错误信息正确，错误脱敏。
-- 文档质量接口返回 chunk 数、字符数、平均长度和质量提示。
-- 文档摘要使用当前用户模型配置，不串用其他用户配置。
-- 摘要失败时错误脱敏。
-- 阶段 7-14 既有测试仍通过。
+- `Stage16DocumentRetryTests` 覆盖：
+  - 空白上传失败后仍保存 `source_bytes`，且响应不暴露来源内容。
+  - 无 chunks 的失败文档可以基于保存来源重新处理成功。
+  - 旧文档无来源无 chunks 时仍返回明确 `400`。
+  - 不支持的 `.doc` 文件保存来源，但重试仍返回脱敏的不支持类型错误。
+- `Stage15DocumentQualityTests` 已更新阶段 16 的无来源错误文案，保持阶段 15 质量/摘要/权限回归。
 
 ## 验证命令
 
 ```powershell
 cd backend
-.\mvnw.cmd test
-```
-
-已新增 `Stage15DocumentQualityTests`，覆盖质量指标、权限、重新处理、无 chunks 失败、摘要生成、摘要长度和错误脱敏。
-
-阶段 15 收尾验证：
-
-```powershell
-cd backend
-.\mvnw.cmd -Dtest=Stage15DocumentQualityTests test
+.\mvnw.cmd -Dtest=Stage16DocumentRetryTests test
+.\mvnw.cmd "-Dtest=Stage15DocumentQualityTests,Stage16DocumentRetryTests" test
 .\mvnw.cmd test
 ```

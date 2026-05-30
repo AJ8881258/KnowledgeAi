@@ -31,6 +31,57 @@
 | 阶段 13：用户模型配置、偏好设置与多会话协同增强 | 已完成 | 用户级模型配置、API Key 加密、未读会话、后台生成、今日交谈次数完成。 |
 | 阶段 14：Docker 化与运维 + do.md 收尾修复 | 已完成 | Docker 全量启动、README 运维说明、构建/健康检查/日志/备份恢复文档完成；`do.md` 新增验收问题已完成代码和 API 文档同步。 |
 | 阶段 15：知识库质量与文档处理增强 | 已完成 | 文档质量指标、重新处理、摘要生成、前端展示和阶段 15 回归验证完成。 |
+| 阶段 16：文档处理可靠性与真正失败重试 | 已完成 | 上传时保存原始文件 bytes 和成功解析文本，重新处理优先使用原始来源，失败无 chunks 文档可真正重试，前端按可重试能力控制入口。 |
+
+## 阶段 16：文档处理可靠性与真正失败重试
+
+### 目标
+
+阶段 16 补齐阶段 15 暴露出的真实缺口：失败文档如果从未生成 chunks，就不能只靠已有 chunks 做重试。本阶段先不引入复杂任务队列，保持同步处理流程，优先把“原始来源持久化”和“真正失败重试”做稳。
+
+### 范围
+
+- 原始来源持久化：
+  - `documents` 表新增 `source_bytes`、`source_text`、`source_text_updated_at`。
+  - 上传时先保存原始文件 bytes，即使后续解析失败也保留可重试来源。
+  - 成功解析后保存规范化 `source_text`，作为二级重试来源。
+- 真正失败重试：
+  - `POST /api/documents/{documentId}/reprocess` 优先使用原始 bytes 重新解析。
+  - 如果没有原始 bytes，则使用保存的 `source_text`。
+  - 如果前两者都不存在，则保留阶段 15 的 chunks fallback，兼容旧数据。
+  - 如果原始来源和 chunks 都不存在，返回明确 `400`，文档保持 `FAILED`，不伪造成重试成功。
+- 响应能力标识：
+  - `DocumentResponse` 新增 `sourceStored` 和 `reprocessAvailable`。
+  - 后端不返回 `source_bytes`、`source_text` 或任何原始正文内容。
+- 前端接入：
+  - Documents 列表和详情根据 `reprocessAvailable` 控制重试/重新处理入口。
+  - 详情显示轻量“重试来源：已保存/未保存”。
+  - 旧文档无来源不可重试时提示重新上传，不再让用户进入必然失败的流程。
+
+### 不做
+
+- 不做后台任务队列。
+- 不做 OCR。
+- 不做 PPT / Excel 解析。
+- 不做 embedding / pgvector。
+- 不做 SSE/流式输出。
+- 不改变 Chat 引用来源规则；引用仍必须来自真实 chunks。
+
+### 已完成内容
+
+- 新增 Flyway 迁移 `V12__add_document_source_content.sql`，为 `documents` 增加原始来源字段。
+- `DocumentTextExtractor` 支持从已持久化 bytes 重新解析文本，上传和重试共用同一套文件类型规则。
+- 上传文档时保存原始 bytes；成功解析时保存规范化 `source_text`。
+- 重新处理文档时按“原始 bytes -> source_text -> 旧 chunks fallback”的顺序选择来源。
+- 普通列表/详情查询只返回来源存在性布尔值，避免把大文件 bytes 拉入 API 响应。
+- `DocumentResponse` 新增 `sourceStored`、`reprocessAvailable`。
+- 前端 `src/api/documents.ts` 类型已补充新字段，Documents 列表和详情会按可重试能力禁用入口并展示明确提示。
+
+### 验收结果
+
+- `cd backend && .\mvnw.cmd -Dtest=Stage16DocumentRetryTests test` 已通过，4 个阶段 16 测试全部成功。
+- `cd backend && .\mvnw.cmd "-Dtest=Stage15DocumentQualityTests,Stage16DocumentRetryTests" test` 已通过，阶段 15/16 相关测试共 10 个全部成功。
+- 全量后端测试、前端构建、目标 ESLint 和 `git diff --check` 见本轮最终验收记录。
 
 ## 阶段 15：知识库质量与文档处理增强
 

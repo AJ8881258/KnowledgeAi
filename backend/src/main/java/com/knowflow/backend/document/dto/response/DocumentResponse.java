@@ -26,6 +26,16 @@ public class DocumentResponse {
     private Integer minChunkLength;
     private Integer maxChunkLength;
     private List<String> qualityWarnings;
+    /**
+     * Whether the backend has a saved source that can be used for true reprocess.
+     * The actual bytes/text are intentionally not returned.
+     */
+    private Boolean sourceStored;
+    /**
+     * Whether the reprocess endpoint has any usable source: original bytes, extracted source text,
+     * or existing chunks for old Stage 15 documents.
+     */
+    private Boolean reprocessAvailable;
 
     // 构造函数
     public DocumentResponse(
@@ -66,5 +76,14 @@ public class DocumentResponse {
         this.minChunkLength = quality.getMinChunkLength();
         this.maxChunkLength = quality.getMaxChunkLength();
         this.qualityWarnings = quality.getQualityWarnings();
+        this.sourceStored = hasStoredSource(document);
+        this.reprocessAvailable = this.sourceStored || (this.chunkCount != null && this.chunkCount > 0);
+    }
+
+    private boolean hasStoredSource(Document document) {
+        return Boolean.TRUE.equals(document.getSourceBytesStored())
+                || Boolean.TRUE.equals(document.getSourceTextStored())
+                || (document.getSourceBytes() != null && document.getSourceBytes().length > 0)
+                || (document.getSourceText() != null && !document.getSourceText().isBlank());
     }
 }

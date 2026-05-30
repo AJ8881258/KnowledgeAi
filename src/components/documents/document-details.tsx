@@ -69,6 +69,14 @@ export function DocumentDetails({
   const charCount = quality?.charCount ?? item.charCount;
   const averageChunkLength =
     quality?.averageChunkLength ?? item.averageChunkLength;
+  const effectiveCanReprocess = canReprocess && item.reprocessAvailable !== false;
+  const effectiveReprocessDisabledReason = !canReprocess
+    ? reprocessDisabledReason
+    : item.reprocessAvailable === false
+      ? item.status === "FAILED"
+        ? "此文档没有保存原始来源，无法自动重试，请重新上传文件。"
+        : "当前文档缺少可重新处理的原始来源。"
+      : undefined;
 
   return (
     <aside className="min-h-0 border-t border-slate-200 bg-white xl:border-t-0 xl:border-l">
@@ -110,8 +118,8 @@ export function DocumentDetails({
               <Button
                 type="button"
                 variant="outline"
-                disabled={isReprocessing || !canReprocess}
-                title={!canReprocess ? reprocessDisabledReason : undefined}
+                disabled={isReprocessing || !effectiveCanReprocess}
+                title={effectiveReprocessDisabledReason}
                 onClick={onReprocess}
                 className="h-10 rounded-[5px] border-slate-200 bg-white px-4 text-sm font-medium tracking-normal text-slate-500 normal-case"
               >
@@ -148,6 +156,10 @@ export function DocumentDetails({
                 }
               />
               <DetailRow label="Chunks 数量" value={item.chunkCount} />
+              <DetailRow
+                label="重试来源"
+                value={item.sourceStored ? "已保存" : "未保存"}
+              />
               <DetailRow label="字符数" value={formatCount(charCount)} />
               <DetailRow
                 label="平均 chunk"

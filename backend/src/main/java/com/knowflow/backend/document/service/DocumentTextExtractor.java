@@ -1,10 +1,5 @@
 package com.knowflow.backend.document.service;
 
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.util.Locale;
-import java.util.stream.Collectors;
-
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.text.PDFTextStripper;
@@ -19,19 +14,49 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.util.Locale;
+import java.util.stream.Collectors;
+
 @Component
 public class DocumentTextExtractor {
 
-
-    // 入口 -- 提取文档文本
+    /**
+     * Extracts text from the uploaded MultipartFile path.
+     *
+     * @param file current upload request file; its original filename decides parser type
+     * @return normalized plain text used by chunking
+     */
     public String extract(MultipartFile file) {
-        String extension = extensionOf(file.getOriginalFilename());
+        try {
+            return extract(file.getOriginalFilename(), file.getBytes());
+        } catch (IOException exception) {
+            throw parseFailed("File reading failed");
+        }
+    }
+
+    /**
+     * Extracts text from persisted source bytes.
+     *
+     * <p>Stage 16 adds this overload so reprocess can retry from the original upload bytes instead of
+     * rebuilding text from existing chunks. The filename extension is still the parser selector, so retry
+     * preserves the same supported/unsupported file-type rules as the first upload.</p>
+     *
+     * @param filename original filename saved with the document, for example {@code guide.docx}
+     * @param content raw source bytes saved at upload time
+     * @return normalized plain text used by chunking and source_text persistence
+     */
+    public String extract(String filename, byte[] content) {
+        byte[] safeContent = content == null ? new byte[0] : content;
+        String extension = extensionOf(filename);
 
         return switch (extension) {
-            case ".txt", ".md", ".markdown" -> readUtf8Text(file);
-            case ".pdf" -> readPdfText(file);
-            case ".docx" -> readDocxText(file);
-            case ".html", ".htm" -> readHtmlText(file);
+            case ".txt", ".md", ".markdown" -> readUtf8Text(safeContent);
+            case ".pdf" -> readPdfText(safeContent);
+            case ".docx" -> readDocxText(safeContent);
+            case ".html", ".htm" -> readHtmlText(safeContent);
             // Stage 11 supports open XML .docx only; legacy .doc is a binary format outside this MVP.
             case ".doc" -> throw unsupported(extension);
             // OCR, PPT, and Excel need separate parsing strategies, so they stay out of this text-document stage.
@@ -40,20 +65,12 @@ public class DocumentTextExtractor {
         };
     }
 
-
-    // 内部 -- 读取UTF-8文本文件
-    private String readUtf8Text(MultipartFile file) {
-        try {
-            return normalizeText(new String(file.getBytes(), StandardCharsets.UTF_8));
-        } catch (IOException exception) {
-            throw parseFailed("Text file reading failed");
-        }
+    private String readUtf8Text(byte[] content) {
+        return normalizeText(new String(content, StandardCharsets.UTF_8));
     }
 
-
-    // 内部 -- 读取PDF文件
-    private String readPdfText(MultipartFile file) {
-        try (PDDocument document = Loader.loadPDF(file.getBytes())) {
+    private String readPdfText(byte[] content) {
+        try (PDDocument document = Loader.loadPDF(content)) {
             PDFTextStripper stripper = new PDFTextStripper();
             return normalizeText(stripper.getText(document));
         } catch (IOException | RuntimeException exception) {
@@ -61,17 +78,14 @@ public class DocumentTextExtractor {
         }
     }
 
-    // 内部 -- 读取DOCX文件
-    private String readDocxText(MultipartFile file) {
-        try (XWPFDocument document = new XWPFDocument(file.getInputStream())) {
+    private String readDocxText(byte[] content) {
+        try (XWPFDocument document = new XWPFDocument(new ByteArrayInputStream(content))) {
             StringBuilder text = new StringBuilder();
 
-            // 读取段落文本
             for (XWPFParagraph paragraph : document.getParagraphs()) {
                 appendLine(text, paragraph.getText());
             }
 
-            // 读取表格文本
             for (XWPFTable table : document.getTables()) {
                 for (XWPFTableRow row : table.getRows()) {
                     for (XWPFTableCell cell : row.getTableCells()) {
@@ -86,11 +100,12 @@ public class DocumentTextExtractor {
         }
     }
 
-    // 内部 -- 读取HTML文件
-    private String readHtmlText(MultipartFile file) {
+    private String readHtmlText(byte[] content) {
         try {
-            org.jsoup.nodes.Document html = Jsoup.parse(file.getInputStream(), StandardCharsets.UTF_8.name(), "");
-            // 移除标签
+            org.jsoup.nodes.Document html = Jsoup.parse(
+                    new ByteArrayInputStream(content),
+                    StandardCharsets.UTF_8.name(),
+                    "");
             html.select("script, style, noscript, template").remove();
 
             Element body = html.body();
@@ -111,20 +126,17 @@ public class DocumentTextExtractor {
         builder.append(value.trim());
     }
 
-    // 内部 -- 规范文本格式
     private String normalizeText(String text) {
         if (text == null) {
             return "";
         }
-        // 替换不间断空格为普通空格
         return text.replace("\u00A0", " ")
-                .lines()//按行分割
-                .map(String::trim)//去除首位空格
-                .filter(line -> !line.isBlank())//过滤空行
-                .collect(Collectors.joining("\n"));//合并为字符串
+                .lines()
+                .map(String::trim)
+                .filter(line -> !line.isBlank())
+                .collect(Collectors.joining("\n"));
     }
 
-    // 内部 -- 提取文件扩展名
     private String extensionOf(String filename) {
         if (filename == null || filename.isBlank()) {
             return "";
@@ -137,21 +149,16 @@ public class DocumentTextExtractor {
         return normalized.substring(dotIndex);
     }
 
-
-    //不支持错误
     private ExtractionFailure unsupported(String extension) {
         String suffix = extension == null || extension.isBlank() ? "" : ": " + extension;
         return new ExtractionFailure(HttpStatus.BAD_REQUEST, "Unsupported file type" + suffix);
     }
 
-    // 解析失败
     private ExtractionFailure parseFailed(String message) {
-        // Parse failures return sanitized business messages, not paths, stack traces, or library internals.
+        // Parser/library errors are collapsed to safe product messages, never paths or stack traces.
         return new ExtractionFailure(HttpStatus.BAD_REQUEST, message);
     }
 
-
-    //异常处理，
     public static class ExtractionFailure extends RuntimeException {
         private final HttpStatus status;
         private final String userMessage;

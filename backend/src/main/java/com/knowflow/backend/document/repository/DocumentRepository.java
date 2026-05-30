@@ -23,6 +23,9 @@ public interface DocumentRepository {
                 size_bytes,
                 status,
                 error_message,
+                source_bytes,
+                source_text,
+                source_text_updated_at,
                 created_by
             )
             values (
@@ -32,6 +35,9 @@ public interface DocumentRepository {
                 #{sizeBytes},
                 #{status},
                 #{errorMessage},
+                #{sourceBytes},
+                #{sourceText},
+                #{sourceTextUpdatedAt},
                 #{createdBy}
             )
             """)
@@ -40,7 +46,11 @@ public interface DocumentRepository {
 
     @Select("""
             select id, knowledge_base_id, original_filename, content_type, size_bytes,
-                   status, error_message, summary, summary_updated_at, created_by, created_at, updated_at
+                   status, error_message, summary, summary_updated_at,
+                   source_bytes is not null as source_bytes_stored,
+                   source_text is not null and source_text <> '' as source_text_stored,
+                   source_text_updated_at,
+                   created_by, created_at, updated_at
             from documents
             where knowledge_base_id = #{knowledgeBaseId}
             order by id desc
@@ -49,7 +59,11 @@ public interface DocumentRepository {
 
     @Select("""
             select id, knowledge_base_id, original_filename, content_type, size_bytes,
-                   status, error_message, summary, summary_updated_at, created_by, created_at, updated_at
+                   status, error_message, summary, summary_updated_at,
+                   source_bytes is not null as source_bytes_stored,
+                   source_text is not null and source_text <> '' as source_text_stored,
+                   source_text_updated_at,
+                   created_by, created_at, updated_at
             from documents
             where knowledge_base_id = #{knowledgeBaseId}
               and created_by = #{userId}
@@ -61,7 +75,11 @@ public interface DocumentRepository {
 
     @Select("""
             select id, knowledge_base_id, original_filename, content_type, size_bytes,
-                   status, error_message, summary, summary_updated_at, created_by, created_at, updated_at
+                   status, error_message, summary, summary_updated_at,
+                   source_bytes is not null as source_bytes_stored,
+                   source_text is not null and source_text <> '' as source_text_stored,
+                   source_text_updated_at,
+                   created_by, created_at, updated_at
             from documents
             where id = #{id}
               and created_by = #{userId}
@@ -70,7 +88,11 @@ public interface DocumentRepository {
 
     @Select("""
             select d.id, d.knowledge_base_id, d.original_filename, d.content_type, d.size_bytes,
-                   d.status, d.error_message, d.summary, d.summary_updated_at, d.created_by, d.created_at, d.updated_at
+                   d.status, d.error_message, d.summary, d.summary_updated_at,
+                   d.source_bytes is not null as source_bytes_stored,
+                   d.source_text is not null and d.source_text <> '' as source_text_stored,
+                   d.source_text_updated_at,
+                   d.created_by, d.created_at, d.updated_at
             from documents d
             join knowledge_bases kb on kb.id = d.knowledge_base_id
             left join knowledge_base_members m
@@ -80,6 +102,25 @@ public interface DocumentRepository {
               and (kb.created_by = #{userId} or m.user_id = #{userId})
             """)
     Optional<Document> findAccessibleById(@Param("id") Long id, @Param("userId") Long userId);
+
+    @Select("""
+            select d.id, d.knowledge_base_id, d.original_filename, d.content_type, d.size_bytes,
+                   d.status, d.error_message, d.summary, d.summary_updated_at,
+                   d.source_bytes,
+                   d.source_bytes is not null as source_bytes_stored,
+                   d.source_text,
+                   d.source_text is not null and d.source_text <> '' as source_text_stored,
+                   d.source_text_updated_at,
+                   d.created_by, d.created_at, d.updated_at
+            from documents d
+            join knowledge_bases kb on kb.id = d.knowledge_base_id
+            left join knowledge_base_members m
+              on m.knowledge_base_id = kb.id
+             and m.user_id = #{userId}
+            where d.id = #{id}
+              and (kb.created_by = #{userId} or m.user_id = #{userId})
+            """)
+    Optional<Document> findAccessibleSourceById(@Param("id") Long id, @Param("userId") Long userId);
 
     @Update("""
             update documents
@@ -114,6 +155,22 @@ public interface DocumentRepository {
             @Param("id") Long id,
             @Param("status") String status,
             @Param("errorMessage") String errorMessage);
+
+    /**
+     * Stores the normalized text produced by a successful extraction.
+     *
+     * @param id document ID
+     * @param sourceText normalized extracted text; not returned by public APIs
+     * @return updated row count
+     */
+    @Update("""
+            update documents
+            set source_text = #{sourceText},
+                source_text_updated_at = now(),
+                updated_at = now()
+            where id = #{id}
+            """)
+    int updateSourceTextById(@Param("id") Long id, @Param("sourceText") String sourceText);
 
     /**
      * @param id 文档 ID

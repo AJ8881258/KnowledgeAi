@@ -173,13 +173,13 @@ class Stage15DocumentQualityTests {
         mockMvc.perform(post("/api/documents/{documentId}/reprocess", documentId)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + ownerToken))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message").value("Document cannot be reprocessed because no indexed text is available"))
+                .andExpect(jsonPath("$.message").value("Document cannot be reprocessed because no source or indexed text is available"))
                 .andExpect(content().string(not(containsString("D:\\"))))
                 .andExpect(content().string(not(containsString("stage15-test-secret"))));
 
         Map<String, Object> row = jdbcTemplate.queryForMap("select status, error_message from documents where id = ?", documentId);
         assertThat(row.get("status")).isEqualTo("FAILED");
-        assertThat(row.get("error_message")).isEqualTo("Document cannot be reprocessed because no indexed text is available");
+        assertThat(row.get("error_message")).isEqualTo("Document cannot be reprocessed because no source or indexed text is available");
     }
 
     @Test

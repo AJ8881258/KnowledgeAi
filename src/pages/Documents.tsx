@@ -103,6 +103,19 @@ const Documents = () => {
     : false;
   const documentMutationDisabledReason =
     "当前角色为只读，只能查看和检索文档，不能上传、删除或重新处理文档。";
+  const getReprocessDisabledReason = (doc: DocumentItem) => {
+    if (!canMutateDocuments) {
+      return documentMutationDisabledReason;
+    }
+
+    if (doc.reprocessAvailable === false) {
+      return doc.status === "FAILED"
+        ? "此文档没有保存原始来源，无法自动重试，请重新上传文件。"
+        : "当前文档缺少可重新处理的原始来源。";
+    }
+
+    return "";
+  };
   const currentKnowledgeBaseLabel = hasKnowledgeBaseId
     ? currentKnowledgeBase?.name ?? `知识库 #${knowledgeBaseId}`
     : "";
@@ -510,6 +523,12 @@ const Documents = () => {
       return;
     }
 
+    if (documentToReprocess.reprocessAvailable === false) {
+      toast.error(getReprocessDisabledReason(documentToReprocess));
+      setDocumentToReprocess(null);
+      return;
+    }
+
     setReprocessingDocumentId(documentToReprocess.id);
     setChunkError("");
     setQualityError("");
@@ -601,7 +620,14 @@ const Documents = () => {
         reprocessDisabledReason={documentMutationDisabledReason}
         onSelectDocument={(doc) => void selectDocument(doc)}
         onDeleteDocument={setDocumentToDelete}
-        onReprocessDocument={setDocumentToReprocess}
+        onReprocessDocument={(doc) => {
+          const reason = getReprocessDisabledReason(doc);
+          if (reason) {
+            toast.error(reason);
+            return;
+          }
+          setDocumentToReprocess(doc);
+        }}
         onPageChange={setCurrentPage}
         onPageSizeChange={handlePageSizeChange}
       />
@@ -676,11 +702,18 @@ const Documents = () => {
             summaryError={summaryError}
             isReprocessing={reprocessingDocumentId === selectedDocument.id}
             canReprocess={canMutateDocuments}
-            reprocessDisabledReason={documentMutationDisabledReason}
+            reprocessDisabledReason={getReprocessDisabledReason(selectedDocument)}
             onLoadChunks={() => void loadChunks()}
             onLoadQuality={() => void loadQuality()}
             onGenerateSummary={() => void handleGenerateSummary()}
-            onReprocess={() => setDocumentToReprocess(selectedDocument)}
+            onReprocess={() => {
+              const reason = getReprocessDisabledReason(selectedDocument);
+              if (reason) {
+                toast.error(reason);
+                return;
+              }
+              setDocumentToReprocess(selectedDocument);
+            }}
             onNavigateChat={() => navigate("/Chat")}
             onClose={() => setSelectedDocumentId(null)}
           />
@@ -743,8 +776,9 @@ const Documents = () => {
                 : "重新处理文档"}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              确认重新解析“{documentToReprocess?.originalFilename}”并替换当前
-              chunks 吗？处理完成后，检索和 Chat 引用会使用新的 chunks。
+              {documentToReprocess?.sourceStored
+                ? `确认重新解析“${documentToReprocess.originalFilename}”并替换当前 chunks 吗？处理完成后，检索和 Chat 引用会使用新的 chunks。`
+                : `确认基于当前已索引文本重新处理“${documentToReprocess?.originalFilename}”并替换当前 chunks 吗？这不会恢复原始文件中未成功解析的内容。`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

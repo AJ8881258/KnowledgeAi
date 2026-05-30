@@ -697,7 +697,7 @@ Authorization: Bearer <accessToken>
 | `INDEXED` | 已完成文本切片，chunk 已入库 |
 | `FAILED` | 解析或切片失败，失败原因写入 `errorMessage` |
 
-阶段 15 已实现的文档质量和摘要字段：
+阶段 15-16 已实现的文档质量、摘要和重试能力字段：
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
@@ -709,6 +709,8 @@ Authorization: Bearer <accessToken>
 | `qualityWarnings` | string[] | 文档处理质量提示 code。当前可能值：`NO_CHUNKS`、`DOCUMENT_TOO_SHORT`、`CHUNK_TOO_SHORT`、`CHUNK_TOO_LONG`。前端负责映射为用户可读中文。 |
 | `summary` | string \| null | 文档摘要能力生成的简短摘要；未生成或生成失败时为 `null`。 |
 | `summaryUpdatedAt` | string \| null | 摘要最后生成或覆盖的时间。 |
+| `sourceStored` | boolean | 后端是否保存了可用于重新处理的原始文件 bytes 或解析文本。仅返回布尔值，不返回原始内容。 |
+| `reprocessAvailable` | boolean | 当前文档是否具备可重新处理来源。来源可以是原始 bytes、解析文本，或兼容旧数据的已有 chunks。 |
 
 #### 上传文档
 
@@ -734,6 +736,7 @@ Authorization: Bearer <accessToken>
 - 阶段 11 第一版已实现 `.docx` 文本提取，优先提取段落和表格文本；不支持旧版 `.doc`。
 - 阶段 11 第一版已实现 `.html` / `.htm` 文本提取，后端会过滤脚本、样式等非正文内容。
 - 阶段 11 不新增 PPT、Excel、OCR、异步队列或自动重试接口。
+- 阶段 16 开始，后端会保存原始上传 bytes；如果解析成功，还会保存规范化后的原始文本。`source_bytes` 和 `source_text` 仅用于后端重新处理，不通过 API 返回。
 - 空白文本返回 `400`，文档记录保留为 `FAILED`，不保存 chunk。
 - 上传成功后，后端读取文本内容并按固定长度切片，最终 `status` 为 `INDEXED`。
 - 如果读取或切片过程中失败，文档记录保留，`status` 更新为 `FAILED`，`errorMessage` 保存失败原因。
@@ -752,7 +755,9 @@ Authorization: Bearer <accessToken>
   "createdBy": 1,
   "createdAt": "2026-05-12T10:00:00Z",
   "updatedAt": "2026-05-12T10:00:01Z",
-  "chunkCount": 2
+  "chunkCount": 2,
+  "sourceStored": true,
+  "reprocessAvailable": true
 }
 ```
 
@@ -795,7 +800,7 @@ Authorization: Bearer <accessToken>
 
 #### 重新处理文档
 
-> 状态：阶段 15 已实现。
+> 状态：阶段 16 已实现真正失败重试。
 
 | 项目 | 内容 |
 |---|---|
@@ -808,10 +813,12 @@ Authorization: Bearer <accessToken>
 - 当前用户必须是文档所属知识库成员。
 - 只有 `OWNER` 或 `EDITOR` 可以重新处理文档；`VIEWER` 返回 `403`。
 - 非成员访问返回 `404`，避免暴露文档存在性。
-- 第一版未保存原始文件二进制或原始文件路径，重新处理会从当前已有 chunks 拼接出可重建文本，再重新切片。
-- 如果文档没有任何可重建 chunks，例如上传解析失败且从未生成 chunks，返回 `400`，文档状态保持或更新为 `FAILED`，`errorMessage` 为 `Document cannot be reprocessed because no indexed text is available`。
+- 阶段 16 后，重新处理优先使用 `documents.source_bytes` 重新按原始文件类型解析；如果没有原始 bytes，则使用 `documents.source_text`；如果两者都不存在，则兼容阶段 15 旧数据，从当前已有 chunks 拼接出可重建文本。
+- 如果文档既没有原始来源，也没有可重建 chunks，返回 `400`，文档状态保持或更新为 `FAILED`，`errorMessage` 为 `Document cannot be reprocessed because no source or indexed text is available`。
+- 如果原始来源存在但文件类型仍不支持，例如旧版 `.doc`，返回对应脱敏 `400` 错误，文档保持 `FAILED`。
 - 重新处理成功时在事务内替换旧 chunks，文档状态更新为 `INDEXED`，后续检索和 Chat 引用使用新 chunks。
 - 如果替换 chunks 过程失败，旧 chunks 会回滚保留，随后文档状态更新为 `FAILED`，`errorMessage` 写入脱敏后的失败原因，避免出现半替换数据。
+- API 只返回 `sourceStored` 和 `reprocessAvailable`，不会返回 `source_bytes`、`source_text` 或原始正文内容。
 
 成功响应示例：
 
@@ -832,7 +839,9 @@ Authorization: Bearer <accessToken>
   "averageChunkLength": 866,
   "minChunkLength": 320,
   "maxChunkLength": 1200,
-  "qualityWarnings": []
+  "qualityWarnings": [],
+  "sourceStored": true,
+  "reprocessAvailable": true
 }
 ```
 
@@ -840,7 +849,7 @@ Authorization: Bearer <accessToken>
 
 | 状态码 | 原因 |
 |---|---|
-| `400` | 文档没有可重建 chunks，无法在第一版重新处理 |
+| `400` | 文档没有可用原始来源或可重建 chunks，或原始来源对应文件类型仍不支持 |
 | `401` | 未登录或 token 无效 |
 | `403` | 当前用户是 `VIEWER`，无权重新处理文档 |
 | `404` | 文档不存在，或当前登录用户不是该文档所属知识库成员 |

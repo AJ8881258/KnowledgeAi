@@ -21,6 +21,8 @@ export type DocumentResponse = {
   qualityWarnings?: string[];
   summary?: string | null;
   summaryUpdatedAt?: string | null;
+  sourceStored?: boolean;
+  reprocessAvailable?: boolean;
 };
 
 export type DocumentChunkResponse = {

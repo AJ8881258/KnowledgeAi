@@ -66,6 +66,23 @@ export function DocumentTable({
   onPageChange,
   onPageSizeChange,
 }: DocumentTableProps) {
+  const getReprocessDisabledReason = (doc: DocumentItem) => {
+    if (!canReprocessDocuments) {
+      return reprocessDisabledReason;
+    }
+
+    if (doc.reprocessAvailable === false) {
+      return doc.status === "FAILED"
+        ? "此文档没有保存原始来源，无法自动重试，请重新上传文件。"
+        : "当前文档缺少可重新处理的原始来源。";
+    }
+
+    return undefined;
+  };
+
+  const canReprocessDocument = (doc: DocumentItem) =>
+    canReprocessDocuments && doc.reprocessAvailable !== false;
+
   return (
       <section className="overflow-hidden rounded-[6px] border border-slate-200 bg-white shadow-sm">
         <div className="flex flex-col divide-y divide-slate-100 md:hidden">
@@ -148,11 +165,9 @@ export function DocumentTable({
                     }
                     disabled={
                       reprocessingDocumentId === doc.id ||
-                      !canReprocessDocuments
+                      !canReprocessDocument(doc)
                     }
-                    title={
-                      !canReprocessDocuments ? reprocessDisabledReason : undefined
-                    }
+                    title={getReprocessDisabledReason(doc)}
                     onClick={() => onReprocessDocument(doc)}
                   >
                     <RefreshCw
@@ -272,13 +287,9 @@ export function DocumentTable({
                           }
                           disabled={
                             reprocessingDocumentId === doc.id ||
-                            !canReprocessDocuments
+                            !canReprocessDocument(doc)
                           }
-                          title={
-                            !canReprocessDocuments
-                              ? reprocessDisabledReason
-                              : undefined
-                          }
+                          title={getReprocessDisabledReason(doc)}
                           onClick={() => onReprocessDocument(doc)}
                         >
                           <RefreshCw
