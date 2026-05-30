@@ -1,79 +1,79 @@
-# 后端任务书/验收记录：阶段 14 Docker 化与运维收尾
+# 后端任务书：阶段 15 知识库质量与文档处理增强
 
-本文档是后端 Agent 的固定入口。后续阶段继续复用本文件，由协调者更新当前任务和验收记录。后端 Agent 开始实现前必须先阅读 `AGENTS.md`、`doc/STAGE_PLAN.md`、`doc/PROJECT.md`、`doc/API.md` 和本文档。
+本文档是后端 Agent 的固定入口。后端 Agent 开始实现前必须先阅读 `AGENTS.md`、`doc/STAGE_PLAN.md`、`doc/PROJECT.md`、`doc/API.md` 和本文档。
 
 ## 当前阶段状态
 
-**阶段 14 已完成。**
+**阶段 15 规划中，待实现。**
 
-阶段 14 目标是完成 Docker 化和运维收尾，并记录 `do.md` 中影响真实使用的 Chat/Settings/Header 修复完成情况。本轮收尾新增 Chat `ragEnabled` 请求字段和生成打断接口，`doc/API.md` 已同步更新。
+阶段 15 聚焦文档处理质量和 RAG 可信度：让用户能看到文档是否处理得好、失败后能重试、必要时能重新处理文档，并为文档生成摘要。不要在本阶段引入 SSE、embedding/pgvector、OCR、PPT/Excel 解析、消息队列或复杂任务中心。
 
-## 阶段 14 后端完成记录
+## 后端目标
 
-已完成能力：
+- 增强文档详情和文档列表的质量信息。
+- 支持文档重新处理和失败重试。
+- 支持文档级摘要生成。
+- 确保检索和 Chat 引用继续只来自真实 chunks，不伪造来源。
+- 保持知识库成员权限模型：`OWNER` / `EDITOR` 可修改文档，`VIEWER` 只能查看。
 
-- Docker Compose 全量运行已形成交付路径：PostgreSQL、Spring Boot 后端、前端 Nginx。
-- 后端容器通过环境变量读取数据库、JWT、用户模型 API Key 加密密钥、可选 AI 兜底配置。
-- `SPRING_DOCKER_COMPOSE_ENABLED=false` 用于容器化部署，避免后端容器再尝试控制 Docker。
-- `GET /api/health` 可用于健康检查。
-- 用户级模型配置继续按当前 JWT 用户隔离读取：
-  - Base URL 可回显用于继续编辑。
-  - API Key 加密保存，不明文返回。
-  - 空 API Key 保存时保留已有 Key，非空时覆盖。
-- Chat 请求级 `model` 只覆盖本次生成模型并同步为当前用户 Settings 模型，不覆盖 Base URL/API Key。
-- Chat 请求级 `model` 只有在当前用户已有完整 Settings 模型配置时才同步为当前用户 Settings 模型；如果仅依赖 `.env`/环境变量兜底配置，不会因为缺少用户模型配置记录而失败。
-- Chat 发送支持 `ragEnabled`：未传默认启用 RAG；传 `false` 时跳过知识库 chunk 检索，调用模型回答并保持 `sources: []`。
-- Chat 新增 `POST /api/chat/sessions/{sessionId}/cancel`，用于把生成中会话恢复为 `IDLE`。
-- `chat_sessions.active_generation_id` 用于标记当前活跃后台生成；用户打断后清空该标识，晚到的模型结果不会再写入助手消息、sources 或覆盖会话状态。
-- 本地 `pnpm backend` 支持从项目根目录或 `backend/` 目录 `.env` 读取 AI 兜底配置，包括 `KNOWFLOW_AI_BASE_URL`、`KNOWFLOW_AI_API_KEY`、`KNOWFLOW_AI_MODEL`。
-- Chat 模型调用优先使用当前用户保存的模型配置；用户没有完整配置时才允许使用后端环境变量兜底。
-- Settings 模型测试接口复用当前表单或已保存配置，成功/失败均脱敏。
-- 空检索时仍允许调用当前用户模型回答，但 `sources` 保持空数组，不伪造引用来源。
-- 后台生成成功或失败都可以产生未读提醒；成功/失败状态通过 `status` 表达，未读只由 `unread` 表达。
-- README 已补充后端相关运维说明：环境变量、健康检查、日志排查、构建、PostgreSQL 备份恢复。
+## 计划接口
 
-## 验收记录
+以 `doc/API.md` 为准，阶段 15 规划接口包括：
 
-阶段 14 后端侧验收口径：
+- `POST /api/documents/{documentId}/reprocess`
+- `GET /api/documents/{documentId}/quality`
+- `POST /api/documents/{documentId}/summary`
 
-- 本地后端启动命令：`pnpm backend`。
-- 本地 PostgreSQL 启动命令：`pnpm sql`。
-- 后端构建命令：`cd backend && .\mvnw.cmd -DskipTests package`。
-- 后端测试命令：`cd backend && .\mvnw.cmd test`。
-- Docker 全量启动命令：`docker compose up -d --build`。
-- 健康检查：`GET /api/health`。
-- 运维排查：`docker compose logs -f backend`、`docker compose ps`。
+如果实现过程中调整路径、字段或状态语义，必须同步 `doc/API.md`。
 
-本次协调者已完成后端侧验证：
+## 实现要求
 
-- `cd backend && .\mvnw.cmd -DskipTests package`：通过。
-- `cd backend && .\mvnw.cmd test`：通过，71 个测试全部成功。
-- `docker compose config`：通过。
-- `docker compose up -d --build`：通过，PostgreSQL、backend、frontend 均成功启动。
-- Compose 已验证关键 secrets 必须由 `.env` 或 `--env-file` 提供，缺少 `POSTGRES_PASSWORD`、`KNOWFLOW_JWT_SECRET` 或 `KNOWFLOW_MODEL_SECRET_KEY` 时会拒绝启动。
-- `Invoke-RestMethod http://localhost:8080/api/health`：返回 `{"status":"UP"}`。
-- `Invoke-RestMethod http://localhost:5173/api/health`：经前端 Nginx 代理返回 `{"status":"UP"}`。
-- `docker compose logs backend --tail 120`：后端启动、Flyway 9 个迁移和健康检查正常；未发现 API Key、Authorization header 或真实密钥明文输出。
+1. 文档质量信息
+   - 为文档详情或质量接口返回 `chunkCount`、`charCount`、`averageChunkLength`、`minChunkLength`、`maxChunkLength`、`qualityWarnings`。
+   - `qualityWarnings` 第一版使用简单规则即可，例如无 chunk、正文过短、chunk 过短、chunk 过长。
+   - 质量信息只帮助用户判断文档是否适合 RAG，不改变检索排序。
 
-## 剩余人工验收条件
+2. 文档重新处理
+   - `POST /api/documents/{documentId}/reprocess` 只允许 `OWNER` / `EDITOR`。
+   - `VIEWER` 返回 `403`，非成员返回 `404`。
+   - 重新处理应复用已保存的原始文件或当前项目已有的可重建文本来源；如果当前存储结构无法重建，必须明确返回可理解错误，不要假装成功。
+   - 成功后替换旧 chunks，并让后续检索和 Chat 引用使用新 chunks。
+   - 失败时写入脱敏 `errorMessage`，状态和 chunks 处理策略必须一致。
 
-完整 Chat 真实回答验收必须由用户提供真实模型配置：
+3. 失败重试
+   - `FAILED` 文档应能通过重新处理接口重试。
+   - 错误信息不能暴露服务器绝对路径、内部堆栈、供应商密钥或环境变量。
 
-1. 在 `/Settings` 保存真实 OpenAI-compatible Base URL、API Key、Model。
-2. 调用 Settings 模型测试并确认成功。
-3. 在 `/Chat/{sessionId}` 选择模型并发送问题。
-4. 确认助手回答生成成功。
-5. 有检索命中时确认引用来源来自真实文档 chunk；无检索命中时确认 `sources` 为空。
-6. 模型调用失败时确认错误脱敏，不暴露 API Key、Authorization header、完整 Base URL 或供应商原始敏感错误。
+4. 文档摘要
+   - `POST /api/documents/{documentId}/summary` 使用当前用户模型配置生成摘要；未配置用户模型时可回退后端环境变量配置。
+   - 摘要请求应限制输入长度和输出长度，避免 token 成本失控。
+   - 摘要保存位置可以是文档表新增字段或独立表，但必须通过 Flyway 新迁移实现，不修改已执行迁移。
+   - 摘要失败时返回脱敏错误。
+   - 摘要不能作为 Chat 引用来源；引用仍必须来自真实 chunks。
 
-## 后续阶段建议
+5. 注释要求
+   - 后端新增或修改功能代码必须写有价值注释或 JavaDoc。
+   - 重点说明：质量指标含义、重新处理为什么要替换 chunks、失败状态如何落库、摘要为什么不能替代引用来源、权限判断为什么区分成员和角色。
 
-阶段 14 已收尾。后续如果继续扩展后端，建议从以下方向新开阶段：
+## 测试要求
 
-- Embedding / pgvector 向量检索。
-- SSE 流式输出。
-- 后台任务队列和重试机制。
-- OCR、PPT、Excel 文档解析。
-- 更完整的生产观测、告警和部署流水线。
+至少覆盖：
 
-新增接口或接口语义变化时，必须先同步 `doc/API.md`。
+- `OWNER` / `EDITOR` 可以重新处理文档。
+- `VIEWER` 重新处理文档返回 `403`。
+- 非成员访问文档重新处理或质量接口返回 `404`。
+- 重新处理成功后旧 chunks 被替换，检索使用新 chunks。
+- 重新处理失败时文档状态和错误信息正确，错误脱敏。
+- 文档质量接口返回 chunk 数、字符数、平均长度和质量提示。
+- 文档摘要使用当前用户模型配置，不串用其他用户配置。
+- 摘要失败时错误脱敏。
+- 阶段 7-14 既有测试仍通过。
+
+## 验证命令
+
+```powershell
+cd backend
+.\mvnw.cmd test
+```
+
+如新增针对单个测试类的快速验证，也要在最终完成前运行全量后端测试。

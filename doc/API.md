@@ -697,6 +697,16 @@ Authorization: Bearer <accessToken>
 | `INDEXED` | 已完成文本切片，chunk 已入库 |
 | `FAILED` | 解析或切片失败，失败原因写入 `errorMessage` |
 
+阶段 15 规划中的文档质量字段：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `chunkCount` | number | 当前文档已生成的 chunk 数。 |
+| `charCount` | number | 当前文档可检索正文总字符数。 |
+| `averageChunkLength` | number | 平均 chunk 字符数，用于判断切片是否过碎或过长。 |
+| `qualityWarnings` | string[] | 文档处理质量提示，例如正文过短、chunk 数为 0、存在过长 chunk、文本提取可能不完整。 |
+| `summary` | string \| null | 阶段 15 文档摘要能力生成的简短摘要；未生成或生成失败时为 `null`。 |
+
 #### 上传文档
 
 | 项目 | 内容 |
@@ -778,6 +788,118 @@ Authorization: Bearer <accessToken>
 
 - 阶段 12 后，当前登录用户只要是文档所属知识库成员即可查看文档详情。
 - 返回文档基础信息和 `chunkCount`。
+- 阶段 15 规划中将补充 `charCount`、`averageChunkLength`、`qualityWarnings` 和 `summary`，用于展示文档处理质量和摘要。
+
+#### 重新处理文档
+
+> 状态：阶段 15 规划中，尚未实现。
+
+| 项目 | 内容 |
+|---|---|
+| 请求方式 | `POST` |
+| 请求路径 | `/api/documents/{documentId}/reprocess` |
+| 是否需要登录 | 是 |
+
+说明：
+
+- 当前用户必须是文档所属知识库成员。
+- 只有 `OWNER` 或 `EDITOR` 可以重新处理文档；`VIEWER` 返回 `403`。
+- 非成员访问返回 `404`，避免暴露文档存在性。
+- 重新处理复用已保存的原始文件或已保存文本来源，不要求用户重新上传同一文件。
+- 重新处理成功时替换旧 chunks，文档状态更新为 `INDEXED`，后续检索和 Chat 引用使用新 chunks。
+- 重新处理失败时文档状态更新为 `FAILED`，`errorMessage` 写入脱敏后的失败原因；旧 chunks 是否保留由后端实现固定并写入响应说明，不能出现状态和 chunks 不一致。
+
+成功响应示例：
+
+```json
+{
+  "id": 1,
+  "knowledgeBaseId": 1,
+  "originalFilename": "note.md",
+  "contentType": "text/markdown",
+  "sizeBytes": 1280,
+  "status": "INDEXED",
+  "errorMessage": null,
+  "createdBy": 1,
+  "createdAt": "2026-05-12T10:00:00Z",
+  "updatedAt": "2026-05-30T10:00:00Z",
+  "chunkCount": 3,
+  "charCount": 2600,
+  "averageChunkLength": 866,
+  "qualityWarnings": []
+}
+```
+
+#### 获取文档质量报告
+
+> 状态：阶段 15 规划中，尚未实现。
+
+| 项目 | 内容 |
+|---|---|
+| 请求方式 | `GET` |
+| 请求路径 | `/api/documents/{documentId}/quality` |
+| 是否需要登录 | 是 |
+
+说明：
+
+- 当前用户只要是文档所属知识库成员即可查看。
+- 该接口只返回文档处理质量信息，不返回完整 chunk 内容。
+- 用于前端在文档详情页展示“是否适合 RAG”的判断依据。
+
+成功响应示例：
+
+```json
+{
+  "documentId": 1,
+  "status": "INDEXED",
+  "chunkCount": 3,
+  "charCount": 2600,
+  "averageChunkLength": 866,
+  "minChunkLength": 320,
+  "maxChunkLength": 1200,
+  "qualityWarnings": [
+    "部分 chunk 较短，可能影响检索上下文完整性"
+  ],
+  "updatedAt": "2026-05-30T10:00:00Z"
+}
+```
+
+#### 生成文档摘要
+
+> 状态：阶段 15 规划中，尚未实现。
+
+| 项目 | 内容 |
+|---|---|
+| 请求方式 | `POST` |
+| 请求路径 | `/api/documents/{documentId}/summary` |
+| 是否需要登录 | 是 |
+| 请求体格式 | `application/json` |
+
+请求示例：
+
+```json
+{
+  "maxLength": 500
+}
+```
+
+说明：
+
+- 当前用户只要是文档所属知识库成员即可生成或查看摘要。
+- 摘要使用当前用户自己的模型配置；未配置时可使用后端环境变量兜底。
+- `maxLength` 为空时使用后端默认值；建议限制在合理范围内，避免 token 成本失控。
+- 模型调用失败时返回脱敏错误，不泄露 API Key、Authorization header、完整 Base URL、model 或供应商敏感错误。
+- 摘要不得替代原始 chunks 作为引用来源；Chat 引用仍必须来自真实 chunk。
+
+成功响应示例：
+
+```json
+{
+  "documentId": 1,
+  "summary": "这份文档主要介绍 JWT 登录流程、令牌结构和接口鉴权方式。",
+  "updatedAt": "2026-05-30T10:00:00Z"
+}
+```
 
 #### 获取文档切片列表
 
