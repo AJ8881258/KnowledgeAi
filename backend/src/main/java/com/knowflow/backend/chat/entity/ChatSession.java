@@ -23,6 +23,10 @@ public class ChatSession {
     private Boolean unread; // 是否未读，用于后台回答完成后的会话提醒
     private String status; // 当前会话生成状态：IDLE、GENERATING、FAILED
     private String lastErrorMessage; // 最近一次生成失败的脱敏错误信息
+    /**
+     * 当前仍允许落库的后台生成 ID。用户点击“打断”时会清空它，旧异步任务即使稍后返回也不能写入助手消息。
+     */
+    private String activeGenerationId;
     private OffsetDateTime createdAt;
     private OffsetDateTime updatedAt;
 }

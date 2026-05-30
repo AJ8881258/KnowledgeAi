@@ -29,9 +29,9 @@
 | 阶段 11：文档处理增强 | 已完成 | 新增 `.docx`、`.html/.htm` 文本提取，保持同步处理和 10MB 上限。 |
 | 阶段 12：权限与团队协作 | 已完成 | 单个知识库共享、`OWNER`/`EDITOR`/`VIEWER` 成员权限和前后端接入完成。 |
 | 阶段 13：用户模型配置、偏好设置与多会话协同增强 | 已完成 | 用户级模型配置、API Key 加密、未读会话、后台生成、今日交谈次数完成。 |
-| 阶段 14：Docker 化与运维 + do.md 修复 | 已完成 | Docker 全量启动、README 运维说明、构建/健康检查/日志/备份恢复文档完成；`do.md` 修复已完成。 |
+| 阶段 14：Docker 化与运维 + do.md 收尾修复 | 已完成 | Docker 全量启动、README 运维说明、构建/健康检查/日志/备份恢复文档完成；`do.md` 新增验收问题已完成代码和 API 文档同步。 |
 
-## 阶段 14：Docker 化与运维 + do.md 修复
+## 阶段 14：Docker 化与运维 + do.md 收尾修复
 
 ### 目标
 
@@ -64,6 +64,13 @@
 - `doc/BACKEND_TASK.md` 已更新为阶段 14 后端验收记录，不再保留“后续收尾重点”。
 - `doc/FRONTEND_TASK.md` 已更新为阶段 14 前端验收记录，不再保留“后续收尾重点”。
 - `do.md` 中列出的 Chat 模型选择、自动滚动、用户模型配置复用、Settings 模型测试、退出确认、引用来源跟随选中回答、未读角标和响应式问题，已按阶段 14 记录为代码级修复完成。
+- 本轮新增 `do.md` 验收问题已完成：
+  - Settings `Chat Model` 改为显式“可输入 + 下拉选择”控件，不再依赖不明显的 `input + datalist`。
+  - Chat RAG 开关补充固定 hover 提示：开启时检索知识库片段并展示引用，关闭时只按当前会话和模型回答且不生成引用来源。
+  - Chat 生成中禁用 RAG 开关和模型选择；发送按钮切换为“打断”，调用后端取消接口。
+  - Chat 请求不再发送硬编码默认模型，避免绕开用户 Settings 或 `.env` 本地兜底配置。
+  - 后端新增 `ragEnabled` 请求字段、`POST /api/chat/sessions/{sessionId}/cancel` 和 `active_generation_id` 防旧任务落库机制。
+  - 后端支持本地 `pnpm backend` 从项目根目录或 `backend/` 目录 `.env` 读取 AI 兜底配置。
 
 ### 验收结果
 
@@ -72,7 +79,7 @@
 - 目标 ESLint 已通过：
   `pnpm eslint src/pages/Settings.tsx src/pages/Chat.tsx src/api/settings.ts src/api/chat.ts src/components/settings src/components/chat-page src/components/chat/ChatComposer.tsx src/components/MainHeader.tsx src/components/slider-sidebar.tsx`。
 - `cd backend && .\mvnw.cmd -DskipTests package` 已通过。
-- `cd backend && .\mvnw.cmd test` 已通过，67 个测试全部成功。
+- `cd backend && .\mvnw.cmd test` 已通过，71 个测试全部成功。
 - `docker compose config` 已通过。
 - `docker compose up -d --build` 已通过，PostgreSQL、backend、frontend 均成功启动。
 - Compose 已验证关键 secrets 必须由 `.env` 或 `--env-file` 提供，缺少 `POSTGRES_PASSWORD`、`KNOWFLOW_JWT_SECRET` 或 `KNOWFLOW_MODEL_SECRET_KEY` 时会拒绝启动。
@@ -80,7 +87,7 @@
 - 前端 Nginx 代理健康检查 `http://localhost:5173/api/health` 返回 `{"status":"UP"}`。
 - browser-use 可见窗口已验证 Docker 前端可访问、空库注册登录可用、`/Settings` 可访问、`/Chat` 空状态可用、创建知识库后可进入 Chat 主界面。
 - 未配置真实模型时在 Chat 发送“你好”返回脱敏提示 `Model settings are incomplete`，符合本阶段“不内置 mock 模型服务”的验收边界。
-- Docker 化没有改变 API 路径、请求体、响应体或错误语义，因此 `doc/API.md` 本轮不需要修改。
+- 本轮收尾新增了 `ragEnabled` 和生成打断接口，`doc/API.md` 已同步更新。
 - 阶段 14 标记为已完成。
 
 ### 剩余人工验收条件

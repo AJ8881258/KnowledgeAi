@@ -3,6 +3,7 @@ package com.knowflow.backend;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import com.knowflow.backend.settings.dto.request.UpdateModelSettingsRequest;
+import com.knowflow.backend.config.AiProperties;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -29,6 +30,8 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -68,17 +71,29 @@ class Stage13UserModelAndChatTests {
     @Autowired
     private PasswordEncoder passwordEncoder;
 
+    @Autowired
+    private AiProperties aiProperties;
+
     private Stage13ModelServer modelServer;
     private final String password = "stage13-password";
+    private String originalAiBaseUrl;
+    private String originalAiApiKey;
+    private String originalAiModel;
 
     @BeforeEach
     void cleanBefore() throws Exception {
+        originalAiBaseUrl = aiProperties.getBaseUrl();
+        originalAiApiKey = aiProperties.getApiKey();
+        originalAiModel = aiProperties.getModel();
         modelServer = new Stage13ModelServer();
         cleanStage13Data();
     }
 
     @AfterEach
     void cleanAfter() {
+        aiProperties.setBaseUrl(originalAiBaseUrl);
+        aiProperties.setApiKey(originalAiApiKey);
+        aiProperties.setModel(originalAiModel);
         if (modelServer != null) {
             modelServer.close();
         }
@@ -245,6 +260,24 @@ class Stage13UserModelAndChatTests {
                 .andExpect(content().string(not(containsString("stage13-reused-key"))));
 
         assertThat(modelServer.authorizationHeaders()).contains("Bearer stage13-reused-key");
+    }
+
+    @Test
+    void savedApiKeyDecryptFailureReturnsActionableSanitizedMessage() throws Exception {
+        createUser("stage13_model_stale_key");
+        String token = loginAndGetToken("stage13_model_stale_key");
+        saveModelSettings(token, "stage13-stale-key", "stage13-stale-model");
+        corruptSavedApiKey("stage13_model_stale_key");
+
+        mockMvc.perform(post("/api/settings/model/models")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().string(containsString("已保存的 API Key 无法解密，请重新填写 API Key 后保存覆盖")))
+                .andExpect(content().string(not(containsString("stage13-stale-key"))))
+                .andExpect(content().string(not(containsString("encrypted"))))
+                .andExpect(content().string(not(containsString("Authorization"))));
     }
 
     @Test
@@ -430,6 +463,188 @@ class Stage13UserModelAndChatTests {
         assertThat(readSavedModel("stage13_request_model_b")).isEqualTo("stage13-original-model-b");
         assertThat(modelServer.authorizationHeaders()).contains("Bearer stage13-request-model-a-key");
         assertThat(modelServer.authorizationHeaders()).doesNotContain("Bearer stage13-request-model-b-key");
+    }
+
+    @Test
+    void chatCanUseEnvironmentFallbackWhenUserHasNoModelSettings() throws Exception {
+        modelServer.returnChatCompletion("stage14 environment fallback answer");
+        aiProperties.setBaseUrl(modelServer.baseUrl() + "/v1");
+        aiProperties.setApiKey("stage14-env-chat-key");
+        aiProperties.setModel("stage14-env-chat-model");
+
+        Long userId = createUser("stage13_env_fallback_owner");
+        String token = loginAndGetToken("stage13_env_fallback_owner");
+        Long knowledgeBaseId = createKnowledgeBase(userId, "Stage14 Env Fallback KB");
+        createMembership(knowledgeBaseId, userId, "OWNER");
+        Long sessionId = createSession(knowledgeBaseId, token, "Env fallback session");
+
+        sendAsyncMessage(token, sessionId, "env fallback question");
+
+        waitForSessionStatus(token, knowledgeBaseId, sessionId, "IDLE");
+        JsonNode assistantMessage = waitForAssistantMessage(token, sessionId);
+        assertThat(assistantMessage.get("content").asText()).isEqualTo("stage14 environment fallback answer");
+        assertThat(userModelSettingsCount("stage13_env_fallback_owner")).isZero();
+        assertThat(modelServer.authorizationHeaders()).contains("Bearer stage14-env-chat-key");
+        assertThat(modelServer.requestBodies()).anySatisfy(body ->
+                assertThat(body).contains("\"model\":\"stage14-env-chat-model\""));
+    }
+
+    @Test
+    void chatRequestModelWithEnvironmentFallbackDoesNotRequireOrCreateUserSettings() throws Exception {
+        modelServer.returnChatCompletion("stage14 requested environment model answer");
+        aiProperties.setBaseUrl(modelServer.baseUrl() + "/v1");
+        aiProperties.setApiKey("stage14-env-request-key");
+        aiProperties.setModel("stage14-env-original-model");
+
+        Long userId = createUser("stage13_env_request_model_owner");
+        String token = loginAndGetToken("stage13_env_request_model_owner");
+        Long knowledgeBaseId = createKnowledgeBase(userId, "Stage14 Env Request Model KB");
+        createMembership(knowledgeBaseId, userId, "OWNER");
+        Long sessionId = createSession(knowledgeBaseId, token, "Env request model session");
+
+        mockMvc.perform(post("/api/chat/sessions/{sessionId}/messages", sessionId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "content": "use requested model without saved settings",
+                                  "limit": 5,
+                                  "model": "stage14-env-requested-model"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.session.status").value("GENERATING"));
+
+        waitForSessionStatus(token, knowledgeBaseId, sessionId, "IDLE");
+        JsonNode assistantMessage = waitForAssistantMessage(token, sessionId);
+        assertThat(assistantMessage.get("content").asText()).isEqualTo("stage14 requested environment model answer");
+        assertThat(userModelSettingsCount("stage13_env_request_model_owner")).isZero();
+        assertThat(modelServer.authorizationHeaders()).contains("Bearer stage14-env-request-key");
+        assertThat(modelServer.requestBodies()).anySatisfy(body ->
+                assertThat(body).contains("\"model\":\"stage14-env-requested-model\""));
+    }
+
+    @Test
+    void chatRequestModelCanCompleteWhenEnvironmentFallbackModelIsBlank() throws Exception {
+        modelServer.returnChatCompletion("stage14 request model fills blank env model answer");
+        aiProperties.setBaseUrl(modelServer.baseUrl() + "/v1");
+        aiProperties.setApiKey("stage14-env-blank-model-key");
+        aiProperties.setModel("");
+
+        Long userId = createUser("stage13_env_blank_model_owner");
+        String token = loginAndGetToken("stage13_env_blank_model_owner");
+        Long knowledgeBaseId = createKnowledgeBase(userId, "Stage14 Env Blank Model KB");
+        createMembership(knowledgeBaseId, userId, "OWNER");
+        Long sessionId = createSession(knowledgeBaseId, token, "Env blank model session");
+
+        mockMvc.perform(post("/api/chat/sessions/{sessionId}/messages", sessionId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "content": "use request model with blank env model",
+                                  "limit": 5,
+                                  "model": "stage14-request-model-from-chat"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.session.status").value("GENERATING"));
+
+        waitForSessionStatus(token, knowledgeBaseId, sessionId, "IDLE");
+        JsonNode assistantMessage = waitForAssistantMessage(token, sessionId);
+        assertThat(assistantMessage.get("content").asText()).isEqualTo("stage14 request model fills blank env model answer");
+        assertThat(userModelSettingsCount("stage13_env_blank_model_owner")).isZero();
+        assertThat(modelServer.authorizationHeaders()).contains("Bearer stage14-env-blank-model-key");
+        assertThat(modelServer.requestBodies()).anySatisfy(body ->
+                assertThat(body).contains("\"model\":\"stage14-request-model-from-chat\""));
+    }
+
+    @Test
+    void chatParsesJsonModelResponseEvenWhenContentTypeIsTextPlain() throws Exception {
+        modelServer.returnChatCompletionWithContentType("stage14 text content type answer", MediaType.TEXT_PLAIN_VALUE);
+        aiProperties.setBaseUrl(modelServer.baseUrl() + "/v1");
+        aiProperties.setApiKey("stage14-text-content-type-key");
+        aiProperties.setModel("stage14-text-content-type-model");
+
+        Long userId = createUser("stage13_text_content_type_owner");
+        String token = loginAndGetToken("stage13_text_content_type_owner");
+        Long knowledgeBaseId = createKnowledgeBase(userId, "Stage14 Text Content Type KB");
+        createMembership(knowledgeBaseId, userId, "OWNER");
+        Long sessionId = createSession(knowledgeBaseId, token, "Text content type session");
+
+        sendAsyncMessage(token, sessionId, "text content type question");
+
+        waitForSessionStatus(token, knowledgeBaseId, sessionId, "IDLE");
+        JsonNode assistantMessage = waitForAssistantMessage(token, sessionId);
+        assertThat(assistantMessage.get("content").asText()).isEqualTo("stage14 text content type answer");
+        assertThat(modelServer.authorizationHeaders()).contains("Bearer stage14-text-content-type-key");
+    }
+
+    @Test
+    void ragDisabledSkipsChunkContextAndSavesAssistantWithoutSources() throws Exception {
+        modelServer.returnChatCompletion("stage14 no rag answer");
+        Long userId = createUser("stage13_rag_disabled_owner");
+        String token = loginAndGetToken("stage13_rag_disabled_owner");
+        saveModelSettings(token, "stage14-rag-disabled-key", "stage14-rag-disabled-model");
+        Long knowledgeBaseId = createKnowledgeBase(userId, "Stage14 RAG Disabled KB");
+        createMembership(knowledgeBaseId, userId, "OWNER");
+        createIndexedChunk(userId, knowledgeBaseId, "stage14 disabled rag marker must not enter prompt");
+        Long sessionId = createSession(knowledgeBaseId, token, "RAG disabled session");
+
+        mockMvc.perform(post("/api/chat/sessions/{sessionId}/messages", sessionId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "content": "stage14 disabled rag marker",
+                                  "limit": 5,
+                                  "ragEnabled": false
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.session.status").value("GENERATING"));
+
+        waitForSessionStatus(token, knowledgeBaseId, sessionId, "IDLE");
+        JsonNode assistantMessage = waitForAssistantMessage(token, sessionId);
+        assertThat(assistantMessage.get("content").asText()).isEqualTo("stage14 no rag answer");
+        assertThat(assistantMessage.get("sources").size()).isZero();
+        assertThat(modelServer.requestBodies()).anySatisfy(body -> {
+            assertThat(body).contains("stage14 disabled rag marker");
+            assertThat(body).doesNotContain("stage14 disabled rag marker must not enter prompt");
+        });
+    }
+
+    @Test
+    void cancelGeneratingSessionReturnsToIdleAndPreventsLateAssistantWrite() throws Exception {
+        CountDownLatch releaseModelResponse = modelServer.returnDelayedChatCompletion("stage14 late answer");
+        Long userId = createUser("stage13_cancel_owner");
+        String token = loginAndGetToken("stage13_cancel_owner");
+        saveModelSettings(token, "stage14-cancel-key", "stage14-cancel-model");
+        Long knowledgeBaseId = createKnowledgeBase(userId, "Stage14 Cancel KB");
+        createMembership(knowledgeBaseId, userId, "OWNER");
+        createIndexedChunk(userId, knowledgeBaseId, "stage14 cancel retrieval marker");
+        Long sessionId = createSession(knowledgeBaseId, token, "Cancel session");
+
+        sendAsyncMessage(token, sessionId, "stage14 cancel retrieval");
+        waitUntil(() -> modelServer.authorizationHeaders().contains("Bearer stage14-cancel-key"));
+
+        mockMvc.perform(post("/api/chat/sessions/{sessionId}/cancel", sessionId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("IDLE"));
+
+        assertThat(readSessionStatus(sessionId)).isEqualTo("IDLE");
+        assertThat(readAssistantMessageCount(sessionId)).isZero();
+
+        releaseModelResponse.countDown();
+        Thread.sleep(500);
+
+        assertThat(readSessionStatus(sessionId)).isEqualTo("IDLE");
+        assertThat(readAssistantMessageCount(sessionId)).isZero();
+        assertThat(readSourceCount(sessionId)).isZero();
+        assertThat(readMessages(token, sessionId))
+                .filteredOn(message -> "USER".equals(message.get("role").asText()))
+                .hasSize(1);
     }
 
     @Test
@@ -920,6 +1135,16 @@ class Stage13UserModelAndChatTests {
                 userId);
     }
 
+    private void corruptSavedApiKey(String username) {
+        Long userId = jdbcTemplate.queryForObject("select id from users where username = ?", Long.class, username);
+        jdbcTemplate.update("""
+                        update user_model_settings
+                        set encrypted_api_key = 'stale.iv-and-ciphertext'
+                        where user_id = ?
+                        """,
+                userId);
+    }
+
     private String readSavedModel(String username) {
         Long userId = jdbcTemplate.queryForObject("select id from users where username = ?", Long.class, username);
         return jdbcTemplate.queryForObject("""
@@ -936,6 +1161,42 @@ class Stage13UserModelAndChatTests {
                 "select unread from chat_sessions where id = ?",
                 Boolean.class,
                 sessionId);
+    }
+
+    private String readSessionStatus(Long sessionId) {
+        return jdbcTemplate.queryForObject(
+                "select status from chat_sessions where id = ?",
+                String.class,
+                sessionId);
+    }
+
+    private Long readAssistantMessageCount(Long sessionId) {
+        return jdbcTemplate.queryForObject(
+                "select count(*) from chat_messages where session_id = ? and role = 'ASSISTANT'",
+                Long.class,
+                sessionId);
+    }
+
+    private Long readSourceCount(Long sessionId) {
+        return jdbcTemplate.queryForObject("""
+                        select count(*)
+                        from chat_message_sources source
+                        join chat_messages message on message.id = source.message_id
+                        where message.session_id = ?
+                        """,
+                Long.class,
+                sessionId);
+    }
+
+    private Long userModelSettingsCount(String username) {
+        Long userId = jdbcTemplate.queryForObject("select id from users where username = ?", Long.class, username);
+        return jdbcTemplate.queryForObject("""
+                        select count(*)
+                        from user_model_settings
+                        where user_id = ?
+                        """,
+                Long.class,
+                userId);
     }
 
     private boolean tableExists(String tableName) {
@@ -1064,6 +1325,7 @@ class Stage13UserModelAndChatTests {
         private volatile Predicate<String> handlerMode = path -> true;
         private volatile int status = 200;
         private volatile String body = "{\"data\":[]}";
+        private volatile String contentType = MediaType.APPLICATION_JSON_VALUE;
 
         Stage13ModelServer() throws IOException {
             server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -1087,6 +1349,7 @@ class Stage13UserModelAndChatTests {
         void returnModels(String modelId) {
             this.handlerMode = path -> path.endsWith("/models");
             this.status = 200;
+            this.contentType = MediaType.APPLICATION_JSON_VALUE;
             this.body = """
                     {
                       "data": [
@@ -1099,8 +1362,13 @@ class Stage13UserModelAndChatTests {
         }
 
         void returnChatCompletion(String answer) {
+            returnChatCompletionWithContentType(answer, MediaType.APPLICATION_JSON_VALUE);
+        }
+
+        void returnChatCompletionWithContentType(String answer, String contentType) {
             this.handlerMode = path -> path.endsWith("/chat/completions");
             this.status = 200;
+            this.contentType = contentType;
             this.body = """
                     {
                       "choices": [
@@ -1114,6 +1382,35 @@ class Stage13UserModelAndChatTests {
                     """.formatted(answer);
         }
 
+        CountDownLatch returnDelayedChatCompletion(String answer) {
+            CountDownLatch release = new CountDownLatch(1);
+            this.handlerMode = path -> {
+                if (path.endsWith("/chat/completions")) {
+                    try {
+                        release.await(5, TimeUnit.SECONDS);
+                    } catch (InterruptedException exception) {
+                        Thread.currentThread().interrupt();
+                    }
+                    return true;
+                }
+                return false;
+            };
+            this.status = 200;
+            this.contentType = MediaType.APPLICATION_JSON_VALUE;
+            this.body = """
+                    {
+                      "choices": [
+                        {
+                          "message": {
+                            "content": "%s"
+                          }
+                        }
+                      ]
+                    }
+                    """.formatted(answer);
+            return release;
+        }
+
         void returnSensitiveFailure(String sensitiveMessage) {
             returnSensitiveFailure(500, sensitiveMessage);
         }
@@ -1121,6 +1418,7 @@ class Stage13UserModelAndChatTests {
         void returnSensitiveFailure(int status, String sensitiveMessage) {
             this.handlerMode = path -> true;
             this.status = status;
+            this.contentType = MediaType.APPLICATION_JSON_VALUE;
             this.body = "{\"error\":{\"message\":\"" + sensitiveMessage + "\"}}";
         }
 
@@ -1136,7 +1434,7 @@ class Stage13UserModelAndChatTests {
                 responseStatus = 404;
                 responseBody = "{\"error\":\"not found\"}".getBytes(StandardCharsets.UTF_8);
             }
-            exchange.getResponseHeaders().add(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE);
+            exchange.getResponseHeaders().add(HttpHeaders.CONTENT_TYPE, contentType);
             exchange.sendResponseHeaders(responseStatus, responseBody.length);
             exchange.getResponseBody().write(responseBody);
             exchange.close();

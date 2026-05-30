@@ -4,6 +4,7 @@ import com.knowflow.backend.config.AiProperties;
 import com.knowflow.backend.settings.entity.UserModelSettings;
 import com.knowflow.backend.settings.repository.UserModelSettingsRepository;
 import com.knowflow.backend.settings.security.ModelApiKeyCryptoService;
+import tools.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
@@ -32,12 +33,14 @@ public class OpenAiCompatibleChatModelClient implements ChatModelClient {
     private final AiProperties properties; //AI配置
     private final UserModelSettingsRepository userModelSettingsRepository;
     private final ModelApiKeyCryptoService cryptoService;
+    private final ObjectMapper objectMapper;
 
 
-    public OpenAiCompatibleChatModelClient(AiProperties properties, UserModelSettingsRepository userModelSettingsRepository, ModelApiKeyCryptoService cryptoService) {
+    public OpenAiCompatibleChatModelClient(AiProperties properties, UserModelSettingsRepository userModelSettingsRepository, ModelApiKeyCryptoService cryptoService, ObjectMapper objectMapper) {
         this.properties = properties;
         this.userModelSettingsRepository = userModelSettingsRepository;
         this.cryptoService = cryptoService;
+        this.objectMapper = objectMapper;
     }
 
     @Override
@@ -63,11 +66,14 @@ public class OpenAiCompatibleChatModelClient implements ChatModelClient {
                     .defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + config.apiKey())
                     .build();
 
-            ChatCompletionResponse response = restClient.post()
+            String responseBody = restClient.post()
                     .uri("/chat/completions")
                     .body(new ChatCompletionRequest(config.model(), List.of(new ChatCompletionMessage("user", prompt)), temperature))
                     .retrieve()
-                    .body(ChatCompletionResponse.class);
+                    .body(String.class);
+            // 部分 OpenAI-compatible 网关会返回 JSON 字符串但 Content-Type 不是 application/json。
+            // 这里先按字符串读取再解析，既提升兼容性，又避免在日志或异常里暴露供应商原始响应。
+            ChatCompletionResponse response = objectMapper.readValue(responseBody, ChatCompletionResponse.class);
             if (response == null || response.choices() == null || response.choices().isEmpty()) {
                 throw new IllegalStateException("AI Model response is empty");
             }
@@ -101,7 +107,7 @@ public class OpenAiCompatibleChatModelClient implements ChatModelClient {
                 .filter(settings -> hasText(settings.getBaseUrl())
                         && hasText(settings.getEncryptedApiKey())
                         && hasText(settings.getModel()))
-                .map(settings -> fromUserSettings(settings, modelOverride))
+                .flatMap(settings -> fromUserSettings(settings, modelOverride))
                 .orElseGet(() -> fromEnvironment(modelOverride));
     }
 
@@ -110,20 +116,35 @@ public class OpenAiCompatibleChatModelClient implements ChatModelClient {
      * @return Chat 调用使用的 Base URL、API Key 和模型 ID
      * @Desc API Key 在这里解密后只进入后端模型请求，不写入日志，也不返回给前端。
      */
-    private EffectiveModelConfig fromUserSettings(UserModelSettings settings, String modelOverride) {
-        return new EffectiveModelConfig(
-                normalizeChatBaseUrl(settings.getBaseUrl()),
-                cryptoService.decrypt(settings.getEncryptedApiKey()),
-                resolveModel(settings.getModel(), modelOverride)
-        );
+    private java.util.Optional<EffectiveModelConfig> fromUserSettings(UserModelSettings settings, String modelOverride) {
+        try {
+            return java.util.Optional.of(new EffectiveModelConfig(
+                    normalizeChatBaseUrl(settings.getBaseUrl()),
+                    cryptoService.decrypt(settings.getEncryptedApiKey()),
+                    resolveModel(settings.getModel(), modelOverride)
+            ));
+        } catch (ResponseStatusException exception) {
+            // 已保存的密文可能来自旧的 KNOWFLOW_MODEL_SECRET_KEY。解密失败时把该用户配置视为不可用，
+            // 允许本地 .env/环境变量兜底继续支撑 Chat 调试；Settings 页面仍会提示用户重新填写 Key 覆盖旧密文。
+            log.warn(
+                    "Saved user model settings are unusable, falling back to environment config: userId={}, errorType={}",
+                    settings.getUserId(),
+                    exception.getClass().getSimpleName()
+            );
+            return java.util.Optional.empty();
+        }
     }
 
     /**
      * @return 环境变量提供的本地开发兜底模型配置
      * @Desc 只有当前用户没有保存完整模型配置时才回退环境变量，避免串用其他用户的模型 Key。
+     * modelOverride 是 Chat 本次请求选择的模型；当 .env 只配置 Base URL/API Key 时，
+     * 允许用本次请求模型补齐兜底配置，避免前端已经选定模型但后端仍因 KNOWFLOW_AI_MODEL 为空而拒绝生成。
      */
     private EffectiveModelConfig fromEnvironment(String modelOverride) {
-        if (!hasText(properties.getBaseUrl()) || !hasText(properties.getApiKey()) || !hasText(properties.getModel())) {
+        if (!hasText(properties.getBaseUrl())
+                || !hasText(properties.getApiKey())
+                || (!hasText(properties.getModel()) && !hasText(modelOverride))) {
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, MODEL_CONFIG_INCOMPLETE_MESSAGE);
         }
         return new EffectiveModelConfig(
@@ -143,7 +164,10 @@ public class OpenAiCompatibleChatModelClient implements ChatModelClient {
         if (hasText(modelOverride)) {
             return modelOverride.trim();
         }
-        return configuredModel.trim();
+        if (hasText(configuredModel)) {
+            return configuredModel.trim();
+        }
+        throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, MODEL_CONFIG_INCOMPLETE_MESSAGE);
     }
 
     /**

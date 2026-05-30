@@ -1298,7 +1298,8 @@ Content-Type: application/json
 | `PATCH` | `/api/chat/sessions/{sessionId}` | 重命名、置顶、取消置顶、标记未读/已读 | 阶段 6 已实现；阶段 13 增加 `unread` |
 | `DELETE` | `/api/chat/sessions/{sessionId}` | 删除会话 | 阶段 6 已实现 |
 | `GET` | `/api/chat/sessions/{sessionId}/messages` | 获取会话消息 | 阶段 6 已实现 |
-| `POST` | `/api/chat/sessions/{sessionId}/messages` | 发送问题并创建后台生成任务 | 阶段 13 已实现异步契约 |
+| `POST` | `/api/chat/sessions/{sessionId}/messages` | 发送问题并创建后台生成任务 | 阶段 13 已实现异步契约；阶段 14 收尾新增 `model`、`ragEnabled` |
+| `POST` | `/api/chat/sessions/{sessionId}/cancel` | 打断当前会话后台生成 | 阶段 14 收尾新增 |
 | `GET` | `/api/chat/usage/today?timezone=Asia/Shanghai` | 获取今日交谈次数 | 阶段 13 已实现 |
 | `POST` | `/api/chat/sessions/{sessionId}/messages/stream` | 流式问答 | 后续规划，尚未实现 |
 
@@ -1514,7 +1515,8 @@ Content-Type: application/json
 {
   "content": "JWT 登录流程是什么？",
   "limit": 5,
-  "model": "gpt-4.1-mini"
+  "model": "gpt-4.1-mini",
+  "ragEnabled": true
 }
 ```
 
@@ -1547,12 +1549,14 @@ Content-Type: application/json
 
 - `sessionId` 必须属于当前登录用户。
 - 阶段 13 该接口只同步保存用户消息并把会话状态置为 `GENERATING`，随后由后端后台任务完成检索、Prompt 构造、模型调用、助手消息和引用来源保存。
-- 阶段 14 请求体新增可选 `model`。传入时后端会把它作为本次生成模型，并同步保存为当前用户 Settings 的当前模型；Base URL 和 API Key 仍只来自当前用户已保存配置，不能通过 Chat 请求覆盖。
+- 阶段 14 请求体新增可选 `model`。传入时后端会把它作为本次生成模型；如果当前用户已经有完整 Settings 模型配置，则同步保存为当前模型；如果用户只依赖 `.env`/环境变量兜底配置，则不强制创建用户 Settings 记录。
+- 阶段 14 收尾新增可选 `ragEnabled`。未传时默认 `true`；`true` 表示检索知识库片段并保存真实引用来源，`false` 表示跳过知识库检索，只按当前会话上下文和模型生成回答，响应消息的 `sources` 为空数组且不伪造引用来源。
 - 前端通过轮询 `GET /api/chat/sessions/{sessionId}/messages` 和会话列表获取生成结果。
-- 后端先确认当前用户拥有该会话，并且仍是会话所属知识库成员，再基于该知识库检索 chunks，构造 prompt 调用模型。
+- 后端先确认当前用户拥有该会话，并且仍是会话所属知识库成员；当 `ragEnabled !== false` 时，再基于该知识库检索 chunks，构造 prompt 调用模型。
 - 当前 `sources` 来自阶段 9 PostgreSQL 全文检索结果，`score` 表示全文检索相关度分数。
 - `limit` 为空时默认 `5`，大于 `20` 时按 `20` 处理。
 - `model` 为空时使用当前用户 Settings 中保存的模型；如果用户没有完整模型配置，则允许按本地开发兜底配置处理。
+- 本地开发兜底配置可以来自后端环境变量或项目根目录/backend 目录的 `.env`，包括 `KNOWFLOW_AI_BASE_URL`、`KNOWFLOW_AI_API_KEY`、`KNOWFLOW_AI_MODEL`。
 - 模型调用失败时返回明确错误，不返回或泄露密钥。
 - 阶段 10 已增强多轮上下文和引用来源展示；默认使用当前会话最近 6 条以内历史消息进入 prompt，并限制总长度。
 - 阶段 13 收尾修复后，空检索不再跳过模型：后端仍使用当前用户自己的模型配置生成回答，但 `sources` 必须为空数组，且 prompt 会要求模型说明“当前没有可引用的知识库片段”，不能伪造引用来源。
@@ -1571,6 +1575,44 @@ Content-Type: application/json
 | `401` | 未登录或 token 无效 |
 | `404` | 会话不存在，或不属于当前登录用户 |
 | `500` | 模型调用或消息保存失败 |
+
+#### 打断当前会话后台生成
+
+```http
+POST /api/chat/sessions/{sessionId}/cancel
+Authorization: Bearer <accessToken>
+```
+
+成功响应示例：
+
+```json
+{
+  "id": 1,
+  "knowledgeBaseId": 2,
+  "title": "登录流程问答",
+  "pinned": false,
+  "unread": false,
+  "status": "IDLE",
+  "lastErrorMessage": null,
+  "createdAt": "2026-05-16T10:00:00Z",
+  "updatedAt": "2026-05-16T10:02:00Z"
+}
+```
+
+规则：
+
+- `sessionId` 必须属于当前登录用户。
+- 当前用户仍必须是会话所属知识库成员。
+- 如果会话处于 `GENERATING`，后端把会话恢复为 `IDLE`，清空当前活跃生成标识，保留已经保存的用户消息。
+- 打断不强行杀掉已经发给模型供应商的 HTTP 请求；后端通过生成标识保证被打断后的晚到结果不会再写入助手消息、sources 或覆盖会话状态。
+- 如果会话已经不是 `GENERATING`，该接口按幂等打断处理，返回当前最新会话状态。
+
+失败情况：
+
+| 状态码 | 原因 |
+|---|---|
+| `401` | 未登录或 token 无效 |
+| `404` | 会话不存在，或不属于当前登录用户 |
 
 #### 获取今日交谈次数
 

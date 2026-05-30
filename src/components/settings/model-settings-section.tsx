@@ -1,6 +1,8 @@
-import { type FormEvent, useId, useState } from "react";
+import { type FormEvent, useState } from "react";
 import {
+  Check,
   CheckCircle2,
+  ChevronDown,
   Eye,
   EyeOff,
   KeyRound,
@@ -26,6 +28,14 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
 import {
   SectionCard,
   SettingsErrorState,
@@ -131,7 +141,6 @@ export function ModelSettingsSection({
   const [formError, setFormError] = useState("");
   const [testResult, setTestResult] =
     useState<ModelConnectionTestResponse | null>(null);
-  const modelDatalistId = useId();
 
   function updateDraft(key: keyof ModelSettingsDraft, value: string) {
     setDraft((current) => ({
@@ -300,29 +309,87 @@ export function ModelSettingsSection({
               />
 
               <div className="flex min-w-0 flex-col gap-2">
-                <TextField
-                  id="model-name"
-                  label="Chat Model"
-                  value={draft.model}
-                  placeholder="gpt-4.1-mini"
-                  disabled={saving || testingModel}
-                  error={formError.includes("模型") ? formError : undefined}
-                  helpText={
-                    modelFetchError ||
-                    "可手动输入模型 ID；获取模型列表后也可在此输入框中选择。"
+                <label
+                  htmlFor="model-name"
+                  className="text-sm font-medium text-slate-700"
+                >
+                  Chat Model
+                </label>
+                <div className="flex min-w-0 rounded-[6px] border border-slate-200 bg-white focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100">
+                  <Input
+                    id="model-name"
+                    value={draft.model}
+                    placeholder="gpt-4.1-mini"
+                    disabled={saving || testingModel}
+                    aria-invalid={formError.includes("模型")}
+                    className="h-10 min-w-0 flex-1 rounded-[6px] border-0 bg-transparent px-3 text-sm shadow-none focus-visible:ring-0"
+                    onChange={(event) => updateDraft("model", event.target.value)}
+                  />
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        className="h-10 w-10 shrink-0 rounded-[6px] text-slate-500 hover:bg-slate-100"
+                        disabled={
+                          saving ||
+                          fetchingModels ||
+                          testingModel ||
+                          modelOptions.length === 0
+                        }
+                        aria-label="选择模型"
+                        title={
+                          modelOptions.length > 0
+                            ? "从已获取的模型列表中选择"
+                            : "请先获取模型列表，或直接手动输入模型 ID"
+                        }
+                      >
+                        <ChevronDown className="size-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent
+                      align="end"
+                      className="max-h-72 w-72 overflow-auto rounded-[8px]"
+                    >
+                      <DropdownMenuGroup>
+                        {modelOptions.map((model) => {
+                          const label = model.name || model.id;
+
+                          return (
+                            <DropdownMenuItem
+                              key={model.id}
+                              title={label}
+                              className="cursor-pointer gap-2"
+                              onSelect={() => updateDraft("model", model.id)}
+                            >
+                              <Check
+                                className={
+                                  draft.model === model.id
+                                    ? "size-4 opacity-100"
+                                    : "size-4 opacity-0"
+                                }
+                              />
+                              <span className="min-w-0 truncate">{label}</span>
+                            </DropdownMenuItem>
+                          );
+                        })}
+                      </DropdownMenuGroup>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+                <p
+                  className={
+                    formError.includes("模型")
+                      ? "text-xs leading-5 text-orange-600"
+                      : "text-xs leading-5 text-slate-500"
                   }
-                  inputProps={{
-                    list: modelDatalistId,
-                  }}
-                  onChange={(value) => updateDraft("model", value)}
-                />
-                <datalist id={modelDatalistId}>
-                  {modelOptions.map((model) => (
-                    <option key={model.id} value={model.id}>
-                      {model.name || model.id}
-                    </option>
-                  ))}
-                </datalist>
+                >
+                  {formError.includes("模型")
+                    ? formError
+                    : modelFetchError ||
+                      "可手动输入模型 ID；获取模型列表后也可通过右侧下拉按钮选择。"}
+                </p>
                 <div className="flex min-w-0 flex-col gap-2 sm:flex-row">
                   <Button
                     type="button"

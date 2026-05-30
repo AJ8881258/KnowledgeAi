@@ -4,7 +4,7 @@
 
 KnowFlow AI 是一个智能知识库问答平台。用户上传学习资料、项目文档或产品文档后，可以基于自己的资料进行检索增强问答。
 
-项目当前处于 **阶段 14：Docker 化与运维收尾已完成**。当前版本已经具备从本地开发到 Docker 全量启动的完整复现路径，并具备健康检查、日志排查、环境变量管理和 PostgreSQL 备份恢复说明。
+项目当前处于 **阶段 14：Docker 化与运维收尾已完成**。当前版本已经具备从本地开发到 Docker 全量启动的完整复现路径，并具备健康检查、日志排查、环境变量管理和 PostgreSQL 备份恢复说明；`do.md` 新增验收问题也已纳入阶段 14 收尾修复。
 
 ## 当前能力
 
@@ -19,7 +19,7 @@ KnowFlow AI 是一个智能知识库问答平台。用户上传学习资料、�
 - 文档上传、解析、切片、索引状态流转。
 - 支持 `.txt`、`.md`、`.markdown`、文本型 `.pdf`、`.docx`、`.html`、`.htm`。
 - PostgreSQL 全文检索，返回相关度分数。
-- RAG/Chat：会话、消息、引用来源、最近 6 条以内上下文、后台生成状态。
+- RAG/Chat：会话、消息、引用来源、最近 6 条以内上下文、后台生成状态、RAG 开关和生成打断。
 - 用户级模型配置：Base URL、加密 API Key、Model、timeout。
 - Settings 模型列表拉取和真实模型连接测试。
 - 用户偏好：语言、时区。
@@ -35,14 +35,15 @@ KnowFlow AI 是一个智能知识库问答平台。用户上传学习资料、�
 - 知识库共享成员管理 UI。
 - 文档上传、文档列表、文档详情和检索测试区。
 - Chat 会话列表、消息列表、发送问题、模型选择、引用来源面板、未读会话和后台生成状态。
+- Chat 生成中禁用 RAG/模型选择，发送按钮切换为“打断”；RAG 开关提供 hover 说明。
 - Settings 用户资料、模型配置、模型测试、偏好、RAG 参数和账号删除。
 - Header 未读角标和侧边栏今日交谈次数。
 
 ## 当前阶段状态
 
 - 阶段 0-14 已完成。
-- `do.md` 修复已完成：Chat 模型选择、进入会话自动滚动、用户模型配置复用、Settings 模型测试、退出登录确认、引用来源跟随选中回答、未读角标和响应式问题均已纳入阶段 14 收尾记录。
-- Docker 化没有改变 API 契约，本轮不需要修改 `doc/API.md`。
+- `do.md` 修复已完成：Chat 模型选择、进入会话自动滚动、用户模型配置复用、Settings 模型测试、退出登录确认、引用来源跟随选中回答、未读角标、响应式问题、RAG tooltip、生成打断和 `.env` 本地模型兜底均已纳入阶段 14 收尾记录。
+- 本轮收尾新增 `ragEnabled` 和生成打断接口，API 契约已同步到 `doc/API.md`。
 - 完整 Chat 真实回答验收仍依赖用户在 `/Settings` 提供可用的真实模型 Base URL/API Key/Model。
 
 ## 当前技术栈
@@ -278,7 +279,7 @@ Get-Content .\knowflow-backup.sql | docker compose exec -T postgres psql -U know
 - `pnpm build` 已通过。
 - 目标 ESLint 已通过。
 - `cd backend && .\mvnw.cmd -DskipTests package` 已通过。
-- `cd backend && .\mvnw.cmd test` 已通过，67 个测试全部成功。
+- `cd backend && .\mvnw.cmd test` 已通过，71 个测试全部成功。
 - `docker compose config` 已通过。
 - `docker compose up -d --build` 已通过，PostgreSQL、backend、frontend 均成功启动。
 - Compose 已验证关键 secrets 必须由 `.env` 或 `--env-file` 提供，缺少 `POSTGRES_PASSWORD`、`KNOWFLOW_JWT_SECRET` 或 `KNOWFLOW_MODEL_SECRET_KEY` 时会拒绝启动。

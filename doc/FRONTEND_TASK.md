@@ -6,7 +6,7 @@
 
 **阶段 14 已完成。**
 
-阶段 14 目标是完成 Docker 化和运维收尾，并记录 `do.md` 中影响真实使用的 Chat、Settings、Header 和响应式体验问题修复完成情况。本轮文档收尾没有修改 API 契约，`doc/API.md` 不需要变更。
+阶段 14 目标是完成 Docker 化和运维收尾，并记录 `do.md` 中影响真实使用的 Chat、Settings、Header 和响应式体验问题修复完成情况。本轮收尾新增 Chat `ragEnabled` 请求字段和生成打断接口，`doc/API.md` 已同步更新。
 
 ## 阶段 14 前端完成记录
 
@@ -16,7 +16,11 @@
 - README 已补充前端生产构建：`pnpm build`。
 - Docker 全量启动后，前端通过 Nginx 容器提供访问入口，默认宿主机端口为 `KNOWFLOW_FRONTEND_PORT=5173`。
 - Chat 输入区支持选择模型，模型来源于 Settings 可用模型列表或用户手动输入。
-- 发送消息时通过 `src/api/chat.ts` 传递可选 `model` 字段。
+- Settings `Chat Model` 使用显式“可输入 + 下拉选择”控件；获取模型列表后可点击下拉选择，没有列表时仍可手动输入模型 ID。
+- Chat 输入区不再内置硬编码默认模型列表；只有用户已保存或实际选择模型时才传递 `model`，避免绕开后端 `.env` 兜底配置。
+- 发送消息时通过 `src/api/chat.ts` 传递可选 `model` 和 `ragEnabled` 字段。
+- RAG 开关提供 hover 提示：开启时检索知识库片段并展示引用，关闭时只按当前会话和模型回答且不生成引用来源。
+- 当前会话生成中时，RAG 开关和模型选择禁用，发送按钮切换为“打断”并调用 `POST /api/chat/sessions/{sessionId}/cancel`。
 - Chat 进入或切换会话时自动滚动到消息底部。
 - Chat 轮询和生成完成时只更新内部消息/会话状态，不要求刷新整个右侧内容区域。
 - `sources: []` 作为正常状态处理，显示无引用来源提示，不暗示必须先索引 chunks 才能普通对话。

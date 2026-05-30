@@ -45,6 +45,7 @@ export type SendChatMessageRequest = {
   content: string;
   limit?: number;
   model?: string;
+  ragEnabled?: boolean;
 };
 
 export type SendChatMessageResponse = {
@@ -112,6 +113,14 @@ export async function sendChatSessionMessage(
   const response = await http.post<SendChatMessageResponse>(
     `/chat/sessions/${sessionId}/messages`,
     request,
+  );
+
+  return response.data;
+}
+
+export async function cancelChatSessionGeneration(sessionId: number | string) {
+  const response = await http.post<ChatSessionResponse>(
+    `/chat/sessions/${sessionId}/cancel`,
   );
 
   return response.data;

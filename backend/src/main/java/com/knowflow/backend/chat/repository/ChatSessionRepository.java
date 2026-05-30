@@ -34,7 +34,7 @@ public interface ChatSessionRepository {
      */
 
     @Select("""
-                select id,title,knowledge_base_id,user_id,pinned,unread,status,last_error_message,created_at,updated_at
+                select id,title,knowledge_base_id,user_id,pinned,unread,status,last_error_message,active_generation_id,created_at,updated_at
                 from chat_sessions
                 where knowledge_base_id = #{knowledgeBaseId} and
                 user_id = #{userId}
@@ -51,7 +51,7 @@ public interface ChatSessionRepository {
      */
 
     @Select("""
-                select id,title,knowledge_base_id,user_id,pinned,unread,status,last_error_message,created_at,updated_at
+                select id,title,knowledge_base_id,user_id,pinned,unread,status,last_error_message,active_generation_id,created_at,updated_at
                 from chat_sessions
                 where id = #{id} and user_id = #{userId}
             """)
@@ -117,6 +117,95 @@ public interface ChatSessionRepository {
     int updateStatus(
             @Param("id") Long id,
             @Param("userId") Long userId,
+            @Param("status") String status,
+            @Param("lastErrorMessage") String lastErrorMessage,
+            @Param("unread") Boolean unread
+    );
+
+    /**
+     * @param id                 会话 ID
+     * @param userId             当前用户 ID
+     * @param activeGenerationId 本次后台生成 ID，用于和异步任务回写时做一致性校验
+     * @return 更新行数
+     * @Desc 发送消息时把会话置为 GENERATING，并记录唯一生成 ID；后续 cancel 会清空该 ID，防止旧任务继续落库。
+     */
+    @Update("""
+                update chat_sessions
+                set status = 'GENERATING',
+                    last_error_message = null,
+                    active_generation_id = #{activeGenerationId},
+                    unread = false,
+                    updated_at = now()
+                where id = #{id} and user_id = #{userId}
+            """)
+    int beginGeneration(
+            @Param("id") Long id,
+            @Param("userId") Long userId,
+            @Param("activeGenerationId") String activeGenerationId
+    );
+
+    /**
+     * @param id     会话 ID
+     * @param userId 当前用户 ID
+     * @return 更新行数
+     * @Desc 用户点击“打断”时结束当前生成状态；只清空 activeGenerationId，不删除已保存的用户消息。
+     */
+    @Update("""
+                update chat_sessions
+                set status = 'IDLE',
+                    last_error_message = null,
+                    active_generation_id = null,
+                    updated_at = now()
+                where id = #{id} and user_id = #{userId} and status = 'GENERATING'
+            """)
+    int cancelGeneration(@Param("id") Long id, @Param("userId") Long userId);
+
+    /**
+     * @param id                 会话 ID
+     * @param userId             当前用户 ID
+     * @param activeGenerationId 异步任务启动时拿到的生成 ID
+     * @return true 表示该任务仍是当前会话最新生成，允许写入助手消息和 sources
+     * @Desc 防止“打断”后的旧模型响应覆盖会话状态或追加过期回答。
+     */
+    @Select("""
+                select count(1) > 0
+                from chat_sessions
+                where id = #{id}
+                  and user_id = #{userId}
+                  and status = 'GENERATING'
+                  and active_generation_id = #{activeGenerationId}
+            """)
+    boolean isActiveGeneration(
+            @Param("id") Long id,
+            @Param("userId") Long userId,
+            @Param("activeGenerationId") String activeGenerationId
+    );
+
+    /**
+     * @param id                 会话 ID
+     * @param userId             当前用户 ID
+     * @param activeGenerationId 异步任务启动时拿到的生成 ID
+     * @param status             最终状态：IDLE 或 FAILED
+     * @param lastErrorMessage   失败时的脱敏错误；成功时传 null
+     * @param unread             是否标记未读
+     * @return 更新行数；0 表示任务已被打断或被新的生成替换
+     * @Desc 只有生成 ID 仍匹配时才允许结束生成，避免取消后的旧任务回写状态。
+     */
+    @Update("""
+                update chat_sessions
+                set status = #{status},
+                    last_error_message = #{lastErrorMessage},
+                    unread = coalesce(#{unread}, unread),
+                    active_generation_id = null,
+                    updated_at = now()
+                where id = #{id}
+                  and user_id = #{userId}
+                  and active_generation_id = #{activeGenerationId}
+            """)
+    int finishGeneration(
+            @Param("id") Long id,
+            @Param("userId") Long userId,
+            @Param("activeGenerationId") String activeGenerationId,
             @Param("status") String status,
             @Param("lastErrorMessage") String lastErrorMessage,
             @Param("unread") Boolean unread

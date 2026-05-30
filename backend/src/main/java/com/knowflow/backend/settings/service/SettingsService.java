@@ -40,6 +40,7 @@ import static com.knowflow.backend.common.model.ModelProviderErrors.messageForSt
 @AllArgsConstructor
 public class SettingsService {
     private static final String MODEL_CONNECTION_TEST_SUCCESS_MESSAGE = "模型连接测试成功";
+    private static final String SAVED_MODEL_KEY_UNUSABLE_MESSAGE = "已保存的 API Key 无法解密，请重新填写 API Key 后保存覆盖";
 
     //默认值
     private static final String DEFAULT_LANGUAGE = "zh-CN";
@@ -137,7 +138,7 @@ public class SettingsService {
                     .toList();
             return new ModelListResponse(models);
         } catch (RuntimeException exception) {
-            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Fetch model list failed");
+            throw sanitizeModelSettingsFailure(exception, "Fetch model list failed");
         }
     }
 
@@ -180,7 +181,7 @@ public class SettingsService {
         } catch (RestClientResponseException exception) {
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, messageForStatus(exception.getStatusCode().value()));
         } catch (ResponseStatusException exception) {
-            throw exception;
+            throw sanitizeModelSettingsFailure(exception, exception.getReason());
         } catch (RuntimeException exception) {
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, MODEL_CALL_FAILED_MESSAGE);
         }
@@ -203,6 +204,20 @@ public class SettingsService {
 
         current.setModel(normalizedModel);
         userModelSettingsRepository.upsert(current);
+    }
+
+    /**
+     * @param userId 当前 JWT 用户 ID
+     * @return true 表示当前用户已经保存 Base URL、加密 API Key 和模型名
+     * @Desc Chat 发送时只有完整用户配置才同步 model 字段；如果用户依赖 .env 兜底配置，
+     * 不应因为没有 user_model_settings 记录而让本次发送失败。
+     */
+    public boolean hasCompleteUserModelSettings(Long userId) {
+        return userModelSettingsRepository.findByUserId(userId)
+                .filter(settings -> hasText(settings.getBaseUrl()))
+                .filter(settings -> hasText(settings.getEncryptedApiKey()))
+                .filter(settings -> hasText(settings.getModel()))
+                .isPresent();
     }
 
 
@@ -445,7 +460,7 @@ public class SettingsService {
         }
         if (savedSettings != null && hasText(savedSettings.getEncryptedApiKey())) {
             // 已保存的 Key 只在后端解密使用，不会进入响应体，也不会暴露给前端表单。
-            return cryptoService.decrypt(savedSettings.getEncryptedApiKey());
+            return decryptSavedApiKey(savedSettings.getEncryptedApiKey());
         }
         throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "apiKey is empty");
     }
@@ -466,9 +481,28 @@ public class SettingsService {
         }
         if (savedSettings != null && hasText(savedSettings.getEncryptedApiKey())) {
             // 连接测试必须验证真实 chat 鉴权，因此会解密当前用户自己的 Key 并仅用于本次后端请求。
-            return cryptoService.decrypt(savedSettings.getEncryptedApiKey());
+            return decryptSavedApiKey(savedSettings.getEncryptedApiKey());
         }
         throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "apiKey is empty");
+    }
+
+    private String decryptSavedApiKey(String encryptedApiKey) {
+        try {
+            return cryptoService.decrypt(encryptedApiKey);
+        } catch (ResponseStatusException exception) {
+            // 旧密文无法用当前加密密钥解开时，不能返回底层异常或密文细节；提示用户重新填写 Key 覆盖即可恢复。
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, SAVED_MODEL_KEY_UNUSABLE_MESSAGE);
+        }
+    }
+
+    private ResponseStatusException sanitizeModelSettingsFailure(RuntimeException exception, String fallbackMessage) {
+        if (exception instanceof ResponseStatusException responseStatusException) {
+            String reason = responseStatusException.getReason();
+            if (SAVED_MODEL_KEY_UNUSABLE_MESSAGE.equals(reason)) {
+                return new ResponseStatusException(HttpStatus.BAD_REQUEST, SAVED_MODEL_KEY_UNUSABLE_MESSAGE);
+            }
+        }
+        return new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, fallbackMessage);
     }
 
     private String resolveModelTestModel(TestModelConnectionRequest request, UserModelSettings savedSettings) {

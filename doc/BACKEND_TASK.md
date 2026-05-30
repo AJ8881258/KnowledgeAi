@@ -6,7 +6,7 @@
 
 **阶段 14 已完成。**
 
-阶段 14 目标是完成 Docker 化和运维收尾，并记录 `do.md` 中影响真实使用的 Chat/Settings/Header 修复完成情况。本轮文档收尾没有修改 API 契约，`doc/API.md` 不需要变更。
+阶段 14 目标是完成 Docker 化和运维收尾，并记录 `do.md` 中影响真实使用的 Chat/Settings/Header 修复完成情况。本轮收尾新增 Chat `ragEnabled` 请求字段和生成打断接口，`doc/API.md` 已同步更新。
 
 ## 阶段 14 后端完成记录
 
@@ -21,6 +21,11 @@
   - API Key 加密保存，不明文返回。
   - 空 API Key 保存时保留已有 Key，非空时覆盖。
 - Chat 请求级 `model` 只覆盖本次生成模型并同步为当前用户 Settings 模型，不覆盖 Base URL/API Key。
+- Chat 请求级 `model` 只有在当前用户已有完整 Settings 模型配置时才同步为当前用户 Settings 模型；如果仅依赖 `.env`/环境变量兜底配置，不会因为缺少用户模型配置记录而失败。
+- Chat 发送支持 `ragEnabled`：未传默认启用 RAG；传 `false` 时跳过知识库 chunk 检索，调用模型回答并保持 `sources: []`。
+- Chat 新增 `POST /api/chat/sessions/{sessionId}/cancel`，用于把生成中会话恢复为 `IDLE`。
+- `chat_sessions.active_generation_id` 用于标记当前活跃后台生成；用户打断后清空该标识，晚到的模型结果不会再写入助手消息、sources 或覆盖会话状态。
+- 本地 `pnpm backend` 支持从项目根目录或 `backend/` 目录 `.env` 读取 AI 兜底配置，包括 `KNOWFLOW_AI_BASE_URL`、`KNOWFLOW_AI_API_KEY`、`KNOWFLOW_AI_MODEL`。
 - Chat 模型调用优先使用当前用户保存的模型配置；用户没有完整配置时才允许使用后端环境变量兜底。
 - Settings 模型测试接口复用当前表单或已保存配置，成功/失败均脱敏。
 - 空检索时仍允许调用当前用户模型回答，但 `sources` 保持空数组，不伪造引用来源。
@@ -42,7 +47,7 @@
 本次协调者已完成后端侧验证：
 
 - `cd backend && .\mvnw.cmd -DskipTests package`：通过。
-- `cd backend && .\mvnw.cmd test`：通过，67 个测试全部成功。
+- `cd backend && .\mvnw.cmd test`：通过，71 个测试全部成功。
 - `docker compose config`：通过。
 - `docker compose up -d --build`：通过，PostgreSQL、backend、frontend 均成功启动。
 - Compose 已验证关键 secrets 必须由 `.env` 或 `--env-file` 提供，缺少 `POSTGRES_PASSWORD`、`KNOWFLOW_JWT_SECRET` 或 `KNOWFLOW_MODEL_SECRET_KEY` 时会拒绝启动。

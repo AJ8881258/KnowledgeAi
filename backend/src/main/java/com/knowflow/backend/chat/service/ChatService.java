@@ -27,6 +27,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 @Service
 public class ChatService {
@@ -225,11 +226,13 @@ public class ChatService {
         accessService.requireMember(session.getKnowledgeBaseId(), userId);
         String question = normalizeContent(request == null ? null : request.getContent());
         String requestedModel = normalizeOptionalModel(request == null ? null : request.getModel());
-        if (requestedModel != null) {
+        boolean ragEnabled = request == null || request.getRagEnabled() == null || request.getRagEnabled();
+        if (requestedModel != null && settingsService.hasCompleteUserModelSettings(userId)) {
             settingsService.updateCurrentModelFromChat(userId, requestedModel);
         }
 
         List<ChatMessage> historyMessages = loadPromptHistory(session, userId);
+        String activeGenerationId = UUID.randomUUID().toString();
 
         ChatMessage userMessage = new ChatMessage();
         userMessage.setSessionId(session.getId());
@@ -237,21 +240,39 @@ public class ChatService {
         userMessage.setContent(question);
         chatMessageRepository.insert(userMessage);
 
-        // 先保存用户消息并把会话置为生成中，模型调用交给后台任务，前端通过轮询拿结果。
-        chatSessionRepository.updateStatus(session.getId(), userId, "GENERATING", null, false);
+        // 先保存用户消息并把会话置为生成中，activeGenerationId 是本次后台任务的“写入许可”。
+        // 用户点击“打断”会清空它，旧任务返回后也不能再写入助手消息或覆盖状态。
+        chatSessionRepository.beginGeneration(session.getId(), userId, activeGenerationId);
         chatGenerationService.generate(
                 session.getId(),
                 userId,
                 session.getKnowledgeBaseId(),
                 question,
                 historyMessages,
-                requestedModel
+                requestedModel,
+                ragEnabled,
+                activeGenerationId
         );
 
         return new SendMessageResponse(
                 new ChatMessageResponse(userMessage, List.of()),
                 new ChatSessionResponse(getSessionOr404(session.getId(), userId))
         );
+    }
+
+    /**
+     * @param sessionId 会话 ID
+     * @param userId    当前 JWT 用户 ID
+     * @return 打断后的最新会话状态
+     * @Desc 打断只结束当前后台生成并清空 activeGenerationId，不删除用户已经发送的问题；
+     * 模型 HTTP 请求可能仍在供应商侧执行，但旧结果回到后端后会因为 generationId 不匹配而被丢弃。
+     */
+    @Transactional
+    public ChatSessionResponse cancelGeneration(Long sessionId, Long userId) {
+        ChatSession session = getSessionOr404(sessionId, userId);
+        accessService.requireMember(session.getKnowledgeBaseId(), userId);
+        chatSessionRepository.cancelGeneration(sessionId, userId);
+        return new ChatSessionResponse(getSessionOr404(sessionId, userId));
     }
 
     /**

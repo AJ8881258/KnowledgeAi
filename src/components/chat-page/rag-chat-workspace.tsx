@@ -26,6 +26,7 @@ import { toast } from "sonner";
 
 import {
   createKnowledgeBaseChatSession,
+  cancelChatSessionGeneration,
   deleteChatSession,
   getChatSessionMessages,
   getKnowledgeBaseChatSessions,
@@ -680,6 +681,7 @@ export function RagChatWorkspace({
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [isCreatingSession, setIsCreatingSession] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  const [isCancellingGeneration, setIsCancellingGeneration] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [generationNotice, setGenerationNotice] = useState("");
   const [editingSession, setEditingSession] =
@@ -701,7 +703,7 @@ export function RagChatWorkspace({
   const [modelOptions, setModelOptions] = useState<ModelListItem[]>([]);
   const [selectedModelId, setSelectedModelId] = useState("");
   const [isLoadingModels, setIsLoadingModels] = useState(false);
-  const [modelError, setModelError] = useState("");
+  const [, setModelError] = useState("");
   const refreshUnreadCount = useChatStatusStore(
     (state) => state.refreshUnreadCount,
   );
@@ -1536,6 +1538,7 @@ export function RagChatWorkspace({
         content,
         limit: DEFAULT_CHAT_LIMIT,
         ...(selectedModel ? { model: selectedModel } : {}),
+        ragEnabled: payload.ragEnabled,
       });
       const savedUserMessage = response.userMessage ?? userMessage;
       const nextSession = response.session
@@ -1596,6 +1599,29 @@ export function RagChatWorkspace({
       await refreshTodayUsage();
       isSendingRef.current = false;
       setIsSending(false);
+    }
+  };
+
+  const handleCancelGeneration = async () => {
+    const sessionId = activeSessionIdRef.current;
+
+    if (!sessionId || isCancellingGeneration) {
+      return;
+    }
+
+    setIsCancellingGeneration(true);
+    setGenerationNotice("");
+
+    try {
+      const response = await cancelChatSessionGeneration(sessionId);
+      replaceSession(response);
+      isSendingRef.current = false;
+      setIsSending(false);
+      toast.success("已打断本次生成");
+    } catch (error) {
+      setErrorMessage(handleRequestError(error));
+    } finally {
+      setIsCancellingGeneration(false);
     }
   };
 
@@ -1927,15 +1953,16 @@ export function RagChatWorkspace({
             placeholder="向当前知识库提问..."
             onSubmit={handleSubmit}
             disabled={isLoadingSessions || isLoadingMessages}
-            isSubmitting={isSending}
-            submitLabel={isSending ? "已发送" : "发送"}
+            isSubmitting={isSending || isActiveSessionGenerating}
+            submitLabel={isSending || isActiveSessionGenerating ? "打断" : "发送"}
             showAttachmentButton={false}
             showContextControls={composerModelOptions.length > 0 || isLoadingModels}
             modelOptions={composerModelOptions}
             selectedModelId={selectedModelId}
             onModelChange={(modelId) => void handleModelChange(modelId)}
             isLoadingModels={isLoadingModels}
-            modelError={modelError}
+            controlsDisabled={isActiveSessionGenerating || isCancellingGeneration}
+            onCancel={handleCancelGeneration}
             helperText="Enter 发送，Shift + Enter 换行。发送后会先展示你的问题，再轮询后台生成结果。"
           />
         </footer>

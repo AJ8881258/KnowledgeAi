@@ -57,6 +57,8 @@ public class ChatGenerationService {
      * @param question        用户刚发送的问题。
      * @param historyMessages 当前用户当前会话允许进入 prompt 的历史消息。
      * @param modelOverride   本次 Chat 请求选择的模型；只覆盖 model，不覆盖当前用户 Base URL/API Key。
+     * @param ragEnabled      本次生成是否启用知识库检索；false 时跳过 chunks 检索并保持 sources 为空。
+     * @param generationId    本次生成的写入许可 ID；被打断后该 ID 会失效，异步任务不能落库。
      * @Desc 后台异步完成检索、prompt 构造、模型调用、助手消息和 sources 落库。
      * 空检索与旧逻辑不同：仍调用模型生成回答，但 sources 保持空数组，并在 prompt 中要求说明无可引用知识库片段。
      * 失败时只写入脱敏错误和 FAILED 状态，也把 unread 置为 true，因为“后台生成已结束且需要用户处理”
@@ -69,16 +71,16 @@ public class ChatGenerationService {
             Long knowledgeBaseId,
             String question,
             List<ChatMessage> historyMessages,
-            String modelOverride
+            String modelOverride,
+            boolean ragEnabled,
+            String generationId
     ) {
         try {
-            transactionTemplate.executeWithoutResult(status ->
-                    doGenerate(sessionId, userId, knowledgeBaseId, question, historyMessages, modelOverride)
-            );
+            doGenerate(sessionId, userId, knowledgeBaseId, question, historyMessages, modelOverride, ragEnabled, generationId);
         } catch (RuntimeException exception) {
             String lastErrorMessage = safeMessage(exception);
             transactionTemplate.executeWithoutResult(status ->
-                    chatSessionRepository.updateStatus(sessionId, userId, "FAILED", lastErrorMessage, true)
+                    chatSessionRepository.finishGeneration(sessionId, userId, generationId, "FAILED", lastErrorMessage, true)
             );
         }
     }
@@ -89,21 +91,44 @@ public class ChatGenerationService {
             Long knowledgeBaseId,
             String question,
             List<ChatMessage> historyMessages,
-            String modelOverride
+            String modelOverride,
+            boolean ragEnabled,
+            String generationId
     ) {
         UserRagSettings ragSettings = settingsService.getEffectiveRagSettings(userId);
-        List<SearchResultResponse> retrievedChunks = documentChunkRepository.searchIndexedChunks(
+        List<SearchResultResponse> retrievedChunks = ragEnabled
+                ? documentChunkRepository.searchIndexedChunks(
                 knowledgeBaseId,
                 userId,
                 question,
                 ragSettings.getTopK()
-        );
+        )
+                : List.of();
         List<SearchResultResponse> contextChunks = limitContextChunks(retrievedChunks, ragSettings.getMaxContextChunks());
 
         String prompt = contextChunks.isEmpty()
                 ? promptBuilder.buildWithoutSources(question, historyMessages)
                 : promptBuilder.build(question, contextChunks, historyMessages);
         String answer = chatModelClient.chat(userId, prompt, ragSettings.getTemperature(), modelOverride);
+
+        // 模型 HTTP 调用不放在数据库事务里，避免长事务占用连接。
+        // 真正落库时再用 generationId 条件认领本次生成，确保用户点击“打断”后旧结果不能插入助手消息或 sources。
+        transactionTemplate.executeWithoutResult(status ->
+                saveSuccessfulGeneration(sessionId, userId, generationId, answer, contextChunks)
+        );
+    }
+
+    private void saveSuccessfulGeneration(
+            Long sessionId,
+            Long userId,
+            String generationId,
+            String answer,
+            List<SearchResultResponse> contextChunks
+    ) {
+        int updated = chatSessionRepository.finishGeneration(sessionId, userId, generationId, "IDLE", null, true);
+        if (updated == 0) {
+            return;
+        }
 
         ChatMessage assistantMessage = new ChatMessage();
         assistantMessage.setSessionId(sessionId);
@@ -114,8 +139,6 @@ public class ChatGenerationService {
         if (!contextChunks.isEmpty()) {
             saveSources(assistantMessage.getId(), contextChunks);
         }
-
-        chatSessionRepository.updateStatus(sessionId, userId, "IDLE", null, true);
     }
 
     /**

@@ -81,6 +81,13 @@ public class ChatController {
         return chatService.sendMessage(sessionId, getCurrentUserId(jwt), request);
     }
 
+    @PostMapping("/chat/sessions/{sessionId}/cancel")
+    public ChatSessionResponse cancelGeneration(
+            @PathVariable Long sessionId,
+            @AuthenticationPrincipal Jwt jwt) {
+        return chatService.cancelGeneration(sessionId, getCurrentUserId(jwt));
+    }
+
     @GetMapping("/chat/usage/today")
     public ChatUsageTodayResponse getTodayUsage(
             @RequestParam(required = false) String timezone,

@@ -36,6 +36,12 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 export type ChatAttachment = {
@@ -71,18 +77,12 @@ type ChatComposerProps = {
   selectedModelId?: string;
   onModelChange?: (modelId: string) => void;
   isLoadingModels?: boolean;
-  modelError?: string;
+  controlsDisabled?: boolean;
+  onCancel?: () => void | Promise<void>;
 };
 
 const MAX_CHAT_MESSAGE_LENGTH = 4000;
 const ALLOWED_ATTACHMENT_EXTENSIONS = [".pdf", ".md", ".markdown", ".txt"];
-
-const chatModels: ChatModel[] = [
-  { id: "gpt-4o-mini", label: "gpt-4o-mini" },
-  { id: "gpt-4o", label: "gpt-4o" },
-  { id: "deepseek-chat", label: "deepseek-chat" },
-  { id: "qwen-plus", label: "qwen-plus" },
-];
 
 function getAttachmentExtension(name: string) {
   const dotIndex = name.lastIndexOf(".");
@@ -135,26 +135,32 @@ export function ChatComposer({
   selectedModelId,
   onModelChange,
   isLoadingModels = false,
-  modelError = "",
+  controlsDisabled = false,
+  onCancel,
 }: ChatComposerProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [chatInput, setChatInput] = useState("");
   const [ragEnabled, setRagEnabled] = useState(true);
-  const [modelId, setModelId] = useState(chatModels[0].id);
+  const [modelId, setModelId] = useState("");
   const [isInputExpanded, setIsInputExpanded] = useState(false);
   const [attachmentSheetOpen, setAttachmentSheetOpen] = useState(false);
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   const [attachmentError, setAttachmentError] = useState("");
-  const availableModels = modelOptions?.length ? modelOptions : chatModels;
+  const availableModels = modelOptions ?? [];
   const currentModelId = selectedModelId ?? modelId;
   const visibleAttachments = showAttachmentButton ? attachments : [];
   const hasMessageContent =
     chatInput.trim().length > 0 || visibleAttachments.length > 0;
   const isBusy = disabled || isSubmitting;
+  const isControlBusy = isBusy || controlsDisabled;
   const selectedModel =
     availableModels.find((model) => model.id === currentModelId) ??
-    availableModels[0] ??
-    chatModels[0];
+    (currentModelId
+      ? {
+          id: currentModelId,
+          label: currentModelId,
+        }
+      : null);
   const chatLineCount = Math.max(
     2,
     chatInput.split("\n").length + Math.floor(chatInput.length / 72),
@@ -217,14 +223,14 @@ export function ChatComposer({
   };
 
   const handleSendMessage = async () => {
-    if (!hasMessageContent || isBusy) {
+    if (!hasMessageContent || disabled || isSubmitting) {
       return;
     }
 
     const payload = {
       message: chatInput.trim(),
       attachments: visibleAttachments,
-      modelId: selectedModel.id,
+      modelId: selectedModel?.id ?? currentModelId,
       ragEnabled: showContextControls ? ragEnabled : true,
     };
 
@@ -248,7 +254,7 @@ export function ChatComposer({
   };
 
   return (
-    <>
+    <TooltipProvider>
       <div
         className={cn(
           "mx-auto max-w-[800px] rounded-[8px] border border-slate-200 bg-white p-3 shadow-sm",
@@ -324,23 +330,30 @@ export function ChatComposer({
           <div className="flex min-w-0 flex-wrap items-center gap-2">
             {showContextControls && (
               <>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-8 rounded-[6px] border-slate-200 px-3 text-xs font-medium tracking-normal normal-case"
-                  aria-pressed={ragEnabled}
-                  onClick={handleRagToggle}
-                  disabled={isBusy}
-                >
-                  <span
-                    className={cn(
-                      "size-2 rounded-full",
-                      ragEnabled ? "bg-emerald-500" : "bg-slate-300",
-                    )}
-                  />
-                  {ragEnabled ? "RAG 已启用" : "RAG 已关闭"}
-                </Button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-8 rounded-[6px] border-slate-200 px-3 text-xs font-medium tracking-normal normal-case"
+                      aria-pressed={ragEnabled}
+                      onClick={handleRagToggle}
+                      disabled={isControlBusy}
+                    >
+                      <span
+                        className={cn(
+                          "size-2 rounded-full",
+                          ragEnabled ? "bg-emerald-500" : "bg-slate-300",
+                        )}
+                      />
+                      {ragEnabled ? "RAG 已启用" : "RAG 已关闭"}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent sideOffset={6}>
+                    开启时会检索知识库片段并展示引用；关闭时只按当前会话和模型回答，不生成引用来源。
+                  </TooltipContent>
+                </Tooltip>
 
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
@@ -350,9 +363,11 @@ export function ChatComposer({
                       size="sm"
                       className="h-8 max-w-full min-w-0 rounded-[6px] border-slate-200 px-3 text-xs font-medium tracking-normal normal-case sm:max-w-[15rem]"
                       disabled={
-                        isBusy || isLoadingModels || availableModels.length === 0
+                        isControlBusy ||
+                        isLoadingModels ||
+                        availableModels.length === 0
                       }
-                      title={selectedModel.label}
+                      title={selectedModel?.label || "未选择模型"}
                     >
                       {isLoadingModels ? (
                         <Loader2
@@ -363,7 +378,7 @@ export function ChatComposer({
                         <Bot data-icon="inline-start" />
                       )}
                       <span className="min-w-0 truncate">
-                        {selectedModel.label}
+                        {selectedModel?.label || "使用默认模型"}
                       </span>
                       <ChevronDown data-icon="inline-end" />
                     </Button>
@@ -385,7 +400,7 @@ export function ChatComposer({
                           <Check
                             className={cn(
                               "opacity-0",
-                              model.id === selectedModel.id && "opacity-100",
+                              model.id === selectedModel?.id && "opacity-100",
                             )}
                           />
                           <span className="min-w-0 truncate">
@@ -400,12 +415,6 @@ export function ChatComposer({
             )}
           </div>
 
-          {modelError && showContextControls && (
-            <p className="w-full text-xs leading-5 text-orange-600">
-              {modelError}
-            </p>
-          )}
-
           <div className="flex shrink-0 items-center justify-end gap-2">
             <span className="text-xs text-slate-500">
               {chatInput.length}/{MAX_CHAT_MESSAGE_LENGTH}
@@ -414,9 +423,16 @@ export function ChatComposer({
               type="button"
               size="sm"
               className="h-8 rounded-[6px] bg-blue-600 px-3 text-xs font-medium tracking-normal text-white normal-case hover:bg-blue-700"
-              aria-label="发送"
-              disabled={!hasMessageContent || isBusy}
-              onClick={handleSendMessage}
+              aria-label={isSubmitting ? "打断" : "发送"}
+              disabled={!isSubmitting && (!hasMessageContent || disabled)}
+              onClick={() => {
+                if (isSubmitting) {
+                  void onCancel?.();
+                  return;
+                }
+
+                void handleSendMessage();
+              }}
             >
               {isSubmitting ? (
                 <Loader2 data-icon="inline-start" className="animate-spin" />
@@ -516,6 +532,6 @@ export function ChatComposer({
         </SheetContent>
       </Sheet>
       )}
-    </>
+    </TooltipProvider>
   );
 }
