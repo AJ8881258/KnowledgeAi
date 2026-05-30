@@ -66,13 +66,13 @@ public class OpenAiCompatibleChatModelClient implements ChatModelClient {
                     .defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + config.apiKey())
                     .build();
 
-            String responseBody = restClient.post()
+            byte[] responseBody = restClient.post()
                     .uri("/chat/completions")
                     .body(new ChatCompletionRequest(config.model(), List.of(new ChatCompletionMessage("user", prompt)), temperature))
                     .retrieve()
-                    .body(String.class);
-            // 部分 OpenAI-compatible 网关会返回 JSON 字符串但 Content-Type 不是 application/json。
-            // 这里先按字符串读取再解析，既提升兼容性，又避免在日志或异常里暴露供应商原始响应。
+                    .body(byte[].class);
+            // 部分 OpenAI-compatible 网关会返回 JSON 但 Content-Type 不是 application/json。
+            // 这里按原始字节交给 Jackson 解析，避免 RestClient 按错误字符集把 UTF-8 中文读成乱码。
             ChatCompletionResponse response = objectMapper.readValue(responseBody, ChatCompletionResponse.class);
             if (response == null || response.choices() == null || response.choices().isEmpty()) {
                 throw new IllegalStateException("AI Model response is empty");

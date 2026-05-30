@@ -561,7 +561,7 @@ class Stage13UserModelAndChatTests {
 
     @Test
     void chatParsesJsonModelResponseEvenWhenContentTypeIsTextPlain() throws Exception {
-        modelServer.returnChatCompletionWithContentType("stage14 text content type answer", MediaType.TEXT_PLAIN_VALUE);
+        modelServer.returnChatCompletionWithContentType("当前没有可引用的知识库片段。JWT 是一种用于身份认证的令牌。", MediaType.TEXT_PLAIN_VALUE);
         aiProperties.setBaseUrl(modelServer.baseUrl() + "/v1");
         aiProperties.setApiKey("stage14-text-content-type-key");
         aiProperties.setModel("stage14-text-content-type-model");
@@ -576,7 +576,7 @@ class Stage13UserModelAndChatTests {
 
         waitForSessionStatus(token, knowledgeBaseId, sessionId, "IDLE");
         JsonNode assistantMessage = waitForAssistantMessage(token, sessionId);
-        assertThat(assistantMessage.get("content").asText()).isEqualTo("stage14 text content type answer");
+        assertThat(assistantMessage.get("content").asText()).isEqualTo("当前没有可引用的知识库片段。JWT 是一种用于身份认证的令牌。");
         assertThat(modelServer.authorizationHeaders()).contains("Bearer stage14-text-content-type-key");
     }
 
