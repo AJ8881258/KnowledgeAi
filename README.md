@@ -1,36 +1,44 @@
 # KnowFlow AI
 
-智能知识库问答平台（RAG-based）
+KnowFlow AI 是一个 RAG-based 智能知识库问答平台。用户可以上传学习资料、项目文档或产品文档，系统会解析、切片、索引文档，并基于知识库内容进行问答。
 
-## 项目简介
+## 当前状态
 
-KnowFlow AI 是一个基于检索增强生成（RAG）的知识库问答平台。用户可以上传学习资料、项目文档或产品文档，系统会自动解析、切片并建立索引，之后用户可以基于自己的资料进行智能问答。
+项目当前处于 **阶段 14：Docker 化和运维收尾已完成**。
 
-## 功能特性
+已完成的核心能力：
 
-- 用户认证：注册、登录、JWT 鉴权、重置密码
-- 知识库管理：创建、编辑、删除知识库，支持精选标记和主题色
-- 文档处理：上传 TXT、Markdown、文本型 PDF，自动解析和切片
-- 文档检索：基于 PostgreSQL 关键词匹配的文档片段检索
-- RAG 问答：基于检索结果构造 Prompt，调用大模型生成回答并展示引用来源
-- 会话管理：创建、重命名、删除、置顶/取消置顶对话会话
+- 用户认证：注册、登录、JWT 鉴权、重置密码、当前用户资料。
+- 知识库管理：创建、编辑、删除、精选标记、主题色、用户隔离。
+- 协作权限：单个知识库成员共享，支持 `OWNER` / `EDITOR` / `VIEWER` 权限。
+- 文档处理：支持 `.txt`、`.md`、`.markdown`、文本型 `.pdf`、`.docx`、`.html`、`.htm` 上传解析、切片和索引。
+- 全文检索：基于 PostgreSQL 全文检索返回相关片段、相关度分数和引用来源。
+- RAG 问答：基于检索结果构建 Prompt，调用 OpenAI-compatible 模型生成回答并保存引用来源。
+- 用户级模型配置：每个用户可在 Settings 保存 Base URL、API Key、模型和超时时间；API Key 后端加密保存、脱敏返回。
+- Settings 模型测试：支持用当前表单或已保存配置测试真实模型连接。
+- 多会话协同：会话创建、重命名、删除、置顶、取消置顶、未读会话、后台生成状态。
+- Chat 体验：发送时可选择模型，空检索仍可调用用户模型回答但 `sources` 保持为空；右侧引用来源跟随选中回答展示。
+- 使用统计：侧边栏展示今日交谈次数，按当前用户和时区统计。
+- Docker 化：根目录 `compose.yaml` 可启动 PostgreSQL、Spring Boot 后端和前端 Nginx 容器。
+
+阶段 14 的 browser-use 完整 Chat 真实回答验收依赖用户提供可用的真实模型配置。没有真实 Base URL/API Key/Model 时，只能验证应用启动、接口健康、页面流程和脱敏错误。
 
 ## 技术栈
 
-### 前端
+前端：
 
 - React 19
-- TypeScript 6
-- Vite 8
+- TypeScript
+- Vite
 - Tailwind CSS v4
-- React Router 7
+- React Router
 - axios
 - Zustand
 - shadcn/radix-sera UI
 - Lucide icons
 - Sonner toasts
 
-### 后端
+后端：
 
 - Java 21
 - Spring Boot
@@ -44,174 +52,293 @@ KnowFlow AI 是一个基于检索增强生成（RAG）的知识库问答平台�
 
 ## 项目结构
 
-```
-KnowFlow AI/
-├── src/                          # 前端源码
-│   ├── api/                      # API 接口封装
-│   ├── components/               # 组件
-│   │   ├── ui/                   # shadcn 基础组件
-│   │   ├── chat-page/            # Chat 页面组件
-│   │   ├── dashboard/            # Dashboard 组件
-│   │   ├── documents/            # 文档组件
-│   │   ├── knowledge-bases/      # 知识库组件
-│   │   ├── login/                # 登录组件
-│   │   └── settings/             # 设置组件
-│   ├── hooks/                    # 自定义 Hooks
-│   ├── lib/                      # 工具函数
-│   ├── pages/                    # 页面入口
-│   └── store/                    # Zustand 状态管理
-├── backend/                      # 后端源码
-│   └── src/main/java/            # Java 源码
-│       └── com/knowflow/
-│           ├── auth/             # 认证模块
-│           ├── config/           # 配置
-│           ├── knowledgebase/    # 知识库模块
-│           ├── document/         # 文档模块
-│           ├── chat/             # 聊天模块
-│           ├── rag/              # RAG 模块
-│           └── user/             # 用户模块
-├── doc/                          # 项目文档
-│   ├── STAGE_PLAN.md             # 阶段计划（权威来源）
-│   ├── PROJECT.md                # 项目概览
-│   ├── API.md                    # API 接口文档
-│   ├── FRONTEND_TASK.md          # 前端任务
-│   └── BACKEND_TASK.md           # 后端任务
-├── AGENTS.md                     # AI Agent 协作规则
-└── CLAUDE.md                     # Claude Code 配置
+```text
+.
+├── src/                         # 前端源码
+│   ├── api/                     # axios API wrapper
+│   ├── components/              # 共享和页面拆分组件
+│   ├── hooks/                   # React hooks
+│   ├── lib/                     # 工具函数
+│   ├── pages/                   # 路由页面
+│   └── store/                   # Zustand store
+├── backend/                     # Spring Boot 后端
+│   └── src/main/java/com/knowflow/backend/
+│       ├── auth/                # 认证
+│       ├── chat/                # 会话、消息、生成状态
+│       ├── config/              # Security/JWT/配置
+│       ├── document/            # 文档上传、解析、切片
+│       ├── knowledgebase/       # 知识库和成员权限
+│       ├── rag/                 # 检索、Prompt、模型调用
+│       ├── settings/            # 用户模型配置、偏好、RAG 参数
+│       └── user/                # 用户数据访问
+├── doc/
+│   ├── STAGE_PLAN.md            # 阶段计划和验收状态
+│   ├── PROJECT.md               # 项目概览和运行方式
+│   ├── API.md                   # API 契约
+│   ├── FRONTEND_TASK.md         # 前端任务书/验收记录
+│   └── BACKEND_TASK.md          # 后端任务书/验收记录
+├── compose.yaml                 # 全量 Docker Compose
+├── .env.example                 # Docker 环境变量模板
+├── Dockerfile                   # 前端生产镜像
+└── backend/Dockerfile           # 后端生产镜像
 ```
 
-## 快速开始
+## 本地开发启动
 
-### 环境要求
+环境要求：
 
 - Node.js 18+
 - pnpm
 - Java 21+
-- Maven 3.8+
-- Docker & Docker Compose
-- PostgreSQL (通过 Docker Compose 启动)
+- Docker Desktop 或兼容 Docker Compose 的运行环境
 
-### 后端启动
+安装依赖：
 
-```bash
-cd backend
-
-# 启动 PostgreSQL
-docker compose up -d
-
-# 运行测试
-.\mvnw.cmd test
-
-# 启动后端服务
-.\mvnw.cmd spring-boot:run
-```
-
-后端默认运行在 `http://localhost:8080`
-
-### 前端启动
-
-```bash
-# 安装依赖
+```powershell
 pnpm install
+```
 
-# 启动开发服务器
+启动开发数据库：
+
+```powershell
+pnpm sql
+```
+
+启动后端：
+
+```powershell
+pnpm backend
+```
+
+启动前端：
+
+```powershell
 pnpm dev
-
-# 构建生产版本
-pnpm build
-
-# 代码检查
-pnpm lint
 ```
 
-前端默认运行在 `http://localhost:5173`
+默认访问地址：
 
-### 模型配置（阶段 6）
+- 前端开发服务：http://localhost:5173
+- 后端 API：http://localhost:8080
+- 健康检查：http://localhost:8080/api/health
 
-在 `backend/src/main/resources/application.properties` 中配置：
+本地开发链路：
 
-```properties
-knowflow.ai.base-url=        # OpenAI-compatible API 地址
-knowflow.ai.api-key=          # API Key
-knowflow.ai.model=            # 模型名称
-knowflow.ai.timeout-seconds=60
-```
-
-> **注意**：密钥不要提交到版本控制。
-
-## 当前开发阶段
-
-项目已完成阶段 0-6：
-
-- 阶段 0：前端静态原型 ✅
-- 阶段 1：后端基础设施 ✅
-- 阶段 2：认证闭环 ✅
-- 阶段 3：知识库 CRUD ✅
-- 阶段 4：文档上传、解析、切片 ✅
-- 阶段 5：文档检索 MVP ✅
-- 阶段 6：RAG 问答 MVP ✅
-
-当前处于 **阶段 7：前端体验完善**
-
-详细阶段计划请查看 [doc/STAGE_PLAN.md](doc/STAGE_PLAN.md)
-
-## 架构说明
-
-### 开发架构
-
-```
+```text
 Browser -> Vite Dev Server -> Spring Boot Backend -> PostgreSQL
 ```
 
-前端通过 Vite 代理转发 `/api/**` 请求到后端 `http://localhost:8080/api/**`。
+前端通过 Vite proxy 转发 `/api/**` 到 `http://localhost:8080/api/**`。
 
-### RAG 问答流程
+## Docker 全量启动
 
-```
-用户提问
-  -> Chat Controller
-  -> 校验用户、会话、知识库归属
-  -> Document Chunk Search（关键词检索）
-  -> Prompt Builder（构造提示词）
-  -> OpenAI-compatible Model Client（调用大模型）
-  -> Chat Message Storage（保存消息和引用来源）
-  -> 返回回答和引用来源
+1. 复制环境变量模板：
+
+```powershell
+Copy-Item .env.example .env
 ```
 
-### 数据库表
+2. 编辑 `.env`，至少替换以下 secrets：
 
-- `users` - 用户表
-- `knowledge_bases` - 知识库表
-- `documents` - 文档表
-- `document_chunks` - 文档切片表
-- `chat_sessions` - 会话表
-- `chat_messages` - 消息表
-- `chat_message_sources` - 引用来源表
+```text
+POSTGRES_PASSWORD=CHANGE_ME_postgres_password
+KNOWFLOW_JWT_SECRET=CHANGE_ME_use_a_long_random_jwt_secret_at_least_32_chars
+KNOWFLOW_MODEL_SECRET_KEY=CHANGE_ME_use_a_long_random_model_secret_at_least_32_chars
+```
+
+3. 启动全量服务：
+
+```powershell
+docker compose up -d --build
+```
+
+根目录 `compose.yaml` 会要求 `POSTGRES_PASSWORD`、`KNOWFLOW_JWT_SECRET` 和 `KNOWFLOW_MODEL_SECRET_KEY` 存在；缺少这些变量时会直接拒绝启动，避免使用仓库里的弱默认密钥。
+
+4. 查看容器状态：
+
+```powershell
+docker compose ps
+```
+
+5. 访问应用：
+
+- 前端：http://localhost:5173
+- 后端健康检查：http://localhost:8080/api/health
+
+6. 停止服务：
+
+```powershell
+docker compose down
+```
+
+如果需要同时删除数据库卷，请确认数据可丢弃后再执行：
+
+```powershell
+docker compose down -v
+```
+
+## 构建
+
+前端生产构建：
+
+```powershell
+pnpm build
+```
+
+后端 JAR 构建：
+
+```powershell
+cd backend
+.\mvnw.cmd -DskipTests package
+```
+
+后端测试：
+
+```powershell
+cd backend
+.\mvnw.cmd test
+```
+
+## 环境变量
+
+| 变量 | 默认/示例 | 说明 |
+|---|---|---|
+| `KNOWFLOW_FRONTEND_PORT` | `5173` | 前端 Nginx 容器映射到宿主机的端口。 |
+| `KNOWFLOW_BACKEND_PORT` | `8080` | Spring Boot 后端映射到宿主机的端口。 |
+| `KNOWFLOW_POSTGRES_PORT` | `5432` | PostgreSQL 映射到宿主机的端口。 |
+| `POSTGRES_DB` | `knowflow` | PostgreSQL 数据库名。 |
+| `POSTGRES_USER` | `knowflow` | PostgreSQL 用户名。 |
+| `POSTGRES_PASSWORD` | `CHANGE_ME...` | PostgreSQL 密码，生产环境必须替换。 |
+| `KNOWFLOW_JWT_SECRET` | `CHANGE_ME...` | JWT 签名密钥，建议至少 32 个随机字符。 |
+| `KNOWFLOW_MODEL_SECRET_KEY` | `CHANGE_ME...` | 用户模型 API Key 加密密钥。修改后，历史已保存 API Key 将无法解密。 |
+| `KNOWFLOW_AI_BASE_URL` | 空 | 可选 OpenAI-compatible 兜底 Base URL，仅当用户未保存自己的模型配置时使用。 |
+| `KNOWFLOW_AI_API_KEY` | 空 | 可选 AI 兜底 API Key。不要提交真实 Key。 |
+| `KNOWFLOW_AI_MODEL` | 空 | 可选 AI 兜底模型名。 |
+| `KNOWFLOW_AI_TIMEOUT_SECONDS` | `60` | 模型调用超时时间。 |
+| `KNOWFLOW_DB_MAX_POOL_SIZE` | `10` | Docker 后端数据库连接池最大连接数。 |
+| `KNOWFLOW_DB_MIN_IDLE` | `1` | Docker 后端数据库连接池最小空闲连接数。 |
+
+后端实际读取的数据库变量为：
+
+- `KNOWFLOW_DB_URL`
+- `KNOWFLOW_DB_USERNAME`
+- `KNOWFLOW_DB_PASSWORD`
+- `KNOWFLOW_DB_MAX_POOL_SIZE`
+- `KNOWFLOW_DB_MIN_IDLE`
+
+根目录 `compose.yaml` 会根据 `POSTGRES_*` 自动组装容器内数据库连接。
+
+## 健康检查和接口文档
+
+健康检查：
+
+```powershell
+curl http://localhost:8080/api/health
+```
+
+Docker 容器健康状态：
+
+```powershell
+docker compose ps
+```
+
+Swagger/OpenAPI：
+
+- 当前 API 契约以 [doc/API.md](doc/API.md) 为准。
+- 若后端启用 springdoc/OpenAPI UI，可检查 `http://localhost:8080/swagger-ui/index.html` 或 `http://localhost:8080/v3/api-docs`。
+- 当前阶段 Docker 化没有改变接口契约。
+
+## 日志排查
+
+查看全部服务日志：
+
+```powershell
+docker compose logs -f
+```
+
+查看后端日志：
+
+```powershell
+docker compose logs -f backend
+```
+
+查看前端 Nginx 日志：
+
+```powershell
+docker compose logs -f frontend
+```
+
+查看 PostgreSQL 日志：
+
+```powershell
+docker compose logs -f postgres
+```
+
+常见排查点：
+
+- 后端无法启动：检查 `.env` 中 `POSTGRES_PASSWORD`、`KNOWFLOW_JWT_SECRET`、`KNOWFLOW_MODEL_SECRET_KEY` 是否已设置。
+- 修改 `.env` 中 `POSTGRES_PASSWORD` 后旧数据库卷不会自动改密码；本地演示环境可先备份数据，再执行 `docker compose down -v` 重新初始化数据库卷。
+- 数据库连接失败：检查 `postgres` 容器是否 healthy，端口 `KNOWFLOW_POSTGRES_PORT` 是否被占用。
+- Chat 生成失败：先在 `/Settings` 保存并测试真实 Base URL/API Key/Model；失败提示应脱敏，不应暴露密钥。
+- 前端无法访问后端：Docker 全量模式下前端容器应通过 Nginx 代理请求后端；开发模式下检查 Vite proxy 和 `pnpm backend` 是否运行。
+
+## PostgreSQL 备份和恢复
+
+备份数据库到当前目录：
+
+```powershell
+docker compose exec -T postgres pg_dump -U $env:POSTGRES_USER -d $env:POSTGRES_DB > knowflow-backup.sql
+```
+
+如果 PowerShell 当前没有加载 `.env` 变量，也可以直接使用默认用户名和库名：
+
+```powershell
+docker compose exec -T postgres pg_dump -U knowflow -d knowflow > knowflow-backup.sql
+```
+
+恢复数据库：
+
+```powershell
+Get-Content .\knowflow-backup.sql | docker compose exec -T postgres psql -U knowflow -d knowflow
+```
+
+恢复前建议先确认目标库可覆盖，并保留当前数据备份。
+
+## 主要 API 文档
+
+详见 [doc/API.md](doc/API.md)。常用入口：
+
+- `POST /api/auth/register`
+- `POST /api/auth/login`
+- `GET /api/auth/me`
+- `GET /api/knowledge-bases`
+- `POST /api/knowledge-bases/{knowledgeBaseId}/documents`
+- `POST /api/knowledge-bases/{knowledgeBaseId}/search`
+- `POST /api/knowledge-bases/{knowledgeBaseId}/chat/sessions`
+- `POST /api/chat/sessions/{sessionId}/messages`
+- `GET /api/chat/usage/today`
+- `GET/PATCH /api/settings/model`
+- `POST /api/settings/model/models`
+- `POST /api/settings/model/test`
 
 ## 文档
 
-- [阶段计划](doc/STAGE_PLAN.md) - 开发阶段、状态和验收标准
-- [项目概览](doc/PROJECT.md) - 技术栈、架构和当前状态
-- [API 文档](doc/API.md) - 后端接口定义
-- [前端任务](doc/FRONTEND_TASK.md) - 前端开发任务清单
-- [后端任务](doc/BACKEND_TASK.md) - 后端开发任务清单
+- [阶段计划](doc/STAGE_PLAN.md)
+- [项目概览](doc/PROJECT.md)
+- [API 契约](doc/API.md)
+- [前端任务书/验收记录](doc/FRONTEND_TASK.md)
+- [后端任务书/验收记录](doc/BACKEND_TASK.md)
 
-## 扩展方向
+## 后续可扩展方向
 
-当前阶段暂不实现，可作为后续扩展：
+- Embedding 和 pgvector 向量检索。
+- SSE/流式输出。
+- 扫描版 PDF OCR。
+- PPT/Excel 文档解析。
+- 团队空间和更复杂组织权限。
+- Agent 工作流。
+- 更完整的后台管理系统。
 
-- Embedding 和 pgvector 向量检索
-- 流式输出
-- 多模型选择
-- PDF OCR
-- Agent 工作流
-- 多租户组织权限
-- 复杂后台管理系统
-
-## 许可证
+## License
 
 MIT License
-
-## 贡献者
-
-- Akin

@@ -1,94 +1,74 @@
-# 后端任务书：阶段 14 do.md 修复与部署收尾
+# 后端任务书/验收记录：阶段 14 Docker 化与运维收尾
 
-本任务书是后端 Agent 的固定入口。后续每个阶段都复用本文件，由协调者实时更新当前任务。后端 Agent 必须先阅读 `AGENTS.md`、`doc/STAGE_PLAN.md`、`doc/PROJECT.md`、`doc/API.md` 和本文件。
+本文档是后端 Agent 的固定入口。后续阶段继续复用本文件，由协调者更新当前任务和验收记录。后端 Agent 开始实现前必须先阅读 `AGENTS.md`、`doc/STAGE_PLAN.md`、`doc/PROJECT.md`、`doc/API.md` 和本文档。
 
-## 必读规则
+## 当前阶段状态
 
-- 后端现在默认由 Agent 正常直接开发。请按任务书直接修改后端业务代码、测试代码和必要配置，并运行相关验证命令；不再默认输出教学代码，除非用户明确要求只讲解、只给代码片段或“后端不要直接修改”。
-- 不要修改已经执行过的 Flyway 迁移文件；如果确实需要表结构或索引变化，只能新增迁移文件。
-- 任何接口路径、请求体、响应体或错误语义变化，都必须提醒协调者同步 `doc/API.md`。
-- 新增或修改功能代码时，必须写有价值的业务注释或 JavaDoc，说明实现了什么功能、有哪些关键参数、参数含义是什么、与旧逻辑的区别是什么；不要给 import、基础注解、getter/setter 写噪声注释。
-- 注释重点覆盖配置读取、密钥脱敏、模型选择、异步生成、未读状态、健康检查、日志、备份恢复、启动脚本和部署参数；不要为了注释而注释。
+**阶段 14 已完成。**
 
-## 当前目标
+阶段 14 目标是完成 Docker 化和运维收尾，并记录 `do.md` 中影响真实使用的 Chat/Settings/Header 修复完成情况。本轮文档收尾没有修改 API 契约，`doc/API.md` 不需要变更。
 
-阶段 14：部署与运维 + `do.md` 修复。
+## 阶段 14 后端完成记录
 
-先修复影响真实 Chat 使用的后端问题：Chat 请求级模型选择、Settings 模型测试、用户模型配置隔离、空检索真实回答、生成失败脱敏和未读状态语义。部署与运维说明仍是阶段 14 后续收尾重点。
+已完成能力：
 
-## 本轮任务
+- Docker Compose 全量运行已形成交付路径：PostgreSQL、Spring Boot 后端、前端 Nginx。
+- 后端容器通过环境变量读取数据库、JWT、用户模型 API Key 加密密钥、可选 AI 兜底配置。
+- `SPRING_DOCKER_COMPOSE_ENABLED=false` 用于容器化部署，避免后端容器再尝试控制 Docker。
+- `GET /api/health` 可用于健康检查。
+- 用户级模型配置继续按当前 JWT 用户隔离读取：
+  - Base URL 可回显用于继续编辑。
+  - API Key 加密保存，不明文返回。
+  - 空 API Key 保存时保留已有 Key，非空时覆盖。
+- Chat 请求级 `model` 只覆盖本次生成模型并同步为当前用户 Settings 模型，不覆盖 Base URL/API Key。
+- Chat 模型调用优先使用当前用户保存的模型配置；用户没有完整配置时才允许使用后端环境变量兜底。
+- Settings 模型测试接口复用当前表单或已保存配置，成功/失败均脱敏。
+- 空检索时仍允许调用当前用户模型回答，但 `sources` 保持空数组，不伪造引用来源。
+- 后台生成成功或失败都可以产生未读提醒；成功/失败状态通过 `status` 表达，未读只由 `unread` 表达。
+- README 已补充后端相关运维说明：环境变量、健康检查、日志排查、构建、PostgreSQL 备份恢复。
 
-1. Chat 发送接口：
-   - `POST /api/chat/sessions/{sessionId}/messages` 请求体支持可选 `model`。
-   - `model` 只覆盖本次生成模型 ID，不覆盖 Base URL/API Key。
-   - 传入 `model` 时同步保存为当前用户 Settings 当前模型。
-2. 用户模型配置隔离：
-   - Chat 调用优先使用当前 JWT 用户保存的 Base URL/API Key/Model。
-   - 不串用其他用户配置，不通过 Chat 请求传 Base URL/API Key。
-   - 用户没有完整模型配置时才允许回退环境变量兜底。
-3. 空检索回答：
-   - 没有命中文档 chunks 时仍调用当前用户模型生成回答。
-   - `sources` 保持空数组，不伪造引用来源。
-   - Prompt 要求模型说明当前没有可引用知识库片段。
-4. 模型测试：
-   - `POST /api/settings/model/test` 作为正式接口，支持复用已保存配置。
-   - 成功/失败都必须脱敏，不泄露 API Key、Authorization header、完整 Base URL、model 或供应商原始错误。
-5. 异步生成状态：
-   - 成功后会话回到 `IDLE`，并按当前规则设置未读提醒。
-   - 失败后会话进入 `FAILED`，写入脱敏 `lastErrorMessage`。
-   - 后台生成成功或失败都表示会话有新终态，应该把 `unread` 置为 `true`；前端通过 `status` 区分成功或失败。
-6. 部署与运维后续收尾：
-   - 梳理数据库、JWT、模型供应商兜底配置、用户 API Key 加密密钥、日志、健康检查和 Swagger/OpenAPI 暴露策略。
-   - 环境变量示例只能写占位值，不写真实密钥、真实 API Key、生产数据库密码。
+## 验收记录
 
-## 建议涉及文件
+阶段 14 后端侧验收口径：
 
-可能修改：
+- 本地后端启动命令：`pnpm backend`。
+- 本地 PostgreSQL 启动命令：`pnpm sql`。
+- 后端构建命令：`cd backend && .\mvnw.cmd -DskipTests package`。
+- 后端测试命令：`cd backend && .\mvnw.cmd test`。
+- Docker 全量启动命令：`docker compose up -d --build`。
+- 健康检查：`GET /api/health`。
+- 运维排查：`docker compose logs -f backend`、`docker compose ps`。
 
-- `backend/src/main/java/com/knowflow/backend/chat/**`
-- `backend/src/main/java/com/knowflow/backend/settings/**`
-- `backend/src/test/**`
-- `backend/src/main/resources/application*.yaml`
-- `.env.example` 或 `backend/.env.example`
-- `README.md`
+本次协调者已完成后端侧验证：
 
-不应修改：
+- `cd backend && .\mvnw.cmd -DskipTests package`：通过。
+- `cd backend && .\mvnw.cmd test`：通过，67 个测试全部成功。
+- `docker compose config`：通过。
+- `docker compose up -d --build`：通过，PostgreSQL、backend、frontend 均成功启动。
+- Compose 已验证关键 secrets 必须由 `.env` 或 `--env-file` 提供，缺少 `POSTGRES_PASSWORD`、`KNOWFLOW_JWT_SECRET` 或 `KNOWFLOW_MODEL_SECRET_KEY` 时会拒绝启动。
+- `Invoke-RestMethod http://localhost:8080/api/health`：返回 `{"status":"UP"}`。
+- `Invoke-RestMethod http://localhost:5173/api/health`：经前端 Nginx 代理返回 `{"status":"UP"}`。
+- `docker compose logs backend --tail 120`：后端启动、Flyway 9 个迁移和健康检查正常；未发现 API Key、Authorization header 或真实密钥明文输出。
 
-- 已执行的 Flyway 迁移文件。
-- 前端业务组件。
-- 真实密钥、真实 API Key、真实生产数据库配置。
+## 剩余人工验收条件
 
-## 验收命令
+完整 Chat 真实回答验收必须由用户提供真实模型配置：
 
-```powershell
-cd backend
-.\mvnw.cmd test
-```
+1. 在 `/Settings` 保存真实 OpenAI-compatible Base URL、API Key、Model。
+2. 调用 Settings 模型测试并确认成功。
+3. 在 `/Chat/{sessionId}` 选择模型并发送问题。
+4. 确认助手回答生成成功。
+5. 有检索命中时确认引用来源来自真实文档 chunk；无检索命中时确认 `sources` 为空。
+6. 模型调用失败时确认错误脱敏，不暴露 API Key、Authorization header、完整 Base URL 或供应商原始敏感错误。
 
-如修改了打包或配置，也建议运行：
+## 后续阶段建议
 
-```powershell
-cd backend
-.\mvnw.cmd package
-```
+阶段 14 已收尾。后续如果继续扩展后端，建议从以下方向新开阶段：
 
-## 手动验收说明
+- Embedding / pgvector 向量检索。
+- SSE 流式输出。
+- 后台任务队列和重试机制。
+- OCR、PPT、Excel 文档解析。
+- 更完整的生产观测、告警和部署流水线。
 
-完成后给用户一份简短可执行步骤：
-
-1. `/Settings` 保存 Base URL/API Key/Model 后测试模型。
-2. `/Chat/{sessionId}` 选择模型并发送问题。
-3. 空检索时也能返回助手回答，sources 为空。
-4. 模型失败时会话状态为 `FAILED`，错误脱敏。
-5. Header 未读统计只受 `unread` 影响；失败会话如果 `unread === true` 也应计入角标。
-
-## 完成后输出
-
-完成后请输出：
-
-1. 修改了哪些文件。
-2. Chat 请求级模型选择和 Settings 同步如何实现。
-3. 模型配置隔离、脱敏和空检索回答如何保证。
-4. 成功/失败状态与未读提醒如何分别表达。
-5. 运行了哪些测试命令和结果。
-6. 仍需前端或用户手动确认的事项。
+新增接口或接口语义变化时，必须先同步 `doc/API.md`。

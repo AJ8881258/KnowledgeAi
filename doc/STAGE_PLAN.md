@@ -1,673 +1,168 @@
-# KnowFlow AI 阶段计划书
+# KnowFlow AI 阶段计划
 
-本文件是 KnowFlow AI 后续开发的权威阶段总任务书。以后开发顺序、阶段状态和验收标准以这里为准。
+本文档是 KnowFlow AI 后续开发的权威阶段计划、阶段状态和验收记录。API 契约以 `doc/API.md` 为准；项目概览和运行方式以 `doc/PROJECT.md` 为准；前后端执行记录分别以 `doc/FRONTEND_TASK.md` 和 `doc/BACKEND_TASK.md` 为准。
 
 ## 使用规则
 
-- 每完成一个阶段，更新本文件的阶段状态和验收结果。
-- 后端接口变化必须同步 `doc/API.md`。
-- 项目当前状态变化必须同步 `doc/PROJECT.md`。
-- 如果改变 Agent 协作规则，再同步 `AGENTS.md`。
-- 后端现在默认由 Agent 正常直接开发；除非用户明确要求“后端不要直接修改/我自己写/只教学”，否则按任务书直接修改后端业务代码、测试代码和必要配置，并运行相关验证命令。
-- 前后端协调开发默认由协调者自行创建和管理 `AGENT_TEAM` 完成，不再要求用户把前端/后端任务提示复制到新的独立会话。
-- 前端阶段默认由 AI 根据 `doc/API.md` 接入真实接口，遵守 axios、Zustand 和现有 UI 规范。
+- 每完成一个阶段，更新本文档的阶段状态、完成内容和验收结果。
+- 后端接口契约变化必须同步 `doc/API.md`。
+- 项目状态、运行方式或部署方式变化必须同步 `doc/PROJECT.md`。
+- 前后端任务书使用固定文件 `doc/FRONTEND_TASK.md` 和 `doc/BACKEND_TASK.md`。
 - `doc/` 下只保留核心文档：`STAGE_PLAN.md`、`PROJECT.md`、`API.md`、`FRONTEND_TASK.md`、`BACKEND_TASK.md`。
-- 阶段路线、阶段状态和阶段验收写在本文件；项目说明、架构和启动命令写在 `PROJECT.md`；接口写在 `API.md`；前后端执行任务写在对应任务文件。
+- 文档/规划/指挥会话只同步核心文档和必要规则，不修改 `src/`、`backend/`、Docker 等业务/运行文件。
 
 ## 当前阶段总览
 
 | 阶段 | 状态 | 依据 |
 |---|---|---|
-| 阶段 0：前端静态原型 | 已完成 | Dashboard、KnowledgeBases、Documents、Chat、Settings 静态页面相关提交 |
-| 阶段 1：后端基础设施 | 已完成 | Spring Boot、PostgreSQL、Flyway、基础表结构 |
-| 阶段 2：认证闭环 | 已完成 | 注册、登录、JWT、重置密码、前端登录接入 |
-| 阶段 3：知识库 CRUD | 已完成 | 后端 CRUD、用户隔离、前端接真实接口、删除 mock 列表 |
-| 阶段 4：文档上传、解析、切片 | 已完成 | Document 阶段按当前进度标记为已完成 |
-| 阶段 5：文档检索 MVP | 已完成 | 后端关键词检索接口、前端检索测试区、文档同步和构建测试已完成 |
-| 阶段 6：RAG 问答 MVP | 已完成 | 基于阶段 5 检索结果完成最小可用问答闭环，并完成会话管理收尾 |
-| 阶段 7：前端体验完善 | 已完成 | 前端体验整理和后端稳定性支撑已完成代码级验收；浏览器/UI 由用户人工验收 |
-| 阶段 8：Settings 功能接入与项目交付整理 | 已完成 | Settings 后端接入、README、演示账号、架构说明、答辩材料 |
-| 阶段 9：检索质量升级 | 已完成 | PostgreSQL 全文检索、相关度分数、RAG 引用排序和阶段 9 测试已完成 |
-| 阶段 10：RAG 体验增强 | 已完成 | 非流式多轮上下文、空检索降级、引用体验、模型失败脱敏和阶段 10 测试已完成 |
-| 阶段 11：文档处理增强 | 已完成 | 第一版已扩展 `.docx` 和 `.html/.htm` 文本提取，暂不做 OCR、PPT、Excel 和异步队列 |
-| 阶段 12：权限与团队协作 | 已完成 | 单个知识库共享、OWNER/EDITOR/VIEWER 成员权限、前后端接入和代码级验收 |
-| 阶段 13：用户模型配置、偏好设置与多会话协同增强 | 已完成 | 用户级模型配置、语言时区、未读会话、异步生成、今日交谈次数和收尾修复已完成代码级验收 |
-| 阶段 14：部署与运维 + do.md 修复 | 当前阶段 | 生产配置、启动复现、构建部署收尾，并修复 Chat 模型选择、Settings 模型测试、引用来源和响应式体验 |
+| 阶段 0：前端静态原型 | 已完成 | Dashboard、KnowledgeBases、Documents、Chat、Settings 静态页面完成。 |
+| 阶段 1：后端基础设施 | 已完成 | Spring Boot、PostgreSQL、Flyway、基础表结构完成。 |
+| 阶段 2：认证闭环 | 已完成 | 注册、登录、JWT、重置密码、前端登录接入完成。 |
+| 阶段 3：知识库 CRUD | 已完成 | 后端 CRUD、用户隔离、前端真实接口接入完成。 |
+| 阶段 4：文档上传、解析、切片 | 已完成 | 文档上传、解析、切片、状态流转和前端接入完成。 |
+| 阶段 5：文档检索 MVP | 已完成 | 知识库内文档片段检索、检索测试区和接口契约完成。 |
+| 阶段 6：RAG 问答 MVP | 已完成 | 检索、Prompt、模型调用、消息保存、引用来源和会话管理闭环完成。 |
+| 阶段 7：前端体验完善 | 已完成 | 真实数据状态、页面拆分、加载/错误/空状态和代码级验证完成。 |
+| 阶段 8：Settings 功能接入与交付整理 | 已完成 | 邮箱、RAG 参数、账号删除、Settings 后端接入和交付资料整理完成。 |
+| 阶段 9：检索质量升级 | 已完成 | PostgreSQL 全文检索、相关度分数和引用排序完成。 |
+| 阶段 10：RAG 体验增强 | 已完成 | 多轮上下文、空检索降级、引用体验和模型错误脱敏完成。 |
+| 阶段 11：文档处理增强 | 已完成 | 新增 `.docx`、`.html/.htm` 文本提取，保持同步处理和 10MB 上限。 |
+| 阶段 12：权限与团队协作 | 已完成 | 单个知识库共享、`OWNER`/`EDITOR`/`VIEWER` 成员权限和前后端接入完成。 |
+| 阶段 13：用户模型配置、偏好设置与多会话协同增强 | 已完成 | 用户级模型配置、API Key 加密、未读会话、后台生成、今日交谈次数完成。 |
+| 阶段 14：Docker 化与运维 + do.md 修复 | 已完成 | Docker 全量启动、README 运维说明、构建/健康检查/日志/备份恢复文档完成；`do.md` 修复已完成。 |
 
-## 阶段 0：前端静态原型
-
-### 目标
-
-完成主要页面的静态交互原型，让项目先具备可演示的前端骨架。
-
-### 已完成内容
-
-- Dashboard 首页统计卡片和入口。
-- KnowledgeBases 列表、详情、交互原型。
-- Documents 文档列表和分页原型。
-- Chat 三栏问答界面原型。
-- Settings 设置页原型。
-
-### 验收标准
-
-- 主要路由可以正常打开。
-- 页面结构、导航、基础交互可演示。
-- 静态 mock 数据只作为早期原型使用，后续阶段逐步删除。
-
-### 涉及文档
-
-- `doc/PROJECT.md`
-
-### 下一步
-
-已完成。后续只在真实接口接入时清理遗留 mock 数据。
-
-## 阶段 1：后端基础设施
+## 阶段 14：Docker 化与运维 + do.md 修复
 
 ### 目标
 
-建立 Spring Boot 后端基础工程，接入 PostgreSQL 和 Flyway。
+让项目从本地学习/演示状态收敛为可复现启动、可 Docker 化运行、可健康检查、可排查日志、可备份恢复数据库的交付状态；同时完成 `do.md` 中影响真实 Chat、Settings、Header 和响应式体验的问题修复说明收尾。
 
 ### 已完成内容
 
-- Spring Boot 后端项目骨架。
-- PostgreSQL Docker Compose 本地数据库。
-- Flyway 数据库迁移。
-- 基础表结构和 Maven 构建。
+- README 已更新到阶段 14 当前真实状态，覆盖认证、知识库、协作权限、文档处理、全文检索、RAG、用户级模型配置、未读会话、今日交谈次数和 Docker 化能力。
+- README 已补充本地开发启动命令：
+  - `pnpm sql`
+  - `pnpm backend`
+  - `pnpm dev`
+- README 已补充 Docker 全量启动流程：
+  - 复制 `.env.example` 为 `.env`
+  - 替换 PostgreSQL、JWT、模型加密等 secrets
+  - `docker compose up -d --build`
+  - 访问前端和后端健康检查
+- README 已补充构建命令：
+  - `pnpm build`
+  - `cd backend && .\mvnw.cmd -DskipTests package`
+- README 已补充环境变量表：
+  - PostgreSQL
+  - JWT
+  - 用户模型 API Key 加密密钥
+  - 可选 AI 兜底配置
+  - 前端/后端/PostgreSQL 端口
+  - 数据库连接池参数
+- README 已补充健康检查、Swagger/OpenAPI 说明、Docker 日志排查、PostgreSQL 备份和恢复命令。
+- `doc/PROJECT.md` 已更新为阶段 14 完成态，说明本地开发、Docker 全量运行、构建、健康检查和运维方式。
+- `doc/BACKEND_TASK.md` 已更新为阶段 14 后端验收记录，不再保留“后续收尾重点”。
+- `doc/FRONTEND_TASK.md` 已更新为阶段 14 前端验收记录，不再保留“后续收尾重点”。
+- `do.md` 中列出的 Chat 模型选择、自动滚动、用户模型配置复用、Settings 模型测试、退出确认、引用来源跟随选中回答、未读角标和响应式问题，已按阶段 14 记录为代码级修复完成。
 
-### 验收标准
+### 验收结果
 
-- 后端可以启动。
-- Flyway 可以初始化或升级数据库结构。
-- Maven 测试可以运行。
+- Docker 化和运维收尾文档已完成。
+- `pnpm build` 已通过，只有 Vite 大 chunk 警告。
+- 目标 ESLint 已通过：
+  `pnpm eslint src/pages/Settings.tsx src/pages/Chat.tsx src/api/settings.ts src/api/chat.ts src/components/settings src/components/chat-page src/components/chat/ChatComposer.tsx src/components/MainHeader.tsx src/components/slider-sidebar.tsx`。
+- `cd backend && .\mvnw.cmd -DskipTests package` 已通过。
+- `cd backend && .\mvnw.cmd test` 已通过，67 个测试全部成功。
+- `docker compose config` 已通过。
+- `docker compose up -d --build` 已通过，PostgreSQL、backend、frontend 均成功启动。
+- Compose 已验证关键 secrets 必须由 `.env` 或 `--env-file` 提供，缺少 `POSTGRES_PASSWORD`、`KNOWFLOW_JWT_SECRET` 或 `KNOWFLOW_MODEL_SECRET_KEY` 时会拒绝启动。
+- 直接后端健康检查 `http://localhost:8080/api/health` 返回 `{"status":"UP"}`。
+- 前端 Nginx 代理健康检查 `http://localhost:5173/api/health` 返回 `{"status":"UP"}`。
+- browser-use 可见窗口已验证 Docker 前端可访问、空库注册登录可用、`/Settings` 可访问、`/Chat` 空状态可用、创建知识库后可进入 Chat 主界面。
+- 未配置真实模型时在 Chat 发送“你好”返回脱敏提示 `Model settings are incomplete`，符合本阶段“不内置 mock 模型服务”的验收边界。
+- Docker 化没有改变 API 路径、请求体、响应体或错误语义，因此 `doc/API.md` 本轮不需要修改。
+- 阶段 14 标记为已完成。
 
-### 涉及文档
+### 剩余人工验收条件
 
-- `doc/PROJECT.md`
+完整 Chat 真实回答验收依赖用户提供真实、可用的模型配置：
 
-### 下一步
+1. 在 `/Settings` 保存有效的 OpenAI-compatible Base URL、API Key 和 Model。
+2. 点击 Settings 模型测试，确认真实模型连接成功。
+3. 进入 `/Chat/{sessionId}`，选择模型并发送问题。
+4. 确认后端生成助手回答；有检索命中时显示引用来源，无检索命中时 `sources` 为空且不伪造引用。
+5. 切换会话后确认后台生成完成会产生未读提醒，Header 未读角标只按 `unread === true` 统计。
 
-已完成。后续数据库结构变化只通过新的 Flyway 迁移追加，不修改已落库迁移。
+如果没有真实模型配置，只能验收 Docker 启动、健康检查、接口可达、页面流程、空配置提示和错误脱敏。
 
-## 阶段 2：认证闭环
+## 历史阶段摘要
 
-### 目标
+### 阶段 0：前端静态原型
 
-完成注册、登录、JWT 和前端登录态闭环。
+完成 Dashboard、KnowledgeBases、Documents、Chat、Settings 主要页面静态原型。静态 mock 数据仅作为早期原型使用，后续阶段逐步替换为真实接口。
 
-### 已完成内容
+### 阶段 1：后端基础设施
 
-- 后端注册接口。
-- 后端登录接口，成功后返回 JWT `accessToken`。
-- 重置密码接口。
-- Spring Security 基础配置。
-- 前端 Login 页面接入真实后端接口。
-- axios 请求自动携带 `Authorization`。
-- Zustand 保存认证状态，`mock-auth.ts` 仅作为兼容层。
+建立 Spring Boot 后端、PostgreSQL、Flyway 和基础表结构。数据库结构变化通过新增 Flyway migration 管理，不修改已执行迁移。
 
-### 验收标准
+### 阶段 2：认证闭环
 
-- 用户可以注册并登录。
-- 登录成功后访问受保护接口时携带 token。
-- 未登录访问主应用会跳转登录页。
-- 错误账号或密码不会进入主应用。
+完成注册、登录、JWT、重置密码、当前用户校验和前端登录接入。axios 自动携带 `Authorization: Bearer <accessToken>`。
 
-### 涉及文档
+### 阶段 3：知识库 CRUD
 
-- `doc/API.md`
-- `doc/PROJECT.md`
+完成知识库列表、详情、创建、编辑、删除，按当前用户隔离。前端 KnowledgeBases 页面接入真实接口。
 
-### 下一步
+### 阶段 4：文档上传、解析、切片
 
-`GET /api/auth/me` 已在阶段 7 补齐，用于刷新后从后端确认当前用户。
+完成知识库下文档上传、文本读取、切片、索引状态和文档列表/详情/删除接口。支持基础文本、Markdown、文本型 PDF。
 
-## 阶段 3：知识库 CRUD
+### 阶段 5：文档检索 MVP
 
-### 目标
+完成 `POST /api/knowledge-bases/{knowledgeBaseId}/search`，返回命中文档、chunk、内容和分数。前端知识库详情页提供检索测试区。
 
-完成知识库的真实后端 CRUD，并让前端知识库页面接入真实接口。
+### 阶段 6：RAG 问答 MVP
 
-### 已完成内容
+完成会话、消息、检索、Prompt、模型调用、引用来源保存和前端 Chat 页面接入。`/KnowledgeBases/{id}` 保留文档检索测试区，不承载 Chat 入口。
 
-- 后端知识库列表、详情、创建、修改、删除接口。
-- 知识库按 JWT 当前用户隔离。
-- 知识库支持 `featured` 和 `themeId`。
-- 前端 KnowledgeBases 页面通过 axios API wrapper 接入真实接口。
-- 删除知识库列表主数据源里的静态 mock 数据。
-- 加载、空状态、编辑、删除、登录失效跳转等状态。
+### 阶段 7：前端体验完善
 
-### 验收标准
+完成主要页面真实数据状态、加载/错误/空状态、页面组件拆分和代码级验证。浏览器 UI 验收由用户人工完成。
 
-- 用户只能看到和操作自己的知识库。
-- 前端可以创建、编辑、删除知识库。
-- 删除后页面状态和后端数据一致。
-- 未登录或 token 失效时跳转登录页。
+### 阶段 8：Settings 功能接入与交付整理
 
-### 涉及文档
+完成 Settings 后端接入，包括邮箱资料、RAG 参数、账号删除等功能，并同步项目交付说明。
 
-- `doc/API.md`
-- `doc/PROJECT.md`
+### 阶段 9：检索质量升级
 
-### 下一步
+从普通关键词匹配升级到 PostgreSQL 全文检索，补充分数语义、相关度排序和 RAG 引用来源排序。
 
-已完成。后续知识库详情页继续承载文档和检索入口。
+### 阶段 10：RAG 体验增强
 
-## 阶段 4：文档上传、解析、切片
+补齐最近 6 条以内多轮上下文、空检索降级提示、引用片段展示和模型调用失败脱敏。
 
-### 目标
+### 阶段 11：文档处理增强
 
-完成知识库下的文档上传、文本读取、简单切片和索引状态流转。
+新增 `.docx` 和 `.html/.htm` 文本提取。暂不支持 OCR、PPT、Excel 和后台队列。
 
-### 已完成内容
+### 阶段 12：权限与团队协作
 
-- 文档上传接口。
-- 文档列表、详情、删除接口。
-- 文档 chunk 查询接口。
-- 支持 TXT、Markdown、文本型 PDF 的第一版处理。
-- 文档状态：`UPLOADED`、`PROCESSING`、`INDEXED`、`FAILED`。
-- 按固定长度和 overlap 进行简单切片。
-- 前端 Documents 页面和知识库详情页接入真实文档数据。
+新增 `knowledge_base_members`，支持单个知识库共享给已注册用户，角色为 `OWNER`、`EDITOR`、`VIEWER`。共享知识库不共享其他成员的 Chat 历史。
 
-### 验收标准
+### 阶段 13：用户模型配置、偏好设置与多会话协同增强
 
-- 用户可以在自己的知识库下上传支持格式的文档。
-- 上传成功后文档最终进入 `INDEXED` 状态，并能查询 chunks。
-- 不支持的文件类型、空白文本、超大文件、无法提取文本的 PDF 有明确错误。
-- 删除文档时对应 chunks 被级联删除。
-- 删除知识库时对应文档和 chunks 被级联删除。
-- 不同用户不能访问彼此的文档。
-
-### 涉及文档
-
-- `doc/API.md`
-- `doc/PROJECT.md`
-
-### 下一步
-
-进入阶段 5：文档检索 MVP。
-
-## 阶段 5：文档检索 MVP
-
-### 目标
-
-在不接大模型的前提下，先完成可验证的文档 chunk 检索能力。
-
-### 已完成内容
-
-- 后端提供 `POST /api/knowledge-bases/{knowledgeBaseId}/search` 搜索接口。
-- 搜索基于 `document_chunks.content` 做 PostgreSQL 普通关键词匹配。
-- 搜索按 JWT 当前用户隔离知识库、文档和 chunks。
-- 搜索只返回当前用户自己知识库下 `INDEXED` 文档的命中片段。
-- 响应返回 `query`、`results`、命中文档名、chunk 序号、内容和 `score`。
-- 前端新增 `searchKnowledgeBaseDocuments` API wrapper 和检索类型定义。
-- 知识库详情页新增“文档检索测试区”，支持关键词、limit、搜索、清空、loading、空状态和错误状态。
-- 前端大页面按功能拆分到 `src/components/*`，文档和知识库相关 UI 分别迁移到 `src/components/documents/*` 和 `src/components/knowledge-bases/*`。
-
-### 验收标准
-
-- 后端提供知识库内搜索接口。
-- 搜索只检索当前登录用户自己的知识库和文档。
-- 输入文档中存在的关键词时，返回匹配 chunks。
-- 输入不存在的关键词时，返回空结果。
-- 前端提供“检索测试区”，能展示命中文档、chunk 序号、内容和分数。
-
-### 涉及文档
-
-- `doc/API.md`
-- `doc/PROJECT.md`
-
-### 下一步
-
-阶段 5 已完成。阶段 6 是 RAG 问答 MVP，但进入阶段 6 前先处理阶段间小功能，不直接开始大模型问答。
-
-默认接口：
-
-```http
-POST /api/knowledge-bases/{knowledgeBaseId}/search
-```
-
-请求体：
-
-```json
-{
-  "query": "JWT 登录流程",
-  "limit": 5
-}
-```
-
-响应：
-
-```json
-{
-  "query": "JWT 登录流程",
-  "results": [
-    {
-      "chunkId": 1,
-      "documentId": 2,
-      "documentName": "note.md",
-      "chunkIndex": 0,
-      "content": "...",
-      "score": 1.0
-    }
-  ]
-}
-```
-
-第一版只做 PostgreSQL 普通关键词匹配，不上 embedding、不上 pgvector。检索接口稳定后，后续再进入 RAG Chat。
-
-## 阶段 6：RAG 问答 MVP
-
-### 目标
-
-基于阶段 5 的检索结果，完成最小可用的知识库问答闭环。
-
-### 已完成内容
-
-阶段 6 已完成最小可用 RAG 问答闭环：会话、消息、检索、Prompt、模型调用、引用来源和前端 Chat 页面已形成 MVP。
-
-阶段 6 收尾增强也已完成：
-
-- `/Chat/{sessionId}` 切换会话时只刷新消息区域，不整块刷新外层内容区。
-- 会话支持重命名、删除、置顶和取消置顶。
-- `/KnowledgeBases/{id}` 只保留文档检索测试区，不再承载 RAG 对话入口。
-- 前后端构建、后端测试和浏览器流程已完成阶段验收。
-
-### 验收标准
-
-- 用户可以在某个知识库内提问。
-- 后端先检索相关 chunks，再把检索结果放入 prompt。
-- 回答基于上传资料生成。
-- 回答能展示引用来源。
-- 会话和消息可以被保存和查询。
-- `/Chat/{sessionId}` 切换对话时只刷新消息区域，不整块刷新外层内容区。
-- 会话支持重命名、删除、置顶和取消置顶。
-- `/KnowledgeBases/{id}` 只保留检索测试区，不再承载 RAG 对话入口。
-
-### 涉及文档
-
-- `doc/API.md`
-- `doc/PROJECT.md`
-- `doc/FRONTEND_TASK.md`
-- `doc/BACKEND_TASK.md`
-
-### 下一步
-
-阶段 6 已完成。下一步进入阶段 7：前端体验完善。后续阶段继续复用 `doc/FRONTEND_TASK.md` 和 `doc/BACKEND_TASK.md`，由文档会话实时更新当前任务内容。
-
-## 阶段 7：前端体验完善
-
-### 目标
-
-在核心闭环跑通后，统一整理前端体验、页面一致性、真实数据状态和可演示流程。
-
-### 已完成内容
-
-阶段 7 已完成代码级验收。按项目规则，本轮没有主动使用浏览器工具做 UI/视觉验收；浏览器和真实交互体验由用户人工验收。
-
-阶段 7 不新增 RAG 核心能力，重点是整理已经存在的全栈闭环：
-
-- 统一 Dashboard、KnowledgeBases、Documents、Chat、Settings 的加载、错误、空状态和操作反馈。
-- 清理会误导用户的 mock 文案、假数据展示和不再使用的 UI 入口。
-- 优化文档上传、文档检索、RAG 问答和会话管理之间的前端流程。
-- 检查桌面端和移动端布局，避免文字溢出、横向滚动、按钮挤压和布局跳动。
-- 后端只做阶段 7 联调支撑和接口稳定性核对，不默认新增 embedding、pgvector、流式输出或多模型选择。
-
-本轮已完成：
-
-- Dashboard 改为真实接口汇总页，展示知识库、文档、处理中数量、会话、最近记录和核心演示流程。
-- KnowledgeBases、Chat 通过现有文档接口补齐文档数、chunk 数和可检索来源数，减少误导性 `0` 状态。
-- Documents 移动端补充卡片列表，桌面端保留表格。
-- Settings 移除假模型测试、假 API Key、假导出和假删除账号入口。
-- `/KnowledgeBases/{id}` 继续只保留文档检索测试区，不回退为 RAG 对话页。
-- 清理旧 Dashboard mock 数据、旧 Chat mock 组件和占位 store。
-
-本轮代码级验收结果：
-
-- `pnpm build` 通过。Vite 仍提示主 chunk 超过 500KB，这是体积警告，不是构建失败。
-- 后端 `cd backend && .\mvnw.cmd test` 通过，共 11 个测试通过。
-- 阶段 7 后端稳定性测试覆盖 401、400、404、缺少上传文件字段、级联删除、模型错误脱敏、`GET /api/auth/me` 和 `GET /api/health`。
-- 阶段 7 前端目标文件 ESLint 通过。
-- 全量 `pnpm lint` 仍有 5 个错误，位于未改动的 `src/components/ui/{button,combobox,sidebar,tabs}.tsx` 和 `src/hooks/use-mobile.ts`，属于基础组件/Hook 的既有 lint 规则问题，未在本阶段处理。
-
-### 验收标准
-
-- 主要页面不再依赖误导性的 mock 文案或假数据展示。
-- 加载、错误、空状态、删除确认、上传状态、会话操作反馈一致。
-- 移动端和桌面端布局可用，无明显文字溢出、横向滚动或布局跳动。
-- 文档上传、文档检索、RAG 问答和会话管理流程在前端连贯。
-- `/KnowledgeBases/{id}` 只保留文档检索测试区，不回退加入 RAG 对话入口。
-- `/Chat/{sessionId}` 切换会话时保持阶段 6 已完成的稳定体验，只刷新消息区域。
-- 新增或调整的前端请求都走 `src/api/` axios wrapper，不新增直接 `fetch` 或组件级 `localStorage`。
-
-### 涉及文档
-
-- `doc/PROJECT.md`
-- `doc/API.md`
-- `doc/FRONTEND_TASK.md`
-- `doc/BACKEND_TASK.md`
-
-### 下一步
-
-阶段 8 已完成。下一步进入阶段 9：检索质量升级，或者先根据演示和交付需要继续补 README、演示账号、架构说明、启动复现和答辩材料的细节整理。
-
-## 阶段 8：Settings 功能接入与项目交付整理
-
-### 目标
-
-补齐 `/Settings` 页面中已经出现但尚未接入后端的核心功能，并把项目整理成可以演示、答辩、交接和复现的状态。
-
-### 已完成内容
-
-- `/Settings` 页面的邮箱、模型配置状态、RAG 参数、删除账号/删除数据已接入后端。
-- `GET /api/auth/me`、`PATCH /api/auth/me`、`DELETE /api/auth/me`、`GET /api/settings/model`、`GET /api/settings/rag`、`PATCH /api/settings/rag` 已形成真实契约。
-- 前端已同步真实 Settings 读取/保存和危险区删除逻辑，不再保留假保存或 mock-only 设置入口。
-- 任务书、项目说明和 API 文档已同步阶段 8 状态。
-
-### 验收标准
-
-- `/Settings` 中“邮箱”、“模型配置”、“RAG 参数”、“删除账号/删除数据”等功能必须明确状态：已接后端、仅前端草稿、暂不实现，不能让用户误以为假功能已经生效。
-- 如决定实现邮箱设置，后端必须提供当前用户资料查询/更新接口，并说明邮箱是否只是资料字段，还是需要验证流程。
-- 如决定实现模型配置，必须明确配置作用域：全局环境变量、当前用户配置，或仅管理员配置；密钥不能返回给前端明文展示。
-- 如决定实现 RAG 参数，必须明确参数作用域：前端本地偏好、用户级配置，或知识库级配置；后端调用时要真正使用这些参数。
-- 如决定实现删除账号/删除数据，必须有二次确认、权限校验、事务边界和级联删除策略；默认优先做“删除当前账号及其数据”的学习版，不做复杂恢复系统。
-- `doc/API.md` 已同步 Settings/Auth/User/Config 相关接口契约。
-- `doc/FRONTEND_TASK.md` 和 `doc/BACKEND_TASK.md` 已写清前后端任务边界；后端默认可直接实现，但必须保留关键业务注释和验证结果。
-- README 能指导新人启动项目。
-- 有演示账号、启动命令、环境要求。
-- 有架构说明和 RAG 流程说明。
-- API 文档和实际接口一致。
-- 可以清楚说明项目技术栈、模块边界和未来扩展方向。
-
-### 涉及文档
-
-- `doc/PROJECT.md`
-- `doc/API.md`
-- `doc/FRONTEND_TASK.md`
-- `doc/BACKEND_TASK.md`
-
-### 下一步
-
-阶段 8 已完成，阶段 9 也已完成。下一步进入阶段 10：RAG 体验增强。
-
-## 阶段 9：检索质量升级
-
-### 目标
-
-提升知识库检索质量，把阶段 5 的普通关键词匹配升级为 PostgreSQL 全文检索，让搜索结果和 RAG 引用来源排序更有区分度。
-
-### 已完成内容
-
-- 后端已把知识库内文档检索升级为 PostgreSQL 全文检索，`score` 改为全文检索相关度分数。
-- 新增全文检索索引迁移，用于提升 `document_chunks.content` 检索性能。
-- `POST /api/knowledge-bases/{knowledgeBaseId}/search` 接口路径、请求体和响应主体结构保持兼容。
-- RAG Chat 继续复用同一检索方法，prompt 上下文和引用来源排序自动使用新的相关度分数。
-- 前端知识库检索测试区和 Chat 引用来源已把分数文案调整为“相关度”，不再暗示固定命中分数。
-- 阶段 9 后端测试、前端构建和目标 ESLint 已完成代码级验收。
-
-### 验收标准
-
-- 检索升级路线锁定为 PostgreSQL 全文检索。
-- 检索接口保持用户隔离，不泄露其他用户知识库、文档或 chunks。
-- 检索结果排序比阶段 5 关键词 `score = 1.0` 更有区分度。
-- 保留现有 `POST /api/knowledge-bases/{knowledgeBaseId}/search` 接口路径和响应主体结构。
-- 不引入 embedding、不引入 pgvector、不新增搜索引擎、不改变 Chat 流式输出。
-- RAG Chat 继续复用同一检索方法，使 prompt 上下文和引用来源按全文检索相关度排序。
-- 前端保留阶段 5 检索测试区，文案从固定命中分数改为相关度/匹配度。
-- `doc/API.md` 记录检索请求、响应、分数含义和限制。
-
-### 涉及文档
-
-- `doc/API.md`
-- `doc/PROJECT.md`
-- `doc/FRONTEND_TASK.md`
-- `doc/BACKEND_TASK.md`
-
-### 下一步
-
-阶段 9 已完成。下一步进入阶段 10：RAG 体验增强，优先做多轮上下文控制、引用来源体验、空检索/模型失败降级提示；流式输出作为可选增量，不强行一次性做大。
-
-## 阶段 10：RAG 体验增强
-
-### 目标
-
-在检索质量稳定后，增强问答体验和回答可信度。
-
-### 已完成内容
-
-- 后端非流式 RAG 问答已加入当前会话最近 6 条以内历史消息，并限制历史上下文长度，避免 prompt 成本失控。
-- 历史消息只从当前 JWT 用户、当前会话、当前知识库读取，避免跨用户、跨会话或跨知识库串数据。
-- 空检索时默认不调用模型，保存用户消息和助手降级消息，返回 `sources: []`，不伪造引用来源。
-- 引用来源继续复用阶段 9 PostgreSQL 全文检索排序，并保持 `sources` 与实际进入 prompt 的 chunks 一致。
-- 模型调用失败继续返回脱敏错误，不泄露 API key、base URL、model 或供应商敏感错误。
-- 前端 Chat 已补齐发送中状态、防重复提交、空引用来源提示、引用片段截断/展开和更明确的失败提示。
-- 代码级验收已完成：`cd backend && .\mvnw.cmd test` 通过，共 27 个测试；`pnpm build` 通过；目标 ESLint 通过。
-
-### 验收标准
-
-- 支持更顺滑的回答生成体验；流式输出可作为阶段 10 增量能力，但不阻塞基础体验增强。
-- 支持更清晰的引用来源展示，能定位到文档名、chunk 序号和片段。
-- 支持基础多轮上下文，默认使用当前会话最近 6 条以内历史消息，并控制上下文长度和 token 成本。
-- 模型调用失败、超时、空检索结果都有清晰降级提示。
-- 不泄露模型 API key、base URL 或供应商敏感错误。
-
-### 涉及文档
-
-- `doc/API.md`
-- `doc/PROJECT.md`
-- `doc/FRONTEND_TASK.md`
-- `doc/BACKEND_TASK.md`
-
-### 下一步
-
-阶段 10 已完成，阶段 11 也已完成。下一步进入阶段 12：权限与团队协作。
-
-## 阶段 11：文档处理增强
-
-### 目标
-
-提升文档接入能力，让知识库能处理更多真实资料。
-
-### 已完成内容
-
-阶段 11 第一版已完成，不改变上传接口路径和响应结构，只扩展文档解析能力。
-
-本阶段默认做：
-
-- 保留现有 `.txt`、`.md`、`.markdown`、文本型 `.pdf` 上传能力。
-- 已新增 `.docx` 文本提取，优先提取段落和表格中的文本。
-- 已新增 `.html` / `.htm` 文本提取，去掉脚本、样式等非正文内容后再切片。
-- 保持同步处理和现有 `UPLOADED`、`PROCESSING`、`INDEXED`、`FAILED` 状态流转。
-- 保持单文件 10MB 上限。
-- 前端已同步上传白名单、类型标签、说明文案和错误提示。
-
-本阶段默认不做：
-
-- 不支持旧版 `.doc`。
-- 不支持 PPT / PPTX、Excel / XLSX。
-- 不做扫描版 PDF OCR。
-- 不引入后台任务队列、重试中心或复杂任务进度。
-- 不改变文档上传、列表、详情、chunks、搜索和 Chat 接口路径。
-
-### 验收标准
-
-- 明确新增支持的文件类型：阶段 11 第一版只做 `.docx` 和 `.html/.htm`。
-- 扫描版 PDF 暂不做 OCR；如果 PDF 无法提取文本，继续按失败文档处理。
-- 文档处理失败原因对用户可见，但不暴露服务器内部敏感路径。
-- 文档解析和切片逻辑有测试覆盖。
-- 大文件和耗时任务继续受 10MB 单文件上限保护；本阶段不做后台队列和自动重试。
-- 旧格式 `.doc`、PPT、Excel 上传应明确返回不支持，前端不应误导用户。
-
-### 涉及文档
-
-- `doc/API.md`
-- `doc/PROJECT.md`
-- `doc/FRONTEND_TASK.md`
-- `doc/BACKEND_TASK.md`
-
-### 下一步
-
-阶段 11 已完成。下一步进入阶段 12：权限与团队协作，先设计数据模型、角色边界和最小共享能力，不直接做复杂组织后台。
-
-## 阶段 12：权限与团队协作
-
-### 目标
-
-从个人知识库扩展到可控的知识库共享协作能力。第一版只做“单个知识库共享给已注册用户”，不做团队空间、组织后台、邀请邮件、公开链接或复杂审计后台。
-
-### 已完成内容
-
-阶段 12 已完成第一版知识库共享协作：
-
-- 新增 `knowledge_base_members` 表，通过 Flyway V8 迁移保存知识库成员和 `OWNER` / `EDITOR` / `VIEWER` 角色。
-- 知识库创建者自动写入 `OWNER` 成员记录，历史知识库也通过迁移补齐 owner 成员。
-- 新增成员管理接口：成员列表、添加成员、修改角色、移除成员。
-- 知识库列表和详情响应已返回 `accessRole`、`ownedByMe`、`sharedWithMe`。
-- 知识库、文档、检索和 Chat 相关接口已从单纯 `created_by` 判断升级为成员权限判断。
-- 非成员访问知识库、文档、检索或 Chat 返回 `404`；成员角色权限不足返回 `403`。
-- Chat 会话仍按当前用户隔离，共享知识库不会暴露其他成员的会话历史。
-- 前端已接入成员管理 API，支持知识库列表筛选、角色标识、成员管理弹窗和按角色限制操作。
-- 代码级验收已完成：`cd backend && .\mvnw.cmd test` 通过，共 49 个测试；`pnpm build` 通过；阶段 12 目标文件 ESLint 通过。
-
-### 验收标准
-
-- 新增 `knowledge_base_members` 表，且通过新的 Flyway 迁移实现，不修改已执行迁移文件。
-- 知识库创建者默认拥有 `OWNER` 权限。
-- `OWNER` 可以按用户名添加 `EDITOR` / `VIEWER`，可以修改成员角色和移除成员。
-- `OWNER` 不能被成员接口移除或降级。
-- `EDITOR` 可以查看、编辑知识库、上传/删除文档、检索和 Chat，但不能删除知识库或管理成员。
-- `VIEWER` 只能查看知识库、查看文档、检索和 Chat，不能编辑、上传、删除或管理成员。
-- 非成员访问知识库、文档、检索或 Chat 返回 `404`，避免暴露资源存在性。
-- 成员已存在但角色权限不足时返回 `403`。
-- `GET /api/knowledge-bases` 返回当前用户可访问的知识库，包括自己创建和别人共享的，并返回 `accessRole`、`ownedByMe`、`sharedWithMe`。
-- Chat 会话仍按当前用户隔离；共享知识库不共享其他成员的会话历史。
-- 前端能区分“我的知识库”和“共享给我的知识库”，并按 `OWNER` / `EDITOR` / `VIEWER` 展示或限制操作。
-
-### 涉及文档
-
-- `doc/API.md`
-- `doc/PROJECT.md`
-- `doc/FRONTEND_TASK.md`
-- `doc/BACKEND_TASK.md`
-
-### 下一步
-
-阶段 12 已完成。下一步进入阶段 13：用户模型配置、偏好设置与多会话协同增强。原“部署与运维”顺延为阶段 14，不混在本阶段里做。
-
-## 阶段 13：用户模型配置、偏好设置与多会话协同增强
-
-### 目标
-
-让 `/Settings` 中的模型配置从只读状态升级为当前用户自己的 OpenAI-compatible 供应商配置，并增强 Chat 的多会话真实使用体验。阶段 13 第一版重点是：用户 API Key 加密保存、动态拉取模型列表、Chat 使用当前用户模型配置、保存语言/时区偏好、支持未读会话、支持多个会话后台生成、统计今日交谈次数。
-
-### 已完成内容
-
-阶段 13 后端契约已同步到 `doc/API.md` 和后端任务书。本轮前端已完成阶段 13 接入：
-
-- `/Settings` 模型配置已从只读状态改为可编辑表单，支持 Base URL、API Key 密码框、动态获取模型列表、模型选择/手动输入、超时时间和保存。
-- 已移除旧的只读文案：“配置模式 / 后端环境变量”“保存入口 / 本阶段只读展示”“只读展示”。
-- API Key 不从后端明文读取，不返回 `encryptedApiKey`，不在组件级 `localStorage` 保存；空 API Key 保存时保留后端已有密钥。
-- 阶段 13 收尾小修后，模型配置不再提供“清除已保存 API Key”入口；用户需要更换 Key 时，重新填写新的 API Key 覆盖旧 Key。
-- Base URL 可从后端明文回显，用于 Settings 刷新后继续编辑和获取模型列表。
-- 已接入语言和时区偏好读取/保存，时区同步给 Chat 时间显示和今日交谈次数请求。
-- Chat 会话已接入 `unread` 和 `status`，发送问题后按异步契约展示用户消息并轮询会话/消息拿后台生成结果。
-- 会话卡片显示“生成中”“未读”和失败状态，菜单支持“设为未读”，点击未读会话后会标记已读。
-- 顶部邮箱 icon 显示未读数量角标，未读数为 0 时隐藏。
-- 侧边栏底部已替换为“今日交谈 N 次”，数据来自 `GET /api/chat/usage/today?timezone=...`。
-- 本轮前端代码级验收已通过：`pnpm build` 通过；目标 ESLint 通过。
-
-阶段 13 收尾修复已完成：
-
-- `/Settings` 账号资料、邮箱、语言和时区已按统一资料表单收拢，邮箱和偏好共用保存动作。
-- 模型配置不再提供单独“清除已保存 API Key”入口；空 `apiKey` 保留旧 Key，重新填写非空 Key 时覆盖旧 Key。
-- 模型配置刷新后可回显 Base URL，获取模型列表可复用当前用户已保存的 API Key。
-- `/Chat/{id}` 已按视口内三栏结构和内部滚动体验完成收尾。
-- Chat 在用户保存有效 Base URL / API Key / Model 后可调用当前用户自己的模型配置生成助手回答；空检索时仍允许模型回答，但 `sources` 为空且不能伪造引用来源。
-- 代码级验收已通过：`pnpm build`、目标 ESLint、`cd backend && .\mvnw.cmd test`。
-
-### 验收标准
-
-- `/Settings` 模型配置变成可编辑表单，支持 Base URL、API Key、模型选择和超时时间保存。
-- API Key 由后端加密保存，接口永远不返回 API Key 明文或 `encryptedApiKey`；未配置加密密钥时拒绝保存 API Key。
-- API Key 输入为空时不覆盖已保存 Key；重新填写非空 Key 时覆盖旧 Key；不提供单独清除 Key 的 UI 或接口分支。
-- 模型列表通过当前用户本次输入或已保存的 Base URL/API Key 动态拉取，不把供应商模型固定写死在后端枚举中。
-- Chat 调用模型时优先使用当前 JWT 用户保存的模型配置；用户未保存时允许回退后端环境变量作为本地开发兜底。
-- 语言和时区偏好可保存和读取；第一版语言只作为偏好保存，不做全站 i18n；时区用于时间显示和今日交谈次数日界线。
-- Chat 会话响应包含 `unread` 和生成状态；会话操作支持手动设为未读，进入未读会话后自动标为已读。
-- 支持多个会话后台生成：用户切到其他会话后，原会话生成完成时可通过会话状态和未读标记提醒。
-- 侧边栏底部显示“今日交谈 N 次”，数据来自后端按当前用户和指定时区统计的 USER 消息数。
-- 顶部邮箱 icon 显示未读数量角标，数量为 0 时隐藏。
-- `/KnowledgeBases/{id}` 继续只保留文档检索测试区，不恢复知识库详情页 Chat 入口。
-- 不新增直接 `fetch`、组件级 `localStorage` 或 mock-only Chat/Settings 逻辑。
-- 阶段 7-12 既有后端测试、前端构建和目标 ESLint 不应被破坏。
-
-### 涉及文档
-
-- `doc/PROJECT.md`
-- `doc/API.md`
-- `doc/FRONTEND_TASK.md`
-- `doc/BACKEND_TASK.md`
-
-### 下一步
-
-阶段 13 已完成。下一步进入阶段 14：部署与运维，优先整理环境变量、启动复现、生产构建、部署脚本、日志健康检查和数据库备份恢复。
-
-## 阶段 14：部署与运维 + do.md 修复
-
-### 目标
-
-让项目从本地学习项目走向可部署、可监控、可备份的运行状态；同时按 `do.md` 修复阶段 13 留下的 Chat、Settings、Header 和响应式体验问题。
-
-### 已完成内容
-
-当前阶段正在实施：
-
-- 前后端协作改为由协调者创建和管理 `AGENT_TEAM`，不再要求用户复制前后端任务到新会话。
-- Chat 发送接口支持可选 `model`，用于本次生成并同步当前用户 Settings 模型。
-- Settings 模型配置新增真实模型测试能力，模型列表和测试都可复用已保存 Base URL/API Key。
-- Chat 页面输入区支持选择模型，进入会话自动滚动到底部，右侧引用来源跟随选中的助手回答展示。
-- Header 未读角标按 `unread === true` 统计；后台生成成功或失败都会产生未读提醒，成功/失败状态由 `status` 单独表达。
-- 阶段 14 原部署运维收尾仍保留为后续重点。
-
-### 验收标准
-
-- 明确本地、测试和生产环境配置方式，密钥不进入仓库。
-- 前端、后端、数据库有清晰启动、构建和部署流程。
-- PostgreSQL 有可执行的备份和恢复说明。
-- 后端日志、错误排查、健康检查和 Swagger/OpenAPI 暴露策略有说明。
-- README 能指导别人从零启动、验证或部署项目。
-- `do.md` 中的 Chat 模型选择、Settings 模型测试、退出确认、引用来源、未读角标和响应式问题完成代码级验收。
-- 前后端构建和后端测试在阶段 14 收尾时仍通过。
-
-### 涉及文档
-
-- `doc/PROJECT.md`
-- `doc/API.md`
-- `doc/FRONTEND_TASK.md`
-- `doc/BACKEND_TASK.md`
-
-### 下一步
-
-阶段 14 当前开始。先完成 `do.md` 中影响真实使用和演示稳定性的 Chat/Settings 修复，再继续做可复现的本地/生产配置、启动脚本、Docker Compose、构建产物说明、数据库备份恢复和 README 收尾；如果只是课程或答辩项目，先保证一键复现和演示稳定，不急着上云。
+完成用户级 OpenAI-compatible 模型配置、API Key 加密保存、动态模型列表、语言/时区偏好、未读会话、后台生成状态、今日交谈次数和 Chat 空检索真实回答。
 
 ## 暂不优先做
 
-- Spring Cloud。
 - Kubernetes。
-- 消息队列。
-- 多服务独立数据库。
-- 复杂权限系统。
+- Spring Cloud 或微服务拆分。
+- 消息队列和复杂后台任务中心。
+- Embedding / pgvector。
+- SSE 流式输出。
+- 扫描版 PDF OCR。
+- PPT / Excel 解析。
+- 复杂组织权限和后台管理系统。
 - Agent 工作流。
-- 多租户组织权限。
-- 复杂后台管理系统。
 
-这些能力可以作为后续扩展，但不应该阻塞当前 MVP。
-
-## 每阶段收尾检查
-
-每个阶段完成后，按下面清单收尾：
-
-- 功能是否达到本阶段验收标准。
-- 后端接口是否同步 `doc/API.md`。
-- 当前项目状态是否同步 `doc/PROJECT.md`。
-- 是否需要更新 `AGENTS.md` 的协作规则。
-- 是否完成 git 提交，并在提交信息里分点写清楚功能变化。
+这些能力可作为后续扩展，但不阻塞当前 MVP 交付。
