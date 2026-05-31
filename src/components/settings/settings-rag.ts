@@ -1,15 +1,36 @@
 import type {
+  RagRetrievalMode,
   RagSettingsResponse,
   UpdateRagSettingsRequest,
 } from "@/api/settings";
 
-export type RagNumberKey = keyof RagSettingsResponse;
+export type RagNumberKey = "topK" | "maxContextChunks" | "temperature";
 
 export const defaultRagSettings: RagSettingsResponse = {
   topK: 5,
   maxContextChunks: 5,
   temperature: 0.2,
+  retrievalMode: "HYBRID",
+  semanticWeight: 0.7,
+  fulltextWeight: 0.3,
 };
+
+export const ragRetrievalModes: Array<{
+  value: RagRetrievalMode;
+  label: string;
+  helper: string;
+}> = [
+  {
+    value: "HYBRID",
+    label: "HYBRID",
+    helper: "语义向量和全文关键词混合检索，适合大多数问答场景。",
+  },
+  {
+    value: "FULLTEXT",
+    label: "FULLTEXT",
+    helper: "仅使用全文关键词检索，适合调试语义索引或禁用向量检索时使用。",
+  },
+];
 
 export const ragControlConfig: Record<
   RagNumberKey,
@@ -44,9 +65,27 @@ export function clampNumber(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
 }
 
+function normalizeRetrievalMode(
+  retrievalMode?: string | null,
+): RagRetrievalMode {
+  return retrievalMode === "FULLTEXT" ? "FULLTEXT" : "HYBRID";
+}
+
 export function normalizeRagSettings(
   settings: Partial<RagSettingsResponse> | null | undefined,
 ): RagSettingsResponse {
+  const retrievalMode = normalizeRetrievalMode(settings?.retrievalMode);
+  const semanticWeight =
+    retrievalMode === "FULLTEXT"
+      ? 0
+      : Number(
+          clampNumber(
+            Number(settings?.semanticWeight ?? defaultRagSettings.semanticWeight),
+            0,
+            1,
+          ).toFixed(2),
+        );
+
   return {
     topK: Math.round(
       clampNumber(
@@ -71,15 +110,23 @@ export function normalizeRagSettings(
         ragControlConfig.temperature.max,
       ).toFixed(1),
     ),
+    retrievalMode,
+    semanticWeight,
+    fulltextWeight: Number((1 - semanticWeight).toFixed(2)),
   };
 }
 
 export function toUpdateRagSettingsRequest(
   settings: RagSettingsResponse,
 ): UpdateRagSettingsRequest {
+  const normalizedSettings = normalizeRagSettings(settings);
+
   return {
-    topK: settings.topK,
-    maxContextChunks: settings.maxContextChunks,
-    temperature: settings.temperature,
+    topK: normalizedSettings.topK,
+    maxContextChunks: normalizedSettings.maxContextChunks,
+    temperature: normalizedSettings.temperature,
+    retrievalMode: normalizedSettings.retrievalMode,
+    semanticWeight: normalizedSettings.semanticWeight,
+    fulltextWeight: normalizedSettings.fulltextWeight,
   };
 }

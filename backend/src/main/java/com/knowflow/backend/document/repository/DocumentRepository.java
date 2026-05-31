@@ -127,6 +127,32 @@ public interface DocumentRepository {
             """)
     Optional<Document> findAccessibleSourceById(@Param("id") Long id, @Param("userId") Long userId);
 
+    /**
+     * @param knowledgeBaseId knowledge base requested for a batch semantic rebuild
+     * @return indexed documents that already have chunks and can be re-embedded without reparsing source
+     * @Desc Stage 19 batch rebuild intentionally skips failed/unindexed documents because semantic
+     * rebuild is not a text reprocess operation. It only refreshes embeddings for existing chunks.
+     */
+    @Select("""
+            select d.id, d.knowledge_base_id, d.original_filename, d.content_type, d.size_bytes,
+                   d.status, d.error_message, d.embedding_status, d.embedding_error_message, d.embedding_updated_at,
+                   d.summary, d.summary_updated_at,
+                   d.source_bytes is not null as source_bytes_stored,
+                   d.source_text is not null and d.source_text <> '' as source_text_stored,
+                   d.source_text_updated_at,
+                   d.created_by, d.created_at, d.updated_at
+            from documents d
+            where d.knowledge_base_id = #{knowledgeBaseId}
+              and d.status = 'INDEXED'
+              and exists (
+                  select 1
+                  from document_chunks c
+                  where c.document_id = d.id
+              )
+            order by d.id
+            """)
+    List<Document> findSemanticRebuildCandidatesByKnowledgeBaseId(Long knowledgeBaseId);
+
     @Update("""
             update documents
             set status = #{status},

@@ -859,6 +859,102 @@ Authorization: Bearer <accessToken>
 | `404` | 文档不存在，或当前登录用户不是该文档所属知识库成员 |
 | `500` | 重新切片或模型外部无关的后端处理失败，错误已脱敏 |
 
+#### 重建单个文档语义索引
+
+> 状态：阶段 19 已实现。该接口只刷新现有 chunks 的 embedding，不重新解析文档来源，也不替换全文检索 chunks。
+
+| 项目 | 内容 |
+|---|---|
+| 请求方式 | `POST` |
+| 请求路径 | `/api/documents/{documentId}/semantic-index/rebuild` |
+| 是否需要登录 | 是 |
+
+说明：
+
+- 当前用户必须是文档所属知识库成员。
+- 只有 `OWNER` 或 `EDITOR` 可以创建语义索引重建任务；`VIEWER` 返回 `403`。
+- 文档必须已经完成索引并拥有 chunks；重建任务不会修改 `documents.status`，全文检索在重建期间仍可用。
+- 重建任务类型为 `REBUILD_SEMANTIC_INDEX`，只更新 `documents.embedding_status`、`document_chunks.embedding` 和相关 embedding 状态字段。
+- 如果 embedding 配置不可用，任务会按现有降级规则把 embedding 状态标为 `SKIPPED` 或 `FAILED`，但不删除现有 chunks。
+
+成功响应示例：
+
+```json
+{
+  "id": 12,
+  "documentId": 1,
+  "knowledgeBaseId": 1,
+  "requestedBy": 1,
+  "jobType": "REBUILD_SEMANTIC_INDEX",
+  "status": "SUCCEEDED",
+  "progressPercent": 100,
+  "stage": "COMPLETED",
+  "message": "Semantic index rebuild completed",
+  "errorMessage": null,
+  "startedAt": "2026-05-31T10:00:00Z",
+  "finishedAt": "2026-05-31T10:00:02Z",
+  "createdAt": "2026-05-31T10:00:00Z",
+  "updatedAt": "2026-05-31T10:00:02Z"
+}
+```
+
+失败情况：
+
+| 状态码 | 原因 |
+|---|---|
+| `400` | 文档尚未索引完成，或没有可重建的 chunks |
+| `401` | 未登录或 token 无效 |
+| `403` | 当前用户是 `VIEWER`，无权重建语义索引 |
+| `404` | 文档不存在，或当前登录用户不是该文档所属知识库成员 |
+
+#### 重建知识库语义索引
+
+> 状态：阶段 19 已实现。该接口为知识库内已索引且有 chunks 的文档批量创建语义索引重建任务。
+
+| 项目 | 内容 |
+|---|---|
+| 请求方式 | `POST` |
+| 请求路径 | `/api/knowledge-bases/{knowledgeBaseId}/semantic-index/rebuild` |
+| 是否需要登录 | 是 |
+
+说明：
+
+- 当前用户必须是知识库成员。
+- 只有 `OWNER` 或 `EDITOR` 可以创建知识库级语义索引重建任务；`VIEWER` 返回 `403`。
+- 接口会跳过未完成索引或没有 chunks 的文档。
+- 返回数组中的每一项都是 `DocumentProcessingJobResponse`。
+
+成功响应示例：
+
+```json
+[
+  {
+    "id": 13,
+    "documentId": 1,
+    "knowledgeBaseId": 1,
+    "requestedBy": 1,
+    "jobType": "REBUILD_SEMANTIC_INDEX",
+    "status": "QUEUED",
+    "progressPercent": 0,
+    "stage": "QUEUED",
+    "message": "等待处理",
+    "errorMessage": null,
+    "startedAt": null,
+    "finishedAt": null,
+    "createdAt": "2026-05-31T10:00:00Z",
+    "updatedAt": "2026-05-31T10:00:00Z"
+  }
+]
+```
+
+失败情况：
+
+| 状态码 | 原因 |
+|---|---|
+| `401` | 未登录或 token 无效 |
+| `403` | 当前用户是 `VIEWER`，无权重建语义索引 |
+| `404` | 知识库不存在，或当前登录用户不是该知识库成员 |
+
 #### 文档处理任务响应字段
 
 > 状态：阶段 17 已实现。
@@ -871,7 +967,7 @@ Authorization: Bearer <accessToken>
 | `documentId` | number | 任务所属文档 ID。 |
 | `knowledgeBaseId` | number | 任务所属知识库 ID。 |
 | `requestedBy` | number | 发起上传或重新处理的用户 ID。 |
-| `jobType` | string | 任务类型：`UPLOAD_INDEX` 或 `REPROCESS`。 |
+| `jobType` | string | 任务类型：`UPLOAD_INDEX`、`REPROCESS` 或 `REBUILD_SEMANTIC_INDEX`。 |
 | `status` | string | 任务状态：`QUEUED`、`RUNNING`、`SUCCEEDED`、`FAILED`、`CANCELED`。 |
 | `progressPercent` | number | 粗粒度进度，范围 0-100。当前解析器没有可靠字节级进度，因此使用阶段里程碑。 |
 | `stage` | string \| null | 阶段码，例如 `QUEUED`、`READ_SOURCE`、`EXTRACT_TEXT`、`SPLIT_CHUNKS`、`WRITE_CHUNKS`、`COMPLETED`、`FAILED`。 |
@@ -885,6 +981,7 @@ Authorization: Bearer <accessToken>
 说明：
 
 - `documents.status` 表示文档当前可检索材料化状态；`document_processing_jobs.status` 表示某次上传或重新处理尝试的状态。
+- `REBUILD_SEMANTIC_INDEX` 只表示语义向量刷新任务，不代表文档正文重新解析；此类任务失败时不应把已可全文检索的文档从 `INDEXED` 降级为不可用。
 - 前端应优先用活跃任务显示“后台处理中”和进度，用文档状态显示最终可检索状态。
 - 任务消息和错误不得包含服务器路径、堆栈、API Key、Authorization header 或模型供应商敏感错误。
 
@@ -1042,7 +1139,7 @@ Authorization: Bearer <accessToken>
 
 #### 知识库内文档检索
 
-> 状态：阶段 18 已完成。该接口继续沿用原路径；后端从阶段 9 PostgreSQL 全文检索升级为“可选语义检索 + 全文降级”的混合召回。
+> 状态：阶段 19 已完成。该接口继续沿用原路径；后端从阶段 9 PostgreSQL 全文检索升级为“可选语义检索 + 全文降级 + 用户级检索策略”的混合召回。
 
 | 项目 | 内容 |
 |---|---|
@@ -1091,9 +1188,10 @@ Authorization: Bearer <accessToken>
 
 说明：
 
-- 阶段 18 已引入 pgvector 字段和可选 OpenAI-compatible embedding 调用，但不强制启用语义检索。
+- 阶段 18 已引入 pgvector 字段和可选 OpenAI-compatible embedding 调用，阶段 19 允许用户在 Settings 里控制 `HYBRID` / `FULLTEXT` 和混合排序权重。
 - 后端通过 `DocumentRetrievalService` 统一 Search API 和 Chat RAG 的检索路径，保证返回给前端的 sources 与进入 prompt 的上下文一致。
-- 配置 `KNOWFLOW_AI_EMBEDDING_MODEL` 且当前用户有可用 Base URL/API Key 时，会尝试用 query embedding 做语义召回，并与全文分组成混合排序。
+- 配置 `KNOWFLOW_AI_EMBEDDING_MODEL` 且当前用户有可用 Base URL/API Key 时，`HYBRID` 模式会尝试用 query embedding 做语义召回，并与全文分组成混合排序。
+- `FULLTEXT` 模式会跳过 embedding 查询，只使用 PostgreSQL 全文检索，适合禁用语义检索、排查 embedding 问题或降低调用成本。
 - 未配置 embedding、embedding 调用失败、文档没有可用向量或语义分全为 0 时，后端自动降级为全文检索。
 - 阶段 12 后，后端必须先校验当前 JWT 用户是该知识库成员；非成员访问时统一返回 `404`。
 - SQL 检索时必须限制 `knowledge_base_id`，并通过成员权限校验避免通过知识库 ID 或文档 ID 搜到无权访问的数据。
@@ -1101,7 +1199,7 @@ Authorization: Bearer <accessToken>
 - `retrievalMode` 当前为 `HYBRID` 或 `FULLTEXT`。`HYBRID` 表示混合排序结果；`FULLTEXT` 表示全文检索降级结果。
 - `fulltextScore` 表示 PostgreSQL 全文检索相关度分数。
 - `semanticScore` 表示当前 query embedding 与 chunk embedding 的语义相似度归一化分数。
-- `hybridScore` 表示阶段 18 排序用的混合分数；当前后端按语义分 0.7、全文分 0.3 组合。
+- `hybridScore` 表示混合排序分数；阶段 19 后端按当前用户保存的 `semanticWeight` 和 `fulltextWeight` 组合。
 - `score` 是兼容字段：混合模式下等于 `hybridScore`，全文降级时等于 `fulltextScore`。
 - `query`、`results`、`chunkId`、`documentId`、`documentName`、`chunkIndex`、`content`、`score` 字段保持兼容；阶段 18 新增 `hybridScore`、`fulltextScore`、`semanticScore`、`retrievalMode`。
 
@@ -1447,18 +1545,25 @@ Authorization: Bearer <accessToken>
 {
   "topK": 5,
   "maxContextChunks": 5,
-  "temperature": 0.2
+  "temperature": 0.2,
+  "retrievalMode": "HYBRID",
+  "semanticWeight": 0.7,
+  "fulltextWeight": 0.3
 }
 ```
 
 说明：
 
-- 阶段 8 已实现，返回当前 JWT 用户的 RAG 参数。
+- 阶段 8 已实现基础 RAG 参数；阶段 19 新增检索策略和权重字段。
 - 如果用户从未保存过参数，后端返回默认值。
 - 当前后端 Chat/RAG 流程会读取这些参数：
   - `topK` 控制检索阶段最多取多少个 chunk。
   - `maxContextChunks` 控制进入 prompt 和引用来源保存的 chunk 数量。
   - `temperature` 传给模型调用。
+  - `retrievalMode` 控制检索策略，当前取值为 `HYBRID` 或 `FULLTEXT`。
+  - `semanticWeight` 控制混合检索中语义相似度的权重。
+  - `fulltextWeight` 控制混合检索中 PostgreSQL 全文分的权重。
+- `semanticWeight + fulltextWeight` 必须等于 `1`；`FULLTEXT` 模式下前端通常显示语义权重为 `0`、全文权重为 `1`。
 
 ### 更新 RAG 参数
 
@@ -1480,7 +1585,10 @@ Content-Type: application/json
 {
   "topK": 5,
   "maxContextChunks": 5,
-  "temperature": 0.2
+  "temperature": 0.2,
+  "retrievalMode": "HYBRID",
+  "semanticWeight": 0.7,
+  "fulltextWeight": 0.3
 }
 ```
 
@@ -1490,7 +1598,10 @@ Content-Type: application/json
 {
   "topK": 5,
   "maxContextChunks": 5,
-  "temperature": 0.2
+  "temperature": 0.2,
+  "retrievalMode": "HYBRID",
+  "semanticWeight": 0.7,
+  "fulltextWeight": 0.3
 }
 ```
 
@@ -1500,13 +1611,15 @@ Content-Type: application/json
 - 请求体可以只传部分字段，未传字段沿用当前值。
 - `topK` 和 `maxContextChunks` 范围为 `1-20`。
 - `temperature` 范围为 `0-2`。
+- `retrievalMode` 只能是 `HYBRID` 或 `FULLTEXT`。
+- `semanticWeight` 和 `fulltextWeight` 范围为 `0-1`，两者之和必须为 `1`。
 - 保存后的参数会被后续 RAG 问答使用。
 
 失败情况：
 
 | 状态码 | 原因 |
 |---|---|
-| `400` | 请求体为空、参数为空，或参数超出范围 |
+| `400` | 请求体为空、参数为空、参数超出范围、检索策略非法，或权重之和不等于 `1` |
 | `401` | 未登录、token 无效，或 token 中缺少 userId |
 
 ## 规划中接口
@@ -1789,7 +1902,7 @@ Content-Type: application/json
 - 阶段 14 收尾新增可选 `ragEnabled`。未传时默认 `true`；`true` 表示检索知识库片段并保存真实引用来源，`false` 表示跳过知识库检索，只按当前会话上下文和模型生成回答，响应消息的 `sources` 为空数组且不伪造引用来源。
 - 前端通过轮询 `GET /api/chat/sessions/{sessionId}/messages` 和会话列表获取生成结果。
 - 后端先确认当前用户拥有该会话，并且仍是会话所属知识库成员；当 `ragEnabled !== false` 时，再基于该知识库检索 chunks，构造 prompt 调用模型。
-- 当前 `sources` 来自阶段 18 `DocumentRetrievalService` 的最终上下文 chunk。开启 RAG 时它可能是 `HYBRID` 混合召回，也可能因 embedding 缺失或失败降级为 `FULLTEXT` 全文检索。
+- 当前 `sources` 来自 `DocumentRetrievalService` 的最终上下文 chunk。开启 RAG 时它可能是阶段 19 用户配置的 `HYBRID` 混合召回，也可能是 `FULLTEXT` 全文检索。
 - Chat source 的 `score`、`hybridScore`、`fulltextScore`、`semanticScore`、`retrievalMode` 与 Search API 字段语义一致；`score` 继续作为兼容字段。
 - 只有实际进入 prompt 的 chunks 会保存为 `sources`，因此 sources 和回答上下文保持一致；空检索或 `ragEnabled: false` 时 `sources` 为空数组。
 - `limit` 为空时默认 `5`，大于 `20` 时按 `20` 处理。

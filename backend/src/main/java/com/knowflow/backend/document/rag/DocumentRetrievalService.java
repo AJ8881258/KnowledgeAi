@@ -2,6 +2,8 @@ package com.knowflow.backend.document.rag;
 
 import com.knowflow.backend.document.dto.response.SearchResultResponse;
 import com.knowflow.backend.document.repository.DocumentChunkRepository;
+import com.knowflow.backend.settings.entity.UserRagSettings;
+import com.knowflow.backend.settings.service.SettingsService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -22,12 +24,15 @@ public class DocumentRetrievalService {
 
     private final DocumentChunkRepository documentChunkRepository;
     private final EmbeddingModelClient embeddingModelClient;
+    private final SettingsService settingsService;
 
     public DocumentRetrievalService(
             DocumentChunkRepository documentChunkRepository,
-            EmbeddingModelClient embeddingModelClient) {
+            EmbeddingModelClient embeddingModelClient,
+            SettingsService settingsService) {
         this.documentChunkRepository = documentChunkRepository;
         this.embeddingModelClient = embeddingModelClient;
+        this.settingsService = settingsService;
     }
 
     /**
@@ -38,6 +43,12 @@ public class DocumentRetrievalService {
      * @return ranked chunks with compatible `score` plus Stage 18 score breakdown fields
      */
     public List<SearchResultResponse> search(Long knowledgeBaseId, Long userId, String query, Integer limit) {
+        UserRagSettings settings = settingsService.getEffectiveRagSettings(userId);
+        if ("FULLTEXT".equals(settings.getRetrievalMode())) {
+            // FULLTEXT mode deliberately avoids embedding calls. This gives users a predictable
+            // low-cost fallback while preserving member-scoped PostgreSQL ranking.
+            return documentChunkRepository.searchIndexedChunks(knowledgeBaseId, userId, query, limit);
+        }
         if (!embeddingModelClient.isConfigured(userId)) {
             return documentChunkRepository.searchIndexedChunks(knowledgeBaseId, userId, query, limit);
         }
@@ -51,7 +62,9 @@ public class DocumentRetrievalService {
                     userId,
                     query,
                     toVectorLiteral(embeddings.getFirst()),
-                    limit
+                    limit,
+                    settings.getSemanticWeight(),
+                    settings.getFulltextWeight()
             );
             if (hasSemanticSignal(hybridResults)) {
                 return hybridResults;

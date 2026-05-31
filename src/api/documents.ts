@@ -2,7 +2,10 @@ import { http } from "@/api/http";
 
 export type DocumentStatus = "UPLOADED" | "PROCESSING" | "INDEXED" | "FAILED";
 
-export type DocumentProcessingJobType = "UPLOAD_INDEX" | "REPROCESS";
+export type DocumentProcessingJobType =
+  | "UPLOAD_INDEX"
+  | "REPROCESS"
+  | "REBUILD_SEMANTIC_INDEX";
 
 export type DocumentProcessingJobStatus =
   | "QUEUED"
@@ -170,6 +173,26 @@ export async function getDocumentProcessingJob(jobId: number | string) {
 export async function reprocessDocument(documentId: number | string) {
   const response = await http.post<DocumentResponse>(
     `/documents/${documentId}/reprocess`,
+  );
+
+  return response.data;
+}
+
+export async function rebuildDocumentSemanticIndex(
+  documentId: number | string,
+) {
+  const response = await http.post<DocumentProcessingJobResponse>(
+    `/documents/${documentId}/semantic-index/rebuild`,
+  );
+
+  return response.data;
+}
+
+export async function rebuildKnowledgeBaseSemanticIndex(
+  knowledgeBaseId: number | string,
+) {
+  const response = await http.post<DocumentProcessingJobResponse[]>(
+    `/knowledge-bases/${knowledgeBaseId}/semantic-index/rebuild`,
   );
 
   return response.data;

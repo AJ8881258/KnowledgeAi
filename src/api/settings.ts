@@ -49,10 +49,15 @@ export type ModelConnectionTestResponse = {
   message: string;
 };
 
+export type RagRetrievalMode = "HYBRID" | "FULLTEXT";
+
 export type RagSettingsResponse = {
   topK: number;
   maxContextChunks: number;
   temperature: number;
+  retrievalMode: RagRetrievalMode;
+  semanticWeight: number;
+  fulltextWeight: number;
 };
 
 export type UpdateRagSettingsRequest = Partial<RagSettingsResponse>;

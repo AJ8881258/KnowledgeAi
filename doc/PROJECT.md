@@ -4,7 +4,7 @@
 
 KnowFlow AI 是一个智能知识库问答平台。用户上传学习资料、项目文档或产品文档后，可以基于自己的资料进行检索增强问答。
 
-项目当前已完成 **阶段 18：语义检索与混合召回**。当前版本已经具备从本地开发到 Docker 全量启动的完整复现路径，并补齐文档质量指标、重新处理入口、文档摘要、原始来源持久化、真正失败重试、持久化文档处理任务、可选 embedding、pgvector 向量字段和全文+语义混合检索；`do.md` 作为本地任务输入文件已加入 `.gitignore`，不再作为项目文件提交。
+项目当前已完成 **阶段 19：语义索引运维与检索策略可控**。当前版本已经具备从本地开发到 Docker 全量启动的完整复现路径，并补齐文档质量指标、重新处理入口、文档摘要、原始来源持久化、真正失败重试、持久化文档处理任务、可选 embedding、pgvector 向量字段、全文+语义混合检索、语义索引重建和用户级检索策略配置；`do.md` 作为本地任务输入文件已加入 `.gitignore`，不再作为项目文件提交。
 
 ## 当前能力
 
@@ -24,6 +24,8 @@ KnowFlow AI 是一个智能知识库问答平台。用户上传学习资料、�
 - 文档摘要：使用当前用户模型配置或环境兜底生成摘要，摘要不作为 Chat 引用来源。
 - PostgreSQL 全文检索，返回相关度分数。
 - 阶段 18 语义检索增强：配置 `KNOWFLOW_AI_EMBEDDING_MODEL` 后，文档处理会尝试写入 embedding，Search 和 Chat 通过全文分、语义分、混合分共同排序；未配置或 embedding 失败时自动降级为全文检索。
+- 阶段 19 语义索引运维：支持文档级和知识库级语义索引重建，只刷新已有 chunks 的 embedding，不重新解析来源文本，也不影响全文检索可用性。
+- 用户级 RAG 检索策略：Settings 可保存 `HYBRID` / `FULLTEXT`，并配置语义权重和全文权重。
 - RAG/Chat：会话、消息、引用来源、最近 6 条以内上下文、后台生成状态、RAG 开关和生成打断。
 - 用户级模型配置：Base URL、加密 API Key、Model、timeout。
 - Settings 模型列表拉取和真实模型连接测试。
@@ -39,6 +41,7 @@ KnowFlow AI 是一个智能知识库问答平台。用户上传学习资料、�
 - Dashboard、KnowledgeBases、Documents、Chat、Settings 接入真实后端。
 - 知识库共享成员管理 UI。
 - 文档上传、文档列表、文档详情、质量提示、重新处理、摘要生成、处理任务进度和检索测试区。
+- 文档级和知识库级语义索引重建入口。
 - Chat 会话列表、消息列表、发送问题、模型选择、引用来源面板、未读会话和后台生成状态。
 - Chat 生成中禁用 RAG/模型选择，发送按钮切换为“打断”；RAG 开关提供 hover 说明。
 - Settings 用户资料、模型配置、模型测试、偏好、RAG 参数和账号删除。
@@ -46,10 +49,11 @@ KnowFlow AI 是一个智能知识库问答平台。用户上传学习资料、�
 
 ## 当前阶段状态
 
-- 阶段 0-18 已完成。
+- 阶段 0-19 已完成。
 - 阶段 17 为文档上传和重新处理新增 `document_processing_jobs` 持久化任务表。前端 Documents 页面会轮询活跃任务，展示进度、阶段、消息和失败原因，并在任务活跃时禁用重复重新处理。
 - 阶段 18 新增可选 embedding 和混合检索。Search API 和 Chat RAG 共用 `DocumentRetrievalService`，返回 `hybridScore`、`fulltextScore`、`semanticScore`、`retrievalMode`，并保持 `score` 兼容字段。
-- 阶段 18 已通过完整后端回归、前端构建和目标 ESLint。
+- 阶段 19 新增语义索引重建任务和用户级检索策略。`FULLTEXT` 模式会跳过 embedding 查询，`HYBRID` 模式按用户配置权重排序。
+- 阶段 19 已通过完整后端回归、前端构建和目标 ESLint。
 - `do.md` 修复已完成：Chat 模型选择、进入会话自动滚动、用户模型配置复用、Settings 模型测试、退出登录确认、引用来源跟随选中回答、未读角标、响应式问题、RAG tooltip、生成打断和 `.env` 本地模型兜底均已纳入阶段 14 收尾记录。
 - 本轮收尾新增 `ragEnabled` 和生成打断接口，API 契约已同步到 `doc/API.md`。
 - 完整 Chat 真实回答验收仍依赖用户在 `/Settings` 提供可用的真实模型 Base URL/API Key/Model。
@@ -102,8 +106,8 @@ Browser -> frontend Nginx container -> backend Spring Boot container -> postgres
 - `auth`：注册、登录、JWT、当前用户资料。
 - `config`：Security、JWT、跨域和环境配置。
 - `knowledgebase`：知识库 CRUD 和成员权限。
-- `document`：文档上传、解析、切片、全文检索、处理任务进度。
-- `document.rag`：阶段 18 检索统一入口、embedding 客户端、全文/语义混合召回和降级。
+- `document`：文档上传、解析、切片、全文检索、处理任务进度和语义索引重建。
+- `document.rag`：阶段 18/19 检索统一入口、embedding 客户端、全文/语义混合召回、权重策略和降级。
 - `chat`：会话、消息、未读、后台生成状态、今日交谈次数。
 - `rag`：检索结果转 Prompt、模型调用适配、引用来源。
 - `settings`：用户模型配置、模型测试、偏好、RAG 参数。

@@ -4,7 +4,10 @@ import { useLocation, useNavigate } from "react-router";
 import { ArrowLeft, ArrowRight, ChevronDown, FileText, Loader2, RefreshCw, Search, TriangleAlert, UsersRound } from "lucide-react";
 import { toast } from "sonner";
 
-import { getKnowledgeBaseDocuments } from "@/api/documents";
+import {
+  getKnowledgeBaseDocuments,
+  rebuildKnowledgeBaseSemanticIndex,
+} from "@/api/documents";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { clearMockAuthSession } from "@/lib/mock-auth";
@@ -122,6 +125,8 @@ export function KnowledgeBaseDetailView({
   const [documentTab, setDocumentTab] = useState<DetailDocumentTab>("all");
   const [documents, setDocuments] = useState<DetailDocument[]>([]);
   const [isLoadingDocuments, setIsLoadingDocuments] = useState(true);
+  const [isRebuildingSemanticIndex, setIsRebuildingSemanticIndex] =
+    useState(false);
   const [documentLoadError, setDocumentLoadError] = useState("");
   const [memberDialogOpen, setMemberDialogOpen] = useState(false);
   const filteredDocuments = getFilteredDocuments(documents, documentTab);
@@ -172,6 +177,35 @@ export function KnowledgeBaseDetailView({
 
     return () => window.clearTimeout(timeoutId);
   }, [loadDocuments]);
+
+  const handleRebuildKnowledgeBaseSemanticIndex = async () => {
+    if (!canMutateDocuments || isRebuildingSemanticIndex) {
+      return;
+    }
+
+    setIsRebuildingSemanticIndex(true);
+
+    try {
+      const jobs = await rebuildKnowledgeBaseSemanticIndex(current.id);
+      toast.success(
+        jobs.length > 0
+          ? `已创建 ${jobs.length} 个语义索引重建任务`
+          : "当前知识库暂无可重建的语义索引任务",
+      );
+      await loadDocuments();
+    } catch (error) {
+      if (isAxiosError(error) && error.response?.status === 401) {
+        toast.error("登录状态已失效，请重新登录");
+        redirectToLogin();
+      } else if (isAxiosError(error) && error.response?.status === 403) {
+        toast.error("当前角色无权重建语义索引");
+      } else {
+        toast.error("知识库语义索引重建失败，请稍后重试");
+      }
+    } finally {
+      setIsRebuildingSemanticIndex(false);
+    }
+  };
 
   const indexedDocuments = documents.filter((document) => document.status === "INDEXED");
   const currentWithDocumentStats: KnowledgeBase = {
@@ -405,6 +439,35 @@ export function KnowledgeBaseDetailView({
               <p className="mt-3 text-xs leading-5 text-slate-500">
                 当前只检索状态为 INDEXED 的文档片段。第一版是普通关键词检索，不代表语义相似度。
               </p>
+              {canMutateDocuments && (
+                <div className="mt-4 rounded-[8px] border border-slate-200 bg-slate-50 p-3">
+                  <div className="text-sm font-semibold text-slate-900">
+                    语义索引运维
+                  </div>
+                  <p className="mt-1 text-xs leading-5 text-slate-500">
+                    为当前知识库内可重建文档创建向量索引重建任务，不重新解析文档内容。
+                  </p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={isRebuildingSemanticIndex || isLoadingDocuments}
+                    onClick={() =>
+                      void handleRebuildKnowledgeBaseSemanticIndex()
+                    }
+                    className="mt-3 h-9 w-full rounded-[6px] border-slate-200 bg-white text-xs font-medium tracking-normal text-slate-700 normal-case"
+                  >
+                    {isRebuildingSemanticIndex ? (
+                      <Loader2
+                        data-icon="inline-start"
+                        className="animate-spin"
+                      />
+                    ) : (
+                      <RefreshCw data-icon="inline-start" />
+                    )}
+                    重建知识库语义索引
+                  </Button>
+                </div>
+              )}
             </section>
 
             <section className="py-4">

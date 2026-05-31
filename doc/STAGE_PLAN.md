@@ -34,6 +34,54 @@
 | 阶段 16：文档处理可靠性与真正失败重试 | 已完成 | 上传时保存原始文件 bytes 和成功解析文本，重新处理优先使用原始来源，失败无 chunks 文档可真正重试，前端按可重试能力控制入口。 |
 | 阶段 17：后台任务化与文档处理进度 | 已完成 | 新增文档处理任务表、上传/重新处理任务记录、进度查询接口和 Documents 轮询进度 UI；完整后端回归、前端构建/ESLint 和 browser-use 验收已通过。 |
 | 阶段 18：语义检索与混合召回 | 已完成 | 新增 pgvector、可选 embedding、全文+语义混合排序、检索/Chat 分数拆解和 embedding 状态展示；后端完整回归、前端构建和目标 ESLint 已通过。 |
+| 阶段 19：语义索引运维与检索策略可控 | 已完成 | 新增语义索引重建任务、RAG 检索策略和权重配置、Settings 策略 UI、文档/知识库重建入口和阶段 19 回归验证。 |
+
+## 阶段 19：语义索引运维与检索策略可控
+
+### 目标
+
+阶段 19 在阶段 18 的可选语义检索基础上，把“是否使用语义检索”和“语义/全文权重”交给用户控制，并补齐不重新解析文档的语义索引重建运维入口。
+
+### 范围
+
+- 数据库：
+  - 新增 Flyway 迁移 `V15__semantic_index_ops_and_rag_strategy.sql`。
+  - `user_rag_settings` 新增 `retrieval_mode`、`semantic_weight`、`fulltext_weight`。
+  - `document_processing_jobs.job_type` 支持 `REBUILD_SEMANTIC_INDEX`。
+- 后端：
+  - `GET/PATCH /api/settings/rag` 返回和保存检索策略与权重。
+  - `DocumentRetrievalService` 按当前用户 RAG 设置执行 `HYBRID` 或 `FULLTEXT`。
+  - 混合召回按用户配置权重排序；全文模式跳过 embedding 查询，降低成本并便于排障。
+  - 新增文档级和知识库级语义索引重建接口，只刷新现有 chunks 的 embedding，不重新解析来源、不替换 chunks、不让全文检索不可用。
+- 前端：
+  - Settings RAG 参数区新增检索策略和语义/全文权重控制。
+  - Documents 列表、详情和知识库详情页增加语义索引重建入口。
+  - VIEWER 不展示可执行重建入口，`OWNER`/`EDITOR` 可创建重建任务。
+
+### 不做
+
+- 不新增 OCR、PPT、Excel 解析。
+- 不做向量索引可视化后台或复杂任务中心。
+- 不改变 Chat 会话和引用来源的数据结构。
+- 不做 SSE / 流式输出。
+
+### 已完成内容
+
+- 新增 `V15__semantic_index_ops_and_rag_strategy.sql`。
+- RAG 设置默认值为 `retrievalMode = HYBRID`、`semanticWeight = 0.7`、`fulltextWeight = 0.3`，并校验权重和为 1。
+- `FULLTEXT` 模式会跳过 embedding 查询，只使用 PostgreSQL 全文检索。
+- `HYBRID` 模式使用用户配置权重进行混合排序。
+- 新增 `POST /api/documents/{documentId}/semantic-index/rebuild`。
+- 新增 `POST /api/knowledge-bases/{knowledgeBaseId}/semantic-index/rebuild`。
+- 语义重建任务保留文档 `INDEXED` 状态和原有 chunks，只更新 embedding 字段和任务状态。
+- 前端已接入 RAG 策略 UI、语义权重 UI、文档级和知识库级语义索引重建入口。
+
+### 验收结果
+
+- `cd backend && .\mvnw.cmd test` 已通过。
+- `pnpm build` 已通过。
+- 目标 ESLint 已通过：
+  `pnpm exec eslint src/api/documents.ts src/api/settings.ts src/api/chat.ts src/pages/Documents.tsx src/pages/Settings.tsx src/components/documents/document-table.tsx src/components/documents/document-details.tsx src/components/knowledge-bases/knowledge-base-detail-view.tsx src/components/knowledge-bases/knowledge-base-search-panel.tsx src/components/settings/settings-rag.ts src/components/settings/rag-settings-section.tsx src/components/settings/settings-components.tsx`。
 
 ## 阶段 18：语义检索与混合召回
 

@@ -1,7 +1,13 @@
-import { Check, ChevronDown, Eye, RefreshCw, Trash2 } from "lucide-react";
+import { useState } from "react";
+import { isAxiosError } from "axios";
+import { Check, ChevronDown, Eye, RefreshCw, RotateCcw, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import type { DocumentProcessingJobResponse } from "@/api/documents";
+import {
+  rebuildDocumentSemanticIndex,
+  type DocumentProcessingJobResponse,
+} from "@/api/documents";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -69,6 +75,9 @@ export function DocumentTable({
   onPageChange,
   onPageSizeChange,
 }: DocumentTableProps) {
+  const [rebuildingSemanticDocumentId, setRebuildingSemanticDocumentId] =
+    useState<number | null>(null);
+
   const getReprocessDisabledReason = (doc: DocumentItem) => {
     if (activeJobsByDocumentId?.has(doc.id)) {
       return "后台处理中，完成后可重新处理";
@@ -91,6 +100,56 @@ export function DocumentTable({
     canReprocessDocuments &&
     doc.reprocessAvailable !== false &&
     !activeJobsByDocumentId?.has(doc.id);
+
+  const canRebuildSemanticIndex = (doc: DocumentItem) =>
+    canReprocessDocuments &&
+    doc.status === "INDEXED" &&
+    doc.chunkCount > 0 &&
+    rebuildingSemanticDocumentId !== doc.id &&
+    !activeJobsByDocumentId?.has(doc.id);
+
+  const getSemanticRebuildDisabledReason = (doc: DocumentItem) => {
+    if (activeJobsByDocumentId?.has(doc.id)) {
+      return "后台处理中，完成后可重建语义索引";
+    }
+
+    if (!canReprocessDocuments) {
+      return reprocessDisabledReason;
+    }
+
+    if (doc.status !== "INDEXED" || doc.chunkCount === 0) {
+      return "只有已完成索引且包含 chunks 的文档可以重建语义索引";
+    }
+
+    return "只重建向量索引，不重新解析文档。";
+  };
+
+  async function handleRebuildSemanticIndex(doc: DocumentItem) {
+    if (!canRebuildSemanticIndex(doc)) {
+      const reason = getSemanticRebuildDisabledReason(doc);
+      if (reason) {
+        toast.error(reason);
+      }
+      return;
+    }
+
+    setRebuildingSemanticDocumentId(doc.id);
+
+    try {
+      await rebuildDocumentSemanticIndex(doc.id);
+      toast.success(`已创建语义索引重建任务：${doc.originalFilename}`);
+    } catch (error) {
+      if (isAxiosError(error) && error.response?.status === 403) {
+        toast.error("当前角色无权重建语义索引");
+      } else if (isAxiosError(error) && error.response?.status === 401) {
+        toast.error("登录状态已失效，请重新登录");
+      } else {
+        toast.error("语义索引重建失败，请稍后重试");
+      }
+    } finally {
+      setRebuildingSemanticDocumentId(null);
+    }
+  }
 
   const formatEmbeddingStatus = (status?: string | null) => {
     if (!status) {
@@ -213,6 +272,21 @@ export function DocumentTable({
                       )}
                     />
                   </IconButton>
+                  {canReprocessDocuments && (
+                    <IconButton
+                      label={`重建语义索引 ${doc.originalFilename}`}
+                      disabled={!canRebuildSemanticIndex(doc)}
+                      title={getSemanticRebuildDisabledReason(doc)}
+                      onClick={() => void handleRebuildSemanticIndex(doc)}
+                    >
+                      <RotateCcw
+                        className={cn(
+                          rebuildingSemanticDocumentId === doc.id &&
+                            "animate-spin",
+                        )}
+                      />
+                    </IconButton>
+                  )}
                   <IconButton
                     label={`删除 ${doc.originalFilename}`}
                     disabled={isDeleting || !canDeleteDocuments}
@@ -343,6 +417,21 @@ export function DocumentTable({
                             )}
                           />
                         </IconButton>
+                        {canReprocessDocuments && (
+                          <IconButton
+                            label={`重建语义索引 ${doc.originalFilename}`}
+                            disabled={!canRebuildSemanticIndex(doc)}
+                            title={getSemanticRebuildDisabledReason(doc)}
+                            onClick={() => void handleRebuildSemanticIndex(doc)}
+                          >
+                            <RotateCcw
+                              className={cn(
+                                rebuildingSemanticDocumentId === doc.id &&
+                                  "animate-spin",
+                              )}
+                            />
+                          </IconButton>
+                        )}
                         <IconButton
                           label={`删除 ${doc.originalFilename}`}
                           disabled={isDeleting || !canDeleteDocuments}

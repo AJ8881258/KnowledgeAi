@@ -160,6 +160,27 @@ public class DocumentController {
     }
 
     /**
+     * Rebuilds semantic embeddings for every indexed document that already has chunks.
+     *
+     * @param knowledgeBaseId target knowledge base
+     * @param jwt current OWNER/EDITOR user; VIEWER receives 403 and non-members receive 404
+     * @return one job response per document that was eligible for semantic rebuild
+     * @Desc Stage 19 batch rebuild is intentionally not a text reprocess. It skips failed or
+     * chunkless documents and preserves existing full-text search while embeddings are refreshed.
+     */
+    @PostMapping("/knowledge-bases/{knowledgeBaseId}/semantic-index/rebuild")
+    public List<DocumentProcessingJobResponse> rebuildKnowledgeBaseSemanticIndex(
+            @PathVariable Long knowledgeBaseId,
+            @AuthenticationPrincipal Jwt jwt) {
+        Long userId = getCurrentUserId(jwt);
+        accessService.requireEditor(knowledgeBaseId, userId);
+        return documentRepository.findSemanticRebuildCandidatesByKnowledgeBaseId(knowledgeBaseId)
+                .stream()
+                .map(document -> runSemanticRebuildJob(document, userId))
+                .toList();
+    }
+
+    /**
      * Searches indexed chunks in a knowledge base. Summaries are intentionally not queried here.
      */
     @PostMapping("/knowledge-bases/{knowledgeBaseId}/search")
@@ -250,6 +271,25 @@ public class DocumentController {
         DocumentProcessingJob job = documentProcessingJobService.createReprocessJob(document, userId);
         documentProcessingJobRunner.start(job.getId());
         return toDocumentResponse(getAccessibleDocumentOr404(documentId, userId));
+    }
+
+    /**
+     * Rebuilds only the semantic vectors for one indexed document.
+     *
+     * @param documentId document ID
+     * @param jwt current OWNER/EDITOR user; VIEWER receives 403 and non-members receive 404
+     * @return processing job after synchronous execution in tests, or queued/running state in async runtime
+     * @Desc This endpoint differs from `/reprocess`: it never reparses source text, never rewrites
+     * chunks, and keeps documents.status unchanged so full-text retrieval remains available.
+     */
+    @PostMapping("/documents/{documentId}/semantic-index/rebuild")
+    public DocumentProcessingJobResponse rebuildDocumentSemanticIndex(
+            @PathVariable Long documentId,
+            @AuthenticationPrincipal Jwt jwt) {
+        Long userId = getCurrentUserId(jwt);
+        Document document = getAccessibleDocumentOr404(documentId, userId);
+        accessService.requireEditor(document.getKnowledgeBaseId(), userId);
+        return runSemanticRebuildJob(document, userId);
     }
 
     /**
@@ -382,6 +422,12 @@ public class DocumentController {
 
     private DocumentResponse toDocumentResponse(Document document) {
         return new DocumentResponse(document, buildQuality(document));
+    }
+
+    private DocumentProcessingJobResponse runSemanticRebuildJob(Document document, Long userId) {
+        DocumentProcessingJob job = documentProcessingJobService.createSemanticRebuildJob(document, userId);
+        documentProcessingJobRunner.start(job.getId());
+        return documentProcessingJobService.findAccessibleJob(job.getId(), userId);
     }
 
     /**

@@ -1,90 +1,90 @@
-# 后端任务书：阶段 18 语义检索与混合召回
+# 后端任务书：阶段 19 语义索引运维与检索策略可控
 
 本文档是后端 Agent 的固定入口。后端 Agent 开始实现前必须先阅读 `AGENTS.md`、`doc/STAGE_PLAN.md`、`doc/PROJECT.md`、`doc/API.md` 和本文档。
 
 ## 当前阶段状态
 
-**阶段 18 后端已完成，并已通过 PostgreSQL 完整后端集成回归。**
+**阶段 19 后端已完成，并已通过 PostgreSQL 完整后端集成回归。**
 
-阶段 18 在阶段 9 全文检索、阶段 17 持久化文档处理任务的基础上，加入可选 embedding、pgvector 字段和 Search/Chat 共用的混合召回路径。embedding 不是强依赖：未配置、调用失败或文档无可用向量时，系统必须继续走全文检索。
+阶段 19 在阶段 18 可选 embedding 和混合召回基础上，新增用户级检索策略、混合权重配置和语义索引重建运维能力。目标是让用户可以明确选择全文检索或混合检索，并在不重新解析文档的情况下刷新语义向量。
 
 ## 数据库变更
 
 新增 Flyway 迁移：
 
-- `V14__add_semantic_retrieval_embeddings.sql`
+- `V15__semantic_index_ops_and_rag_strategy.sql`
 
 主要变更：
 
-- `CREATE EXTENSION IF NOT EXISTS vector`
-- `documents`
-  - `embedding_status`
-  - `embedding_error_message`
-  - `embedding_updated_at`
-- `document_chunks`
-  - `embedding vector`
-  - `embedding_status`
-  - `embedding_updated_at`
-- `chat_message_sources`
-  - `hybrid_score`
-  - `fulltext_score`
-  - `semantic_score`
+- `user_rag_settings`
   - `retrieval_mode`
+  - `semantic_weight`
+  - `fulltext_weight`
+- `document_processing_jobs.job_type` 约束支持 `REBUILD_SEMANTIC_INDEX`。
 
 设计说明：
 
-- `documents.embedding_status` 给前端展示文档级语义索引状态，避免用户误以为全文检索失败就是文档不可用。
-- `document_chunks.embedding` 保存 pgvector 向量；文本 chunks 仍是检索和引用来源的基础。
-- `chat_message_sources` 保存分数拆解，保证历史回答也能展示当时的召回模式和分数。
+- `retrieval_mode` 让用户可以显式选择 `HYBRID` 或 `FULLTEXT`，不再只能被动依赖 embedding 是否可用。
+- `semantic_weight` 和 `fulltext_weight` 让混合排序策略可控，后端校验两者之和必须为 `1`，避免分数被意外放大。
+- `REBUILD_SEMANTIC_INDEX` 与 `UPLOAD_INDEX` / `REPROCESS` 分离，因为它只刷新 embedding，不重新读取原始文件、不替换 chunks，也不应让全文检索不可用。
 
 ## 已完成后端实现
 
-新增文件：
-
-- `backend/src/main/java/com/knowflow/backend/document/rag/EmbeddingModelClient.java`
-- `backend/src/main/java/com/knowflow/backend/document/rag/OpenAiCompatibleEmbeddingModelClient.java`
-- `backend/src/main/java/com/knowflow/backend/document/rag/DocumentRetrievalService.java`
-
 核心改动：
 
-- `AiProperties` 新增 `embeddingModel`，对应环境变量 `KNOWFLOW_AI_EMBEDDING_MODEL`。
-- Docker PostgreSQL 镜像切换为 `pgvector/pgvector:pg17`。
-- `DocumentProcessingJobService` 在写入 chunks 后尝试生成 embedding，并按结果写入 `INDEXED`、`SKIPPED` 或 `FAILED`。
-- `DocumentRepository`、`DocumentChunkRepository` 支持 embedding 状态写入、全文检索降级和混合检索 SQL。
-- `DocumentController` 的知识库检索接口改为走 `DocumentRetrievalService`。
-- `ChatGenerationService` 也使用同一个 `DocumentRetrievalService`，保证 Chat prompt 上下文与返回给前端的 sources 完全一致。
-- `DocumentResponse` 返回 `embeddingStatus`、`embeddingErrorMessage`、`embeddingUpdatedAt`。
-- `SearchResultResponse` 和 `ChatSourceResponse` 返回 `hybridScore`、`fulltextScore`、`semanticScore`、`retrievalMode`，并保留兼容字段 `score`。
+- `SettingsService` 支持读取和保存 `retrievalMode`、`semanticWeight`、`fulltextWeight`。
+- `RagSettingsResponse` 和 `UpdateRagSettingsRequest` 新增阶段 19 字段。
+- `UserRagSettingsRepository` 支持新字段 upsert 和默认值读取。
+- `DocumentRetrievalService` 按当前用户 RAG 设置执行：
+  - `FULLTEXT`：跳过 embedding 查询，直接走 PostgreSQL 全文检索。
+  - `HYBRID`：在 embedding 可用时按用户配置权重执行混合召回。
+- `DocumentChunkRepository` 的混合检索 SQL 支持传入 `semanticWeight` 和 `fulltextWeight`。
+- `DocumentProcessingJobService` 新增 `REBUILD_SEMANTIC_INDEX` 处理分支：
+  - 校验文档已经 `INDEXED` 且存在 chunks。
+  - 读取现有 chunks 内容生成 embedding。
+  - 通过 `document_id + chunk_index` 写回向量，保留 chunk ID 和引用稳定性。
+  - 不更新 `documents.status` 为 `PROCESSING`，失败时只更新 embedding 状态和任务状态。
+- `DocumentController` 新增：
+  - `POST /api/documents/{documentId}/semantic-index/rebuild`
+  - `POST /api/knowledge-bases/{knowledgeBaseId}/semantic-index/rebuild`
+
+## 权限与安全规则
+
+- 语义索引重建只允许知识库 `OWNER` / `EDITOR` 执行。
+- `VIEWER` 执行重建返回 `403`。
+- 非成员访问仍走既有资源权限校验，返回 `404`，避免暴露资源存在性。
+- 语义重建期间全文 chunks 保持可用，不伪造引用来源，不删除旧 chunks。
+- embedding 和模型供应商错误必须脱敏，不泄露 API Key、Authorization header、完整 Base URL 或供应商敏感细节。
 
 ## 检索语义
 
-- 未配置 `KNOWFLOW_AI_EMBEDDING_MODEL`：直接走 PostgreSQL 全文检索，`retrievalMode = FULLTEXT`。
-- 已配置 embedding 且用户模型配置或环境兜底配置可用：查询时先生成 query embedding，再执行混合召回。
-- 混合召回当前排序：`semanticScore * 0.7 + fulltextScore * 0.3`。
-- 如果 embedding 调用失败、返回空向量、文档没有可用向量或语义分全为 0，后端自动降级为全文检索。
-- `score` 是兼容字段：混合模式下等于 `hybridScore`，全文模式下等于 `fulltextScore`。
-
-## 安全与降级规则
-
-- embedding 调用使用当前用户保存的 Base URL/API Key；没有用户配置时才使用环境变量兜底。
-- API Key 永远不返回前端，不写入日志，不进入错误响应。
-- embedding 失败不应导致文档上传、重新处理、Search 或 Chat 失败；失败只影响语义增强，全文检索仍可用。
-- Search 和 Chat 仍必须按知识库成员权限隔离，非成员返回 `404`。
-- Chat 引用来源仍只来自真实 chunks，不伪造来源；空检索或关闭 RAG 时 `sources: []`。
+- 默认 RAG 设置：
+  - `retrievalMode = HYBRID`
+  - `semanticWeight = 0.7`
+  - `fulltextWeight = 0.3`
+- `FULLTEXT` 模式：
+  - 不调用 embedding 客户端。
+  - 检索结果 `retrievalMode = FULLTEXT`。
+  - 适合禁用语义检索、排查向量问题或降低模型调用成本。
+- `HYBRID` 模式：
+  - embedding 配置和用户模型配置可用时生成 query embedding。
+  - 使用用户配置的语义/全文权重排序。
+  - embedding 不可用、生成失败、文档没有可用向量或语义分全为 0 时降级全文检索。
 
 ## 测试覆盖
 
 新增测试：
 
-- `Stage18HybridRetrievalTests`
+- `Stage19SemanticIndexOpsTests`
 
 覆盖重点：
 
-- 文档上传处理成功后写入 embedding 状态。
-- 混合检索返回 `HYBRID`，并返回语义分、全文分和混合分。
-- Chat sources 使用同一套混合召回排序和分数拆解。
-- embedding 生成失败时文档状态仍可用，检索降级为 `FULLTEXT`。
-- 阶段 7-18 既有回归仍通过。
+- `GET/PATCH /api/settings/rag` 返回和保存检索策略与权重。
+- 混合检索使用用户保存的权重排序。
+- 文档级语义索引重建保留 chunk ID 和文档 `INDEXED` 状态。
+- `VIEWER` 不能重建文档或知识库语义索引。
+- 知识库级语义索引重建只为已索引且有 chunks 的文档创建任务。
+- 阶段 7-19 既有回归仍通过。
 
 ## 验证命令与结果
 
@@ -97,9 +97,9 @@ cd backend
 
 结果：
 
-- 95 个测试全部通过。
+- 后端完整测试通过。
 
-后续如继续修改阶段 18 后端代码，至少重新运行：
+后续如继续修改阶段 19 后端代码，至少重新运行：
 
 ```powershell
 cd backend

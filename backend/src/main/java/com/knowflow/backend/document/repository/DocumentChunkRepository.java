@@ -180,8 +180,10 @@ public interface DocumentChunkRepository {
      * @param query original text query for PostgreSQL full-text scoring
      * @param queryEmbedding pgvector literal generated from the same query, for example [0.1,0.2]
      * @param limit maximum number of chunks to return
+     * @param semanticWeight weight applied to vector similarity
+     * @param fulltextWeight weight applied to PostgreSQL full-text score
      * @return chunks ranked by a weighted semantic/full-text score with per-score breakdown fields
-     * @Desc Stage 18 hybrid retrieval keeps the old full-text signal and adds semantic similarity.
+     * @Desc Stage 19 keeps the Stage 18 hybrid shape but makes the weights user-controlled.
      * The response still fills the old score field so older frontend code remains compatible.
      */
     @Select("""
@@ -252,8 +254,14 @@ public interface DocumentChunkRepository {
                    document_name,
                    chunk_index,
                    content,
-                   CAST((semantic_score * 0.7 + fulltext_score * 0.3) AS double precision) AS score,
-                   CAST((semantic_score * 0.7 + fulltext_score * 0.3) AS double precision) AS hybrid_score,
+                   CAST((
+                       semantic_score * #{semanticWeight}
+                       + CASE WHEN fulltext_score > 0.0 THEN 1.0 ELSE 0.0 END * #{fulltextWeight}
+                   ) AS double precision) AS score,
+                   CAST((
+                       semantic_score * #{semanticWeight}
+                       + CASE WHEN fulltext_score > 0.0 THEN 1.0 ELSE 0.0 END * #{fulltextWeight}
+                   ) AS double precision) AS hybrid_score,
                    fulltext_score,
                    semantic_score,
                    'HYBRID' AS retrieval_mode
@@ -266,7 +274,27 @@ public interface DocumentChunkRepository {
             @Param("userId") Long userId,
             @Param("query") String query,
             @Param("queryEmbedding") String queryEmbedding,
-            @Param("limit") Integer limit);
+            @Param("limit") Integer limit,
+            @Param("semanticWeight") Double semanticWeight,
+            @Param("fulltextWeight") Double fulltextWeight);
+
+    /**
+     * @param documentId document whose existing chunks are being semantically re-indexed
+     * @param embeddingStatus PROCESSING, INDEXED, FAILED, or SKIPPED
+     * @return updated row count
+     * @Desc Stage 19 semantic rebuild keeps chunk text and IDs stable. This helper only changes
+     * embedding state, so full-text search and existing citations remain usable during rebuild.
+     */
+    @Update("""
+            UPDATE document_chunks
+            SET embedding = NULL,
+                embedding_status = #{embeddingStatus},
+                embedding_updated_at = now()
+            WHERE document_id = #{documentId}
+            """)
+    int updateEmbeddingStatusByDocumentId(
+            @Param("documentId") Long documentId,
+            @Param("embeddingStatus") String embeddingStatus);
 
     /**
      * @param documentId document that owns the chunk

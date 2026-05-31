@@ -4,16 +4,21 @@ import {
   Loader2,
   MessageCircle,
   RefreshCw,
+  RotateCcw,
   Sparkles,
   TriangleAlert,
   X,
 } from "lucide-react";
+import { isAxiosError } from "axios";
+import { useState } from "react";
+import { toast } from "sonner";
 
 import type {
   DocumentChunkResponse,
   DocumentProcessingJobResponse,
   DocumentQualityResponse,
 } from "@/api/documents";
+import { rebuildDocumentSemanticIndex } from "@/api/documents";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { statusMeta, typeMeta } from "./document-data";
@@ -85,6 +90,8 @@ export function DocumentDetails({
   onNavigateChat?: () => void;
   onClose?: () => void;
 }) {
+  const [isRebuildingSemanticIndex, setIsRebuildingSemanticIndex] =
+    useState(false);
   const meta = statusMeta[item.status];
   const qualityWarnings = quality?.qualityWarnings ?? item.qualityWarnings ?? [];
   const charCount = quality?.charCount ?? item.charCount;
@@ -106,6 +113,44 @@ export function DocumentDetails({
         ? "此文档没有保存原始来源，无法自动重试，请重新上传文件。"
         : "当前文档缺少可重新处理的原始来源。"
       : undefined;
+  const isSemanticRebuildEligible =
+    item.status === "INDEXED" && item.chunkCount > 0;
+  const canRebuildSemanticIndex =
+    canReprocess && isSemanticRebuildEligible && !hasActiveJob;
+  const semanticRebuildDisabledReason = !canReprocess
+    ? reprocessDisabledReason
+    : !isSemanticRebuildEligible
+      ? "只有已完成索引且包含 chunks 的文档可以重建语义索引"
+    : hasActiveJob
+      ? "后台处理中，完成后可重建语义索引"
+      : undefined;
+
+  async function handleRebuildSemanticIndex() {
+    if (!canRebuildSemanticIndex || isRebuildingSemanticIndex) {
+      if (semanticRebuildDisabledReason) {
+        toast.error(semanticRebuildDisabledReason);
+      }
+      return;
+    }
+
+    setIsRebuildingSemanticIndex(true);
+
+    try {
+      await rebuildDocumentSemanticIndex(item.id);
+      toast.success("已创建语义索引重建任务");
+      onLoadQuality();
+    } catch (error) {
+      if (isAxiosError(error) && error.response?.status === 403) {
+        toast.error("当前角色无权重建语义索引");
+      } else if (isAxiosError(error) && error.response?.status === 401) {
+        toast.error("登录状态已失效，请重新登录");
+      } else {
+        toast.error("语义索引重建失败，请稍后重试");
+      }
+    } finally {
+      setIsRebuildingSemanticIndex(false);
+    }
+  }
 
   return (
     <aside className="min-h-0 border-t border-slate-200 bg-white xl:border-t-0 xl:border-l">
@@ -168,6 +213,37 @@ export function DocumentDetails({
                 进入问答
               </Button>
             </div>
+            {canReprocess && (
+              <div className="rounded-[6px] border border-slate-200 bg-slate-50 p-3">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-slate-900">
+                      重建语义索引
+                    </div>
+                    <p className="mt-1 text-xs leading-5 text-slate-500">
+                      只重建向量索引，不重新解析文档，也不会替换当前 chunks。
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={
+                      isRebuildingSemanticIndex || !canRebuildSemanticIndex
+                    }
+                    title={semanticRebuildDisabledReason}
+                    onClick={() => void handleRebuildSemanticIndex()}
+                    className="h-9 shrink-0 rounded-[5px] border-slate-200 bg-white px-3 text-xs font-medium tracking-normal text-slate-700 normal-case"
+                  >
+                    {isRebuildingSemanticIndex ? (
+                      <Loader2 data-icon="inline-start" className="animate-spin" />
+                    ) : (
+                      <RotateCcw data-icon="inline-start" />
+                    )}
+                    重建语义索引
+                  </Button>
+                </div>
+              </div>
+            )}
 
             <div className="flex flex-col gap-3">
               <DetailRow label="类型" value={typeMeta[item.type].label} />

@@ -48,6 +48,12 @@ public class SettingsService {
     private static final int DEFAULT_TOP_K = 5;
     private static final int DEFAULT_MAX_CONTEXT_CHUNKS = 5;
     private static final double DEFAULT_TEMPERATURE = 0.2;
+    private static final String DEFAULT_RETRIEVAL_MODE = "HYBRID";
+    private static final String RETRIEVAL_MODE_HYBRID = "HYBRID";
+    private static final String RETRIEVAL_MODE_FULLTEXT = "FULLTEXT";
+    private static final double DEFAULT_SEMANTIC_WEIGHT = 0.7;
+    private static final double DEFAULT_FULLTEXT_WEIGHT = 0.3;
+    private static final double WEIGHT_SUM_EPSILON = 0.000001;
     private static final int MIN_CHUNKS = 1;
     private static final int MAX_CHUNKS = 20;
     private static final double MIN_TEMPERATURE = 0.0;
@@ -284,7 +290,12 @@ public class SettingsService {
         if (request == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Request is null");
         }
-        if (request.getTopK() == null && request.getMaxContextChunks() == null && request.getTemperature() == null) {
+        if (request.getTopK() == null
+                && request.getMaxContextChunks() == null
+                && request.getTemperature() == null
+                && request.getRetrievalMode() == null
+                && request.getSemanticWeight() == null
+                && request.getFulltextWeight() == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Request is empty");
         }
         UserRagSettings current = getEffectiveRagSettings(userId);
@@ -292,12 +303,25 @@ public class SettingsService {
         Integer topK = request.getTopK() == null ? current.getTopK() : normalizedChunkValue(request.getTopK(), "topK");
         Integer maxContextChunks = request.getMaxContextChunks() == null ? current.getMaxContextChunks() : normalizedChunkValue(request.getMaxContextChunks(), "maxContextChunks");
         Double temperature = request.getTemperature() == null ? current.getTemperature() : normalizedTemperature(request.getTemperature());
+        String retrievalMode = request.getRetrievalMode() == null
+                ? current.getRetrievalMode()
+                : normalizeRetrievalMode(request.getRetrievalMode());
+        Double semanticWeight = request.getSemanticWeight() == null
+                ? current.getSemanticWeight()
+                : normalizedWeight(request.getSemanticWeight(), "semanticWeight");
+        Double fulltextWeight = request.getFulltextWeight() == null
+                ? current.getFulltextWeight()
+                : normalizedWeight(request.getFulltextWeight(), "fulltextWeight");
+        validateWeightSum(semanticWeight, fulltextWeight);
 
         UserRagSettings next = new UserRagSettings();
         next.setUserId(userId);
         next.setTopK(topK);
         next.setMaxContextChunks(maxContextChunks);
         next.setTemperature(temperature);
+        next.setRetrievalMode(retrievalMode);
+        next.setSemanticWeight(semanticWeight);
+        next.setFulltextWeight(fulltextWeight);
 
         userRagSettingsRepository.upsert(next);
         return getRagSettings(userId);
@@ -316,6 +340,9 @@ public class SettingsService {
         settings.setTopK(DEFAULT_TOP_K);
         settings.setMaxContextChunks(DEFAULT_MAX_CONTEXT_CHUNKS);
         settings.setTemperature(DEFAULT_TEMPERATURE);
+        settings.setRetrievalMode(DEFAULT_RETRIEVAL_MODE);
+        settings.setSemanticWeight(DEFAULT_SEMANTIC_WEIGHT);
+        settings.setFulltextWeight(DEFAULT_FULLTEXT_WEIGHT);
         return settings;
     }
 
@@ -330,7 +357,10 @@ public class SettingsService {
         return new RagSettingsResponse(
                 userRagSettings.getTopK(),
                 userRagSettings.getMaxContextChunks(),
-                userRagSettings.getTemperature()
+                userRagSettings.getTemperature(),
+                userRagSettings.getRetrievalMode(),
+                userRagSettings.getSemanticWeight(),
+                userRagSettings.getFulltextWeight()
         );
     }
 
@@ -368,6 +398,45 @@ public class SettingsService {
      * @param value
      * @return
      */
+    /**
+     * @param value client-provided retrieval mode
+     * @return normalized mode stored in user_rag_settings
+     * @Desc Stage 19 makes retrieval strategy explicit. FULLTEXT is useful when a user wants
+     * deterministic keyword search or their embedding provider is unavailable; HYBRID keeps the
+     * Stage 18 semantic ranking behavior.
+     */
+    private String normalizeRetrievalMode(String value) {
+        String normalized = normalizeRequiredText(value, "retrievalMode").toUpperCase();
+        if (!RETRIEVAL_MODE_HYBRID.equals(normalized) && !RETRIEVAL_MODE_FULLTEXT.equals(normalized)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "retrievalMode must be HYBRID or FULLTEXT");
+        }
+        return normalized;
+    }
+
+    /**
+     * @param value semantic/full-text weight submitted by Settings
+     * @param fieldName response field name used in validation errors
+     * @return finite weight in the inclusive 0..1 range
+     */
+    private Double normalizedWeight(Double value, String fieldName) {
+        if (value == null || value.isNaN() || value.isInfinite() || value < 0.0 || value > 1.0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, fieldName + " must be between 0 and 1");
+        }
+        return value;
+    }
+
+    /**
+     * @param semanticWeight vector similarity weight
+     * @param fulltextWeight PostgreSQL full-text weight
+     * @Desc The SQL rank is a weighted sum. Requiring the weights to add up to 1 keeps score
+     * behavior understandable and avoids accidentally amplifying both signals.
+     */
+    private void validateWeightSum(Double semanticWeight, Double fulltextWeight) {
+        if (Math.abs((semanticWeight + fulltextWeight) - 1.0) > WEIGHT_SUM_EPSILON) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "semanticWeight and fulltextWeight must sum to 1");
+        }
+    }
+
     private boolean hasText(String value) {
         return value != null && !value.isBlank();
     }
