@@ -1,4 +1,4 @@
-import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+﻿import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { isAxiosError } from "axios";
 import {
   Bot,
@@ -30,12 +30,19 @@ import {
   deleteChatSession,
   getChatSessionMessages,
   getKnowledgeBaseChatSessions,
-  sendChatSessionMessage,
   updateChatSession,
   type ChatMessageResponse,
   type ChatMessageSourceResponse,
   type ChatSessionResponse,
 } from "@/api/chat";
+import {
+  streamChatSessionMessage,
+  type ChatStreamEvent,
+} from "@/api/chat-stream";
+import {
+  getKnowledgeBaseDocuments,
+  type DocumentResponse,
+} from "@/api/documents";
 import {
   fetchModelList,
   getModelSettings,
@@ -45,6 +52,7 @@ import {
 } from "@/api/settings";
 import {
   ChatComposer,
+  type ChatMentionDocument,
   type ChatComposerPayload,
 } from "@/components/chat/ChatComposer";
 import { Button } from "@/components/ui/button";
@@ -98,9 +106,6 @@ import { useChatStatusStore } from "@/store/chat-status";
 const DEFAULT_CHAT_LIMIT = 5;
 const SOURCE_PREVIEW_LENGTH = 180;
 const POLL_INTERVAL_MS = 2500;
-const MAX_GENERATION_POLL_ATTEMPTS = 24;
-const GENERATION_TIMEOUT_MESSAGE =
-  "生成超时：后台可能仍在生成回答。你可以稍后刷新会话，或检查模型配置后重试。";
 const DEFAULT_GENERATION_ERROR_MESSAGE =
   "AI model call failed";
 const ACTIONABLE_MODEL_ERROR_MESSAGE =
@@ -248,6 +253,12 @@ function getMessageSources(message: ChatMessageResponse | null | undefined) {
     (first, second) => getSourceSortScore(second) - getSourceSortScore(first),
   );
 }
+function mapMentionDocument(document: DocumentResponse): ChatMentionDocument {
+  return {
+    id: document.id,
+    name: document.originalFilename,
+  };
+}
 
 function getSessionGenerationError(session: ChatSessionResponse | null | undefined) {
   const errorMessage =
@@ -313,7 +324,7 @@ function getChatErrorMessage(error: unknown) {
     }
 
     if (error.code === "ECONNABORTED" || status === 408 || status === 504) {
-      return "回答生成超时，请稍后重试，或缩短问题后再次发送。";
+      return "回答生成超时，请稍后重试，或缩短问题后再发送。";
     }
 
     if (status === 400) {
@@ -405,13 +416,13 @@ function MessageBubble({
                 </span>
                 <span className="shrink-0">Chunk #{source.chunkIndex}</span>
                 <span className="shrink-0 text-blue-500">
-                  混合分 {formatScore(source.hybridScore ?? source.score)}
+                  娣峰悎鍒?{formatScore(source.hybridScore ?? source.score)}
                 </span>
                 <span className="shrink-0 text-blue-500">
-                  全文 {formatScore(source.fulltextScore)}
+                  鍏ㄦ枃 {formatScore(source.fulltextScore)}
                 </span>
                 <span className="shrink-0 text-blue-500">
-                  语义 {formatScore(source.semanticScore)}
+                  璇箟 {formatScore(source.semanticScore)}
                 </span>
               </span>
             ))}
@@ -442,7 +453,7 @@ function EmptyConversation({
           开始知识库问答
         </h2>
         <p className="mt-1 max-w-md text-sm leading-6 text-slate-500">
-          当前知识库：{knowledgeBaseName}。输入问题后会创建或进入会话，并请求后端生成非流式回答。
+          当前知识库：{knowledgeBaseName}。输入问题后会创建或进入会话，并实时显示后端流式回答。
         </p>
       </div>
     </div>
@@ -508,11 +519,11 @@ function SourceCard({
             <span className="text-slate-300">/</span>
             <span>{getRetrievalModeLabel(source.retrievalMode)}</span>
             <span className="text-slate-300">/</span>
-            <span>混合分 {formatScore(source.hybridScore ?? source.score)}</span>
+            <span>娣峰悎鍒?{formatScore(source.hybridScore ?? source.score)}</span>
             <span className="text-slate-300">/</span>
-            <span>全文 {formatScore(source.fulltextScore)}</span>
+            <span>鍏ㄦ枃 {formatScore(source.fulltextScore)}</span>
             <span className="text-slate-300">/</span>
-            <span>语义 {formatScore(source.semanticScore)}</span>
+            <span>璇箟 {formatScore(source.semanticScore)}</span>
           </div>
         </div>
         <ChevronDown
@@ -532,7 +543,7 @@ function SourceCard({
       </p>
       {isLongContent && (
         <div className="mt-2 text-right text-[11px] font-medium text-blue-600">
-          {expanded ? "收起片段" : "展开查看完整片段"}
+          {expanded ? "鏀惰捣鐗囨" : "灞曞紑鏌ョ湅瀹屾暣鐗囨"}
         </div>
       )}
     </article>
@@ -596,7 +607,7 @@ function SessionListItem({
           {isUnread && (
             <span className="inline-flex shrink-0 items-center gap-1 rounded-[4px] border border-sky-200 bg-sky-50 px-1.5 py-0.5 text-[10px] font-medium text-sky-700">
               <CircleDot className="size-3" />
-              未读
+              鏈
             </span>
           )}
           {isFailed && (
@@ -738,6 +749,11 @@ export function RagChatWorkspace({
   const [selectedModelId, setSelectedModelId] = useState("");
   const [isLoadingModels, setIsLoadingModels] = useState(false);
   const [, setModelError] = useState("");
+  const [mentionDocuments, setMentionDocuments] = useState<
+    ChatMentionDocument[]
+  >([]);
+  const [isLoadingMentionDocuments, setIsLoadingMentionDocuments] =
+    useState(false);
   const refreshUnreadCount = useChatStatusStore(
     (state) => state.refreshUnreadCount,
   );
@@ -748,6 +764,8 @@ export function RagChatWorkspace({
   const sessionsRef = useRef<ChatSessionResponse[]>([]);
   const messagesRef = useRef<ChatMessageResponse[]>([]);
   const selectedModelIdRef = useRef("");
+  const activeStreamAbortControllerRef = useRef<AbortController | null>(null);
+  const streamingAssistantMessageIdRef = useRef<number | null>(null);
   const messageScrollRef = useRef<HTMLDivElement>(null);
   const latestInitialSessionIdRef = useRef(initialSessionId);
   const onSessionChangeRef = useRef(onSessionChange);
@@ -1138,6 +1156,50 @@ export function RagChatWorkspace({
     return () => window.clearTimeout(timeoutId);
   }, [knowledgeBase.id, loadSessions]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadMentionDocuments = async () => {
+      setIsLoadingMentionDocuments(true);
+      setMentionDocuments([]);
+
+      try {
+        const documents = await getKnowledgeBaseDocuments(knowledgeBase.id);
+
+        if (cancelled) {
+          return;
+        }
+
+        setMentionDocuments(
+          documents
+            .filter((document) => document.status === "INDEXED")
+            .map(mapMentionDocument),
+        );
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+
+        if (isAxiosError(error) && error.response?.status === 401) {
+          onUnauthorizedRef.current();
+          return;
+        }
+
+        setMentionDocuments([]);
+      } finally {
+        if (!cancelled) {
+          setIsLoadingMentionDocuments(false);
+        }
+      }
+    };
+
+    void loadMentionDocuments();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [knowledgeBase.id]);
+
   const createSession = async (title = "新会话") => {
     setIsCreatingSession(true);
     setErrorMessage("");
@@ -1395,73 +1457,6 @@ export function RagChatWorkspace({
     return applySessions(response);
   }, [applySessions, knowledgeBase.id]);
 
-  const pollGenerationResult = useCallback(
-    async (sessionId: number) => {
-      let attempts = 0;
-
-      while (attempts < MAX_GENERATION_POLL_ATTEMPTS) {
-        attempts += 1;
-        await new Promise((resolve) => window.setTimeout(resolve, POLL_INTERVAL_MS));
-
-        const nextSessions = await refreshSessionsForPolling();
-        const targetSession = nextSessions.find(
-          (session) => session.id === sessionId,
-        );
-        const isActiveTarget = activeSessionIdRef.current === sessionId;
-
-        if (isActiveTarget) {
-          await loadMessages(sessionId, {
-            preserveSources: true,
-            scrollOnNewAssistant: true,
-            silent: true,
-          });
-        }
-
-        if (!targetSession) {
-          if (isActiveTarget) {
-            setGenerationNotice("这个会话不存在，或你没有访问权限。");
-          }
-          return;
-        }
-
-        if (targetSession.status === "IDLE") {
-          if (isActiveTarget) {
-            setGenerationNotice("");
-            await loadMessages(sessionId, {
-              preserveSources: true,
-              scrollOnNewAssistant: true,
-              silent: true,
-            });
-          }
-          return;
-        }
-
-        if (targetSession.status === "FAILED") {
-          if (isActiveTarget) {
-            setGenerationNotice(
-              `回答生成失败：${getSessionGenerationError(targetSession)}`,
-            );
-            await loadMessages(sessionId, {
-              preserveSources: true,
-              scrollToBottom: true,
-              silent: true,
-            });
-          }
-          return;
-        }
-      }
-
-      if (activeSessionIdRef.current === sessionId) {
-        setGenerationNotice(GENERATION_TIMEOUT_MESSAGE);
-        await loadMessages(sessionId, {
-          preserveSources: true,
-          silent: true,
-        });
-      }
-    },
-    [loadMessages, refreshSessionsForPolling],
-  );
-
   useEffect(() => {
     if (!sessions.some((session) => session.status === "GENERATING")) {
       return;
@@ -1534,6 +1529,133 @@ export function RagChatWorkspace({
     void handleOpenSession(targetSessionId);
   }, [handleOpenSession, initialSessionId, isLoadingSessions, replaceMessages]);
 
+  const applyStreamEvent = useCallback(
+    (
+      event: ChatStreamEvent,
+      fallbackSession: ChatSessionResponse,
+      optimisticUserMessageId: number,
+    ) => {
+      if (event.type === "session" && event.data) {
+        replaceSession(event.data);
+        return;
+      }
+
+      if (event.type === "user_message" && event.data) {
+        updateMessages((currentMessages) => [
+          ...currentMessages.filter(
+            (message) => message.id !== optimisticUserMessageId,
+          ),
+          event.data,
+        ]);
+        return;
+      }
+
+      if (event.type === "assistant_message" && event.data) {
+        streamingAssistantMessageIdRef.current = event.data.id;
+        updateMessages((currentMessages) =>
+          currentMessages.some((message) => message.id === event.data.id)
+            ? currentMessages.map((message) =>
+                message.id === event.data.id ? event.data : message,
+              )
+            : [...currentMessages, event.data],
+        );
+        setSelectedAssistantMessageId(event.data.id);
+        scrollMessagesToBottom();
+        return;
+      }
+
+      if (event.type === "delta" && event.data) {
+        const messageId =
+          event.data.messageId ??
+          event.data.id ??
+          streamingAssistantMessageIdRef.current ??
+          -Date.now();
+        const content = event.data.content ?? "";
+
+        streamingAssistantMessageIdRef.current = messageId;
+        updateMessages((currentMessages) => {
+          const existingMessage = currentMessages.find(
+            (message) => message.id === messageId,
+          );
+
+          if (existingMessage) {
+            return currentMessages.map((message) =>
+              message.id === messageId ? { ...message, content } : message,
+            );
+          }
+
+          return [
+            ...currentMessages,
+            {
+              id: messageId,
+              sessionId: fallbackSession.id,
+              role: "ASSISTANT",
+              content,
+              sources: [],
+              createdAt: event.data.createdAt ?? new Date().toISOString(),
+            },
+          ];
+        });
+        setSelectedAssistantMessageId(messageId);
+        scrollMessagesToBottom();
+        return;
+      }
+
+      if (event.type === "sources" && event.data) {
+        const sourcePayload = Array.isArray(event.data)
+          ? { sources: event.data }
+          : event.data;
+        const targetMessageId =
+          sourcePayload.messageId ??
+          sourcePayload.assistantMessageId ??
+          streamingAssistantMessageIdRef.current;
+
+        if (!targetMessageId) {
+          return;
+        }
+
+        updateMessages((currentMessages) =>
+          currentMessages.map((message) =>
+            message.id === targetMessageId
+              ? { ...message, sources: sourcePayload.sources ?? [] }
+              : message,
+          ),
+        );
+        return;
+      }
+
+      if (event.type === "done" && event.data) {
+        const doneMessage = event.data.assistantMessage ?? event.data.message;
+
+        if (event.data.session) {
+          replaceSession(event.data.session);
+        }
+        if (doneMessage) {
+          streamingAssistantMessageIdRef.current = doneMessage.id;
+          updateMessages((currentMessages) =>
+            currentMessages.some((message) => message.id === doneMessage.id)
+              ? currentMessages.map((message) =>
+                  message.id === doneMessage.id ? doneMessage : message,
+                )
+              : [...currentMessages, doneMessage],
+          );
+          setSelectedAssistantMessageId(doneMessage.id);
+        }
+        return;
+      }
+
+      if (event.type === "error") {
+        const message =
+          typeof event.data === "string" ? event.data : event.data?.message;
+
+        if (message) {
+          setGenerationNotice(sanitizeSensitiveMessage(message));
+        }
+      }
+    },
+    [replaceSession, scrollMessagesToBottom, updateMessages],
+  );
+
   const handleSubmit = async (payload: ChatComposerPayload) => {
     if (isSendingRef.current) {
       return;
@@ -1549,6 +1671,7 @@ export function RagChatWorkspace({
     isSendingRef.current = true;
     setIsSending(true);
     setErrorMessage("");
+    setGenerationNotice("");
 
     try {
       const session =
@@ -1562,41 +1685,13 @@ export function RagChatWorkspace({
         sources: [],
         createdAt: new Date().toISOString(),
       };
-
-      updateMessages((currentMessages) => [...currentMessages, userMessage]);
-      scrollMessagesToBottom();
-
       const selectedModel =
         payload.modelId.trim() || selectedModelIdRef.current.trim();
-      const response = await sendChatSessionMessage(session.id, {
-        content,
-        limit: DEFAULT_CHAT_LIMIT,
-        ...(selectedModel ? { model: selectedModel } : {}),
-        ragEnabled: payload.ragEnabled,
-      });
-      const savedUserMessage = response.userMessage ?? userMessage;
-      const nextSession = response.session
-        ? normalizeChatSession(response.session)
-        : {
-            ...session,
-            status: "GENERATING" as const,
-            unread: false,
-            updatedAt: savedUserMessage.createdAt,
-          };
+      const abortController = new AbortController();
 
-      updateMessages((currentMessages) => {
-        const withoutOptimisticMessage = currentMessages.filter(
-          (message) => message.id !== userMessage.id,
-        );
-        const withSavedUserMessage = [
-          ...withoutOptimisticMessage,
-          savedUserMessage,
-        ];
-
-        return response.message
-          ? [...withSavedUserMessage, response.message]
-          : withSavedUserMessage;
-      });
+      activeStreamAbortControllerRef.current = abortController;
+      streamingAssistantMessageIdRef.current = null;
+      updateMessages((currentMessages) => [...currentMessages, userMessage]);
       scrollMessagesToBottom();
       setSessions((currentSessions) => {
         const nextSessions = normalizeChatSessions(
@@ -1604,11 +1699,9 @@ export function RagChatWorkspace({
             item.id === session.id
               ? {
                   ...item,
-                  ...nextSession,
-                  title:
-                    item.title === "新会话"
-                      ? getDefaultSessionTitle(content)
-                      : nextSession.title,
+                  status: "GENERATING" as const,
+                  unread: false,
+                  updatedAt: userMessage.createdAt,
                 }
               : item,
           ),
@@ -1617,13 +1710,32 @@ export function RagChatWorkspace({
         sessionsRef.current = nextSessions;
         return nextSessions;
       });
+
+      await streamChatSessionMessage(
+        session.id,
+        {
+          content,
+          limit: DEFAULT_CHAT_LIMIT,
+          ...(selectedModel ? { model: selectedModel } : {}),
+          ragEnabled: payload.ragEnabled,
+          mentionedDocumentIds: payload.mentionedDocumentIds,
+        },
+        {
+          onEvent: (event) => applyStreamEvent(event, session, userMessage.id),
+        },
+        { signal: abortController.signal },
+      );
+
+      scrollMessagesToBottom();
+      await refreshSessionsForPolling();
       void refreshUnreadCount();
       void refreshTodayUsage();
       setExpandedSources(new Set());
-      void pollGenerationResult(session.id).catch((error: unknown) => {
-        setErrorMessage(handleRequestError(error));
-      });
     } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        return;
+      }
+
       updateMessages((currentMessages) =>
         currentMessages.filter((message) => message.id >= 0),
       );
@@ -1631,6 +1743,8 @@ export function RagChatWorkspace({
       throw error;
     } finally {
       await refreshTodayUsage();
+      activeStreamAbortControllerRef.current = null;
+      streamingAssistantMessageIdRef.current = null;
       isSendingRef.current = false;
       setIsSending(false);
     }
@@ -1645,6 +1759,7 @@ export function RagChatWorkspace({
 
     setIsCancellingGeneration(true);
     setGenerationNotice("");
+    activeStreamAbortControllerRef.current?.abort();
 
     try {
       const response = await cancelChatSessionGeneration(sessionId);
@@ -1875,7 +1990,7 @@ export function RagChatWorkspace({
               </Button>
             )}
             <SearchCheck className="size-4" />
-            后台生成 · 会结合当前会话上下文
+            流式生成 · 会结合当前会话上下文
           </div>
         </header>
 
@@ -1918,7 +2033,7 @@ export function RagChatWorkspace({
             {showGenerationPending && (
               <div className="flex items-center gap-3 rounded-[8px] border border-blue-100 bg-blue-50/60 px-4 py-3 text-xs text-slate-600">
                 <Loader2 className="size-4 animate-spin text-blue-600" />
-                问题已发送，正在等待后台生成结果...
+                问题已发送，正在接收流式回答...
               </div>
             )}
 
@@ -1997,7 +2112,9 @@ export function RagChatWorkspace({
             isLoadingModels={isLoadingModels}
             controlsDisabled={isActiveSessionGenerating || isCancellingGeneration}
             onCancel={handleCancelGeneration}
-            helperText="Enter 发送，Shift + Enter 换行。发送后会先展示你的问题，再轮询后台生成结果。"
+            mentionDocuments={mentionDocuments}
+            isLoadingMentionDocuments={isLoadingMentionDocuments}
+            helperText="Enter 发送，Shift + Enter 换行。发送后会先展示你的问题，再实时显示流式回答。"
           />
         </footer>
       </main>
@@ -2131,7 +2248,7 @@ export function RagChatWorkspace({
       >
         <AlertDialogContent className="rounded-[8px]">
           <AlertDialogHeader>
-            <AlertDialogTitle className="text-base tracking-normal normal-case">
+              <AlertDialogTitle className="text-base tracking-normal normal-case">
               删除会话
             </AlertDialogTitle>
             <AlertDialogDescription>

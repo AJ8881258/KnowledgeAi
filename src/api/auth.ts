@@ -11,6 +11,8 @@ export type LoginResponse = {
   role: string;
   tokenType: string;
   accessToken: string;
+  avatarUrl?: string | null;
+  avatarConfigured?: boolean;
 };
 
 export type RegisterRequest = {
@@ -23,6 +25,8 @@ export type RegisterResponse = {
   username: string;
   role: string;
   email?: string | null;
+  avatarUrl?: string | null;
+  avatarConfigured?: boolean;
 };
 
 export type ResetPasswordRequest = {
@@ -34,12 +38,16 @@ export type ResetPasswordResponse = {
   message: string;
 };
 
-export type CurrentUserResponse = {
+export type UserResponse = {
   id: number;
   username: string;
   role: string;
   email: string | null;
+  avatarUrl: string | null;
+  avatarConfigured: boolean;
 };
+
+export type CurrentUserResponse = UserResponse;
 
 export type UpdateCurrentUserRequest = {
   email: string | null;
@@ -65,6 +73,29 @@ export async function getCurrentUser() {
 
 export async function updateCurrentUser(request: UpdateCurrentUserRequest) {
   const response = await http.patch<CurrentUserResponse>("/auth/me", request);
+
+  return response.data;
+}
+
+export async function uploadCurrentUserAvatar(file: File) {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const response = await http.post<CurrentUserResponse>(
+    "/auth/me/avatar",
+    formData,
+    {
+      headers: {
+        "Content-Type": "multipart/form-data",
+      },
+    },
+  );
+
+  return response.data;
+}
+
+export async function deleteCurrentUserAvatar() {
+  const response = await http.delete<CurrentUserResponse>("/auth/me/avatar");
 
   return response.data;
 }

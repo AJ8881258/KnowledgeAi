@@ -12,6 +12,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.multipart.MultipartFile;
 
 import com.knowflow.backend.common.dto.response.MessageResponse;
 import com.knowflow.backend.user.entity.User;
@@ -66,6 +67,30 @@ public class AuthController {
             @AuthenticationPrincipal Jwt jwt
     ) {
         return authService.updateCurrentUser(getCurrentId(jwt), request);
+    }
+
+    /**
+     * @param file multipart 字段名 file，支持 jpeg/png/webp，最大 2MB
+     * @param jwt 当前登录用户
+     * @return 更新后的用户资料；avatarUrl 是短期签名 URL，不是 OSS object key
+     * @Desc 头像上传使用后端 OSS 配置，前端不会接触 AccessKey、bucket 或 object key。
+     */
+    @PostMapping("/me/avatar")
+    public UserResponse uploadAvatar(
+            @RequestPart("file") MultipartFile file,
+            @AuthenticationPrincipal Jwt jwt
+    ) {
+        return authService.uploadAvatar(getCurrentId(jwt), file);
+    }
+
+    /**
+     * @param jwt 当前登录用户
+     * @return 清空头像后的用户资料
+     * @Desc 删除头像只影响当前用户自己的头像 object key，并尽力删除 OSS 对象。
+     */
+    @DeleteMapping("/me/avatar")
+    public UserResponse deleteAvatar(@AuthenticationPrincipal Jwt jwt) {
+        return authService.deleteAvatar(getCurrentId(jwt));
     }
 
     /**

@@ -8,7 +8,6 @@ import com.knowflow.backend.chat.repository.ChatMessageRepository;
 import com.knowflow.backend.chat.repository.ChatMessageSourceRepository;
 import com.knowflow.backend.chat.repository.ChatSessionRepository;
 import com.knowflow.backend.document.dto.response.SearchResultResponse;
-import com.knowflow.backend.document.rag.DocumentRetrievalService;
 import com.knowflow.backend.settings.entity.UserRagSettings;
 import com.knowflow.backend.settings.service.SettingsService;
 import org.springframework.scheduling.annotation.Async;
@@ -22,7 +21,7 @@ import static com.knowflow.backend.common.model.ModelProviderErrors.safeMessage;
 
 @Service
 public class ChatGenerationService {
-    private final DocumentRetrievalService documentRetrievalService;
+    private final ChatDocumentContextService chatDocumentContextService;
     private final ChatMessageRepository chatMessageRepository;
     private final ChatMessageSourceRepository chatMessageSourceRepository;
     private final ChatSessionRepository chatSessionRepository;
@@ -32,7 +31,7 @@ public class ChatGenerationService {
     private final TransactionTemplate transactionTemplate;
 
     public ChatGenerationService(
-            DocumentRetrievalService documentRetrievalService,
+            ChatDocumentContextService chatDocumentContextService,
             ChatMessageRepository chatMessageRepository,
             ChatMessageSourceRepository chatMessageSourceRepository,
             ChatSessionRepository chatSessionRepository,
@@ -40,7 +39,7 @@ public class ChatGenerationService {
             ChatModelClient chatModelClient,
             SettingsService settingsService,
             PlatformTransactionManager transactionManager) {
-        this.documentRetrievalService = documentRetrievalService;
+        this.chatDocumentContextService = chatDocumentContextService;
         this.chatMessageRepository = chatMessageRepository;
         this.chatMessageSourceRepository = chatMessageSourceRepository;
         this.chatSessionRepository = chatSessionRepository;
@@ -58,6 +57,7 @@ public class ChatGenerationService {
      * @param historyMessages 当前用户当前会话允许进入 prompt 的历史消息。
      * @param modelOverride   本次 Chat 请求选择的模型；只覆盖 model，不覆盖当前用户 Base URL/API Key。
      * @param ragEnabled      本次生成是否启用知识库检索；false 时跳过 chunks 检索并保持 sources 为空。
+     * @param mentionedDocumentIds Chat 输入框 @ 提到的当前知识库文档 ID；会限制 RAG 上下文到这些文档。
      * @param generationId    本次生成的写入许可 ID；被打断后该 ID 会失效，异步任务不能落库。
      * @Desc 后台异步完成检索、prompt 构造、模型调用、助手消息和 sources 落库。
      * 空检索与旧逻辑不同：仍调用模型生成回答，但 sources 保持空数组，并在 prompt 中要求说明无可引用知识库片段。
@@ -73,10 +73,11 @@ public class ChatGenerationService {
             List<ChatMessage> historyMessages,
             String modelOverride,
             boolean ragEnabled,
+            List<Long> mentionedDocumentIds,
             String generationId
     ) {
         try {
-            doGenerate(sessionId, userId, knowledgeBaseId, question, historyMessages, modelOverride, ragEnabled, generationId);
+            doGenerate(sessionId, userId, knowledgeBaseId, question, historyMessages, modelOverride, ragEnabled, mentionedDocumentIds, generationId);
         } catch (RuntimeException exception) {
             String lastErrorMessage = safeMessage(exception);
             transactionTemplate.executeWithoutResult(status ->
@@ -93,14 +94,16 @@ public class ChatGenerationService {
             List<ChatMessage> historyMessages,
             String modelOverride,
             boolean ragEnabled,
+            List<Long> mentionedDocumentIds,
             String generationId
     ) {
         UserRagSettings ragSettings = settingsService.getEffectiveRagSettings(userId);
         List<SearchResultResponse> retrievedChunks = ragEnabled
-                ? documentRetrievalService.search(
+                ? chatDocumentContextService.resolveContextChunks(
                 knowledgeBaseId,
                 userId,
                 question,
+                mentionedDocumentIds,
                 ragSettings.getTopK()
         )
                 : List.of();

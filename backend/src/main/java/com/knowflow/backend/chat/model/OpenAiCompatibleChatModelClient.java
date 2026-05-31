@@ -17,6 +17,10 @@ import org.springframework.web.server.ResponseStatusException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.List;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
+import java.util.function.Consumer;
 
 import static com.knowflow.backend.common.model.ModelProviderErrors.MODEL_CALL_FAILED_MESSAGE;
 import static com.knowflow.backend.common.model.ModelProviderErrors.MODEL_CONFIG_INCOMPLETE_MESSAGE;
@@ -93,6 +97,54 @@ public class OpenAiCompatibleChatModelClient implements ChatModelClient {
                     exception.getClass().getSimpleName()
             );
             // 模型供应商错误统一脱敏，不把 API Key、Authorization、完整 Base URL 或模型名返回给前端。
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, MODEL_CALL_FAILED_MESSAGE);
+        }
+    }
+
+    /**
+     * @param userId        当前 JWT 用户 ID
+     * @param prompt        已构造好的 RAG prompt
+     * @param temperature   当前用户 RAG Settings 中的温度
+     * @param modelOverride 本次请求选择的模型；有值时仅覆盖 model 字段
+     * @param deltaConsumer 模型每返回一段 delta 时调用，由上层负责落库和 SSE 推送
+     * @Desc OpenAI-compatible 流式响应是服务端事件流，形如 data: {...} 和 data: [DONE]。
+     * 这里只解析 choices[0].delta.content，不记录供应商原始 body，避免泄露敏感错误或模型细节。
+     */
+    @Override
+    public void stream(Long userId, String prompt, double temperature, String modelOverride, Consumer<String> deltaConsumer) {
+        EffectiveModelConfig config = resolveConfig(userId, modelOverride);
+        try {
+            RestClient restClient = RestClient.builder()
+                    .baseUrl(config.baseUrl())
+                    .defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + config.apiKey())
+                    .build();
+
+            restClient.post()
+                    .uri("/chat/completions")
+                    .body(new ChatCompletionRequest(config.model(), List.of(new ChatCompletionMessage("user", prompt)), temperature, true))
+                    .exchange((request, response) -> {
+                        if (!response.getStatusCode().is2xxSuccessful()) {
+                            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, messageForStatus(response.getStatusCode().value()));
+                        }
+                        try (BufferedReader reader = new BufferedReader(new InputStreamReader(response.getBody(), StandardCharsets.UTF_8))) {
+                            String line;
+                            while ((line = reader.readLine()) != null) {
+                                String delta = parseStreamDelta(line);
+                                if (delta != null && !delta.isEmpty()) {
+                                    deltaConsumer.accept(delta);
+                                }
+                            }
+                        }
+                        return null;
+                    });
+        } catch (ResponseStatusException exception) {
+            throw exception;
+        } catch (RuntimeException exception) {
+            log.warn(
+                    "AI streaming model call failed: endpointShape={}, errorType={}",
+                    describeEndpointShape(config.baseUrl()),
+                    exception.getClass().getSimpleName()
+            );
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, MODEL_CALL_FAILED_MESSAGE);
         }
     }
@@ -230,7 +282,36 @@ public class OpenAiCompatibleChatModelClient implements ChatModelClient {
     private record EffectiveModelConfig(String baseUrl, String apiKey, String model) {
     }
 
-    private record ChatCompletionRequest(String model, List<ChatCompletionMessage> messages, double temperature) {
+    private String parseStreamDelta(String line) {
+        String trimmed = line == null ? "" : line.trim();
+        if (!trimmed.startsWith("data:")) {
+            return null;
+        }
+        String payload = trimmed.substring("data:".length()).trim();
+        if (payload.isEmpty() || "[DONE]".equals(payload)) {
+            return null;
+        }
+        try {
+            ChatStreamChunk chunk = objectMapper.readValue(payload.getBytes(StandardCharsets.UTF_8), ChatStreamChunk.class);
+            if (chunk == null || chunk.choices() == null || chunk.choices().isEmpty()) {
+                return null;
+            }
+            ChatStreamDelta delta = chunk.choices().getFirst().delta();
+            return delta == null ? null : delta.content();
+        } catch (RuntimeException exception) {
+            log.warn("Skipping malformed AI stream chunk: errorType={}", exception.getClass().getSimpleName());
+            return null;
+        }
+    }
+
+    private record ChatCompletionRequest(String model, List<ChatCompletionMessage> messages, double temperature, Boolean stream) {
+        ChatCompletionRequest(String model, List<ChatCompletionMessage> messages, double temperature) {
+            this(model, messages, temperature, null);
+        }
+
+        ChatCompletionRequest(String model, List<ChatCompletionMessage> messages, double temperature, boolean stream) {
+            this(model, messages, temperature, Boolean.valueOf(stream));
+        }
     }
 
     private record ChatCompletionMessage(String role, String content) {
@@ -240,5 +321,14 @@ public class OpenAiCompatibleChatModelClient implements ChatModelClient {
     }
 
     private record ChatCompletionChoice(ChatCompletionMessage message) {
+    }
+
+    private record ChatStreamChunk(List<ChatStreamChoice> choices) {
+    }
+
+    private record ChatStreamChoice(ChatStreamDelta delta) {
+    }
+
+    private record ChatStreamDelta(String content) {
     }
 }

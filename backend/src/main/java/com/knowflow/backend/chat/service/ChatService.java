@@ -251,6 +251,7 @@ public class ChatService {
                 historyMessages,
                 requestedModel,
                 ragEnabled,
+                request == null ? null : request.getMentionedDocumentIds(),
                 activeGenerationId
         );
 
@@ -414,6 +415,16 @@ public class ChatService {
      * @return
      * @Desc 加载历史消息
      */
+    /**
+     * @param session 当前用户自己的 Chat 会话
+     * @param userId 当前 JWT 用户 ID
+     * @return 允许进入 prompt 的最近历史消息
+     * @Desc 流式和非流式生成必须使用同一套历史上下文限制，避免 SSE 路径绕开条数和字符数控制。
+     */
+    List<ChatMessage> loadPromptHistoryForStreaming(ChatSession session, Long userId) {
+        return loadPromptHistory(session, userId);
+    }
+
     private List<ChatMessage> loadPromptHistory(ChatSession session, Long userId) {
         List<ChatMessage> recentMessages = chatMessageRepository.findRecentBySessionIdAndUserIdAndKnowledgeBaseId(
                 session.getId(),

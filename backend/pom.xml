@@ -80,6 +80,12 @@
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-webmvc</artifactId>
 		</dependency>
+		<!-- Aliyun OSS: store user avatar objects and generate signed URLs without exposing object keys. -->
+		<dependency>
+			<groupId>com.aliyun.oss</groupId>
+			<artifactId>aliyun-sdk-oss</artifactId>
+			<version>3.18.5</version>
+		</dependency>
 		<!-- springdoc-openapi: Swagger UI and OpenAPI JSON for local API debugging. -->
 		<dependency>
 			<groupId>org.springdoc</groupId>

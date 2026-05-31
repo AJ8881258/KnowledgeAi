@@ -1,83 +1,89 @@
-# 后端任务书：阶段 20 后台任务中心与系统诊断
+# 后端任务书：阶段 21 Chat SSE 流式输出、头像上传与 @ 文件上下文
 
 本文档是后端 Agent 的固定入口。后端 Agent 开始实现前必须先阅读 `AGENTS.md`、`doc/STAGE_PLAN.md`、`doc/PROJECT.md`、`doc/API.md` 和本文档。
 
 ## 当前阶段状态
 
-**阶段 20 后端已完成，并已通过 PostgreSQL 完整后端集成回归。**
+**阶段 21 后端已完成，并已通过完整后端回归验证。**
 
-阶段 20 在阶段 17-19 的文档处理任务基础上，把任务能力从 Documents 局部进度展示扩展为全局任务中心，并新增脱敏系统诊断接口。目标是让用户能跨知识库查看自己可访问的后台任务，重试失败或取消的任务，取消仍在排队/运行的任务，同时保证协作权限隔离和敏感信息不外泄。
+阶段 21 后端目标是把 Chat 生成升级为 SSE 流式输出并边流边保存，同时新增用户头像 OSS 上传能力，以及 Chat 文件上下文解析能力：显式 `mentionedDocumentIds` 优先，未显式 mention 时按用户问题中的文件标题做启发式匹配。
 
 ## 已完成后端实现
 
 核心改动：
 
-- `DocumentProcessingJobRepository`
-  - 新增按当前用户可访问知识库查询全局任务列表。
-  - 新增 `ACTIVE` 语义支持，等价于 `QUEUED` + `RUNNING`。
-  - 新增当前用户可见的活跃任务数、失败任务数统计。
-  - 新增 `markCanceled`。
-  - `markRunning`、`markSucceeded`、`markFailed` 改为带状态条件的安全更新，避免取消后的异步迟到结果覆盖 `CANCELED`。
-- `DocumentProcessingJobService`
-  - 新增全局任务列表、任务重试、任务取消和诊断计数能力。
-  - 重试 `FAILED` / `CANCELED` 任务时创建新任务，不修改旧终态任务。
-  - 取消 `QUEUED` / `RUNNING` 任务时采用协作式取消语义：不强杀线程，但阻止迟到结果继续落库为成功或失败。
-  - 通过 `KnowledgeBaseAccessService` 复用协作权限判断，确保成员可见、`OWNER`/`EDITOR` 可操作、`VIEWER` 权限不足返回 `403`、非成员返回 `404`。
-- `DocumentController`
-  - 新增 `GET /api/document-processing-jobs?status=&limit=`。
-  - 新增 `POST /api/document-processing-jobs/{jobId}/retry`。
-  - 新增 `POST /api/document-processing-jobs/{jobId}/cancel`。
-  - 统一处理状态筛选参数，`ACTIVE` 映射为活跃状态集合。
-- `SystemDiagnosticsController`
-  - 新增 `GET /api/system/diagnostics`。
-  - 返回数据库可达性、当前用户可见任务计数和模型兜底配置布尔状态。
-  - 不返回 Base URL、API Key、encryptedApiKey、model、Authorization、JDBC URL 或完整异常堆栈。
+- Chat SSE 流式输出
+  - 新增 `POST /api/chat/sessions/{sessionId}/messages/stream`，响应 `text/event-stream`。
+  - 新增 `ChatStreamingService`，复用当前用户模型配置、RAG 设置、权限校验、打断 generationId 和错误脱敏规则。
+  - 新增 `ChatModelClient.stream(...)` 和 OpenAI-compatible SSE 解析能力。
+  - 流式事件包括 `session`、`user_message`、`assistant_message`、`delta`、`sources`、`done`、`error`。
+  - 第一个 delta 到达后创建 `ASSISTANT` 消息，后续 delta 持续更新同一条助手消息，刷新页面可看到已生成内容。
+  - 打断后通过 `active_generation_id` 阻止旧流继续写入消息、sources 或覆盖会话状态。
 
-## 权限与安全规则
+- `@` 文件上下文和标题感知匹配
+  - `SendMessageRequest` 新增 `mentionedDocumentIds`。
+  - 非流式发送接口和流式接口都支持 `mentionedDocumentIds`。
+  - 新增 `ChatDocumentContextService`，先校验 mention 文档属于当前会话知识库且当前用户可访问；跨知识库或无权限文档返回隐藏式 `404`。
+  - 未显式 mention 时，服务会规范化文件名和问题文本，去除扩展名、书名号、复制编号、空白、下划线、括号和常见前缀噪声，用于匹配类似 `202502150239_邓林峰_《微服务核心组件实验》实验报告 (2).docx` 的文档标题。
+  - 有显式 mention 或标题匹配命中文档时，RAG 检索限定在这些文档的已索引 chunks 内，并把文档名写入 prompt。
+  - `ragEnabled=false` 时跳过知识库检索，即使传了 mention 也返回 `sources: []`。
 
-- 全局任务列表只返回当前用户可访问知识库下的任务。
-- `OWNER` / `EDITOR` 可以重试失败或取消任务，也可以取消排队或运行任务。
-- `VIEWER` 可以看到可访问知识库下的任务，但执行重试或取消返回 `403`。
-- 非成员访问单个任务、重试任务或取消任务返回 `404`，避免暴露资源存在性。
-- 重试只允许 `FAILED` / `CANCELED`；对其他状态返回 `409`。
-- 取消只允许 `QUEUED` / `RUNNING`；对终态任务返回 `409`。
-- 任务消息和错误继续做脱敏处理，不暴露模型供应商敏感信息或服务器内部细节。
+- OSS 头像上传
+  - 新增 `V16__add_user_avatar_metadata.sql`，为 `users` 增加 `avatar_object_key`、`avatar_updated_at`。
+  - 新增 `OssProperties` 和 `knowflow.oss.*` 配置读取。
+  - 新增 `AvatarStorageService` 与 `AliyunOssAvatarStorageService`。
+  - 新增 `POST /api/auth/me/avatar` 和 `DELETE /api/auth/me/avatar`。
+  - `UserResponse` 新增 `avatarUrl`、`avatarConfigured`；后端只返回短期签名 URL，不返回 object key、AccessKey、Secret 或 bucket 私密配置。
+  - 上传校验文件大小、Content-Type 和图片魔数，支持 JPEG/PNG/WebP，大小上限 2MB。
+  - 删除头像时清空数据库引用，并尽力删除 OSS 对象。
+
+## 安全与注释要求
+
+- API Key、Authorization、完整 Base URL、model、OSS AccessKey、OSS Secret、bucket 私密配置、JDBC URL 和供应商敏感原始错误不得出现在 API 响应、toast 文案或日志级用户可见错误中。
+- 后端新增/修改功能代码必须保留有价值注释或 JavaDoc，重点说明：
+  - 为什么流式 delta 需要边流边保存。
+  - 为什么保存前要校验 `active_generation_id`，避免打断后的旧流写入。
+  - 为什么 `mentionedDocumentIds` 必须按当前会话知识库和当前用户权限校验。
+  - 为什么标题感知匹配只是辅助能力，显式 `@` mention 优先。
+  - 为什么头像只保存 object key，读取时生成短期签名 URL。
+  - 为什么 OSS 密钥和 API Key 不能返回给前端。
 
 ## 测试覆盖
 
 新增测试：
 
-- `Stage20DocumentTaskCenterTests`
+- `Stage21StreamingAvatarMentionTests`
 
 覆盖重点：
 
-- 全局任务中心列表只返回当前用户可访问知识库下的任务。
-- `ACTIVE` 筛选返回 `QUEUED` / `RUNNING`。
-- `OWNER` / `EDITOR` 可以重试 `FAILED` / `CANCELED` 任务，旧任务保持终态，新任务记录新的处理尝试。
-- `VIEWER` 重试或取消返回 `403`。
-- 非成员重试或取消返回 `404`。
-- 取消后的任务不会被迟到的 `markRunning`、`markSucceeded` 或 `markFailed` 覆盖。
-- 系统诊断接口只返回安全字段，不泄露 API Key、Base URL、model 或 Authorization。
-- 阶段 7-20 既有回归仍通过。
+- 流式接口返回 SSE 事件，包含 `user_message`、`assistant_message`、`delta`、`done`。
+- 流式 delta 持续更新同一条 `ASSISTANT` 消息，刷新后可读取已生成内容。
+- 打断流式生成后，旧 generationId 不能继续写入消息内容或覆盖 session 状态。
+- `mentionedDocumentIds` 只允许当前会话知识库内可访问文档。
+- 用户问题包含 `《微服务核心组件实验》实验报告` 时，可匹配带前缀和复制编号的 docx 文件名。
+- `ragEnabled=false` 时不检索 mention 文档，`sources` 为空。
+- 头像上传校验类型和大小；fake storage 下返回签名 `avatarUrl` 且不泄露密钥。
 
-## 验证命令与结果
+## 验证命令
 
-已运行：
+专项测试已运行：
 
 ```powershell
 cd backend
-.\mvnw.cmd -Dtest=Stage20DocumentTaskCenterTests test
+.\mvnw.cmd -Dtest=Stage21StreamingAvatarMentionTests test
+```
+
+结果：
+
+- 阶段 21 专项测试通过，7 个测试全部成功。
+
+阶段收尾已运行：
+
+```powershell
+cd backend
 .\mvnw.cmd test
 ```
 
 结果：
 
-- 阶段 20 专项测试通过。
-- 后端完整测试通过，105 个测试全部成功。
-
-后续如继续修改阶段 20 后端代码，至少重新运行：
-
-```powershell
-cd backend
-.\mvnw.cmd test
-```
+- 后端完整回归通过，112 个测试全部成功。

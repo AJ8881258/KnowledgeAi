@@ -153,6 +153,33 @@ public interface DocumentRepository {
             """)
     List<Document> findSemanticRebuildCandidatesByKnowledgeBaseId(Long knowledgeBaseId);
 
+    /**
+     * @param knowledgeBaseId 当前 Chat 会话绑定的知识库 ID
+     * @param userId 当前 JWT 用户 ID，用于按成员权限隔离可见文档
+     * @return 当前知识库内当前用户可访问的文档元数据
+     * @Desc 阶段 21 的 @ mention 和标题感知检索只在当前知识库内选文档，避免跨知识库泄露文档标题。
+     */
+    @Select("""
+            select d.id, d.knowledge_base_id, d.original_filename, d.content_type, d.size_bytes,
+                   d.status, d.error_message, d.embedding_status, d.embedding_error_message, d.embedding_updated_at,
+                   d.summary, d.summary_updated_at,
+                   d.source_bytes is not null as source_bytes_stored,
+                   d.source_text is not null and d.source_text <> '' as source_text_stored,
+                   d.source_text_updated_at,
+                   d.created_by, d.created_at, d.updated_at
+            from documents d
+            join knowledge_bases kb on kb.id = d.knowledge_base_id
+            left join knowledge_base_members m
+              on m.knowledge_base_id = kb.id
+             and m.user_id = #{userId}
+            where d.knowledge_base_id = #{knowledgeBaseId}
+              and (kb.created_by = #{userId} or m.user_id = #{userId})
+            order by d.updated_at desc, d.id desc
+            """)
+    List<Document> findAccessibleByKnowledgeBaseId(
+            @Param("knowledgeBaseId") Long knowledgeBaseId,
+            @Param("userId") Long userId);
+
     @Update("""
             update documents
             set status = #{status},

@@ -9,6 +9,6 @@ import org.springframework.context.annotation.Configuration;
  * 用于启用 AI 配置属性和模型安全配置属性
  */
 @Configuration
-@EnableConfigurationProperties({AiProperties.class,ModelSecurityProperties.class})
+@EnableConfigurationProperties({AiProperties.class, ModelSecurityProperties.class, OssProperties.class})
 public class AiConfig {
 }

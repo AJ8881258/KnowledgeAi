@@ -36,6 +36,57 @@
 | 阶段 18：语义检索与混合召回 | 已完成 | 新增 pgvector、可选 embedding、全文+语义混合排序、检索/Chat 分数拆解和 embedding 状态展示；后端完整回归、前端构建和目标 ESLint 已通过。 |
 | 阶段 19：语义索引运维与检索策略可控 | 已完成 | 新增语义索引重建任务、RAG 检索策略和权重配置、Settings 策略 UI、文档/知识库重建入口和阶段 19 回归验证。 |
 | 阶段 20：后台任务中心与系统诊断 | 已完成 | 新增全局文档处理任务中心、任务筛选、失败/取消任务重试、活跃任务取消、协作权限隔离和安全系统诊断接口；后端 105 个测试、前端构建和目标 ESLint 已通过。 |
+| 阶段 21：Chat SSE 流式输出、头像上传与 @ 文件上下文 | 已完成 | 新增 Chat SSE 边流边保存、OSS 头像上传、`@` 文件 mention、标题感知文档匹配和对应前后端接入；后端 112 个测试、前端构建和目标 ESLint 已通过。 |
+
+## 阶段 21：Chat SSE 流式输出、头像上传与 @ 文件上下文
+
+### 目标
+
+阶段 21 把 Chat 从“后台异步生成后轮询结果”升级为可感知的 SSE 流式输出，同时补齐用户头像上传和文件级上下文选择能力。目标是让用户发送问题后能看到回答逐步出现，刷新页面仍能看到已生成内容；让用户在 Settings 上传头像并通过签名 URL 回显；让 Chat 支持通过 `@` 明确指定当前知识库文档，并修复只按文件标题提问时检索不到指定文档的问题。
+
+### 范围
+
+- 后端：
+  - 新增 `POST /api/chat/sessions/{sessionId}/messages/stream`，响应 `text/event-stream`。
+  - 流式事件包括 `session`、`user_message`、`assistant_message`、`delta`、`sources`、`done` 和 `error`。
+  - 流式回答边生成边保存：第一个 delta 到达时创建助手消息，后续 delta 持续更新同一条助手消息内容。
+  - 复用现有用户模型配置、RAG 参数、`active_generation_id` 打断保护和错误脱敏规则。
+  - 非流式发送接口继续保留，并同步支持 `mentionedDocumentIds`。
+  - 新增文档上下文解析：显式 `mentionedDocumentIds` 只允许当前会话知识库内可访问文档；未显式 mention 时，对问题文本做标题感知匹配。
+  - 新增 OSS 头像配置、头像上传/删除接口和 `users.avatar_object_key` / `users.avatar_updated_at` 字段。
+- 前端：
+  - 新增 `src/api/chat-stream.ts`，仅该文件使用 `fetch` 读取 POST SSE；普通 API 继续走 axios wrapper。
+  - Chat 默认使用流式接口，实时更新同一条助手消息，打断时 abort fetch 并调用后端 cancel。
+  - Chat 输入框支持 `@` 当前知识库文档 mention，弹出文档列表和搜索框，发送时传 `mentionedDocumentIds`。
+  - Settings 账号资料区新增头像上传/删除控件；Header 和 Sidebar 使用 `avatarUrl` 回显。
+  - 无引用来源时只显示轻提示，不伪造 sources。
+
+### 不做
+
+- 不做 WebSocket。
+- 不做跨知识库 `@` mention。
+- 不做多模态即时附件问答。
+- 不做 PPT / Excel 解析。
+- 不把 OSS object key、AccessKey、Secret 或永久 URL 返回前端。
+
+### 已完成内容
+
+- 后端新增 OSS 头像配置和头像存储服务，支持 JPEG/PNG/WebP、2MB 上限、图片魔数校验、短期签名 URL 回显和头像删除。
+- 后端 `UserResponse` 新增 `avatarUrl`、`avatarConfigured`，`GET/PATCH /api/auth/me`、头像上传/删除均返回统一用户资料响应。
+- 后端新增 Chat 流式接口和 OpenAI-compatible SSE 解析，delta 会持续更新同一条 `ASSISTANT` 消息。
+- 后端新增 `ChatDocumentContextService`，支持显式 `mentionedDocumentIds` 校验、当前知识库文档限定检索和文件标题启发式匹配。
+- 后端非流式 Chat 发送接口同步支持 `mentionedDocumentIds`，保持旧调用兼容。
+- 前端新增 `src/api/chat-stream.ts`，Chat 工作台默认使用 SSE 流式发送、实时更新助手消息、更新 sources 并保留打断能力。
+- 前端 ChatComposer 支持输入 `@` 后选择当前知识库已索引文档，支持搜索和 mention chip 移除。
+- 前端 Settings、Header、Sidebar 接入头像上传、删除和回显。
+- `.env.example` 新增 OSS 配置模板。
+
+### 验收结果
+
+- `cd backend && .\mvnw.cmd test` 已通过，112 个测试全部成功。
+- `pnpm build` 已通过，仅保留既有 Vite 大 chunk warning。
+- 目标 ESLint 已通过：
+  `pnpm exec eslint src/pages/Chat.tsx src/pages/Settings.tsx src/api/chat.ts src/api/chat-stream.ts src/api/auth.ts src/components/chat src/components/chat-page src/components/settings src/components/slider-sidebar.tsx src/components/MainHeader.tsx`。
 
 ## 阶段 20：后台任务中心与系统诊断
 
@@ -477,12 +528,15 @@
 
 完成用户级 OpenAI-compatible 模型配置、API Key 加密保存、动态模型列表、语言/时区偏好、未读会话、后台生成状态、今日交谈次数和 Chat 空检索真实回答。
 
+### 阶段 21：Chat SSE 流式输出、头像上传与 @ 文件上下文
+
+新增 SSE 流式问答、边流边保存、头像上传到 OSS、短期签名头像回显、`@` 当前知识库文档上下文和标题感知文档匹配。
+
 ## 暂不优先做
 
 - Kubernetes。
 - Spring Cloud 或微服务拆分。
 - 向量索引后台重建任务和召回权重可配置。
-- SSE 流式输出。
 - 扫描版 PDF OCR。
 - PPT / Excel 解析。
 - 消息队列和复杂后台任务中心。

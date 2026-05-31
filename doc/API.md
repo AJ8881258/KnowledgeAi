@@ -188,7 +188,9 @@ Authorization: Bearer <accessToken>
   "id": 2,
   "username": "WuLong",
   "role": "USER",
-  "email": "wulong@example.com"
+  "email": "wulong@example.com",
+  "avatarUrl": "https://oss-example.com/knowflow/avatars/2/avatar.webp?Expires=...",
+  "avatarConfigured": true
 }
 ```
 
@@ -196,6 +198,8 @@ Authorization: Bearer <accessToken>
 
 - 用于前端刷新页面后，从后端确认当前 token 对应的用户。
 - `email` 可以为 `null`，表示当前账号尚未设置邮箱。
+- 阶段 21 新增 `avatarUrl` 和 `avatarConfigured`。`avatarUrl` 是后端为当前用户头像生成的短期签名访问地址，可以为 `null`；`avatarConfigured` 只表示用户是否已配置头像。
+- 响应不会返回 OSS object key、AccessKey、Secret、bucket 私密配置或永久 URL。签名 URL 过期后，前端应重新拉取 `/api/auth/me` 获取新的回显地址。
 - 如果 token 无效、缺少 token，或 token 中的用户不存在，返回 `401`。
 
 失败情况：
@@ -233,7 +237,9 @@ Content-Type: application/json
   "id": 2,
   "username": "WuLong",
   "role": "USER",
-  "email": "wulong@example.com"
+  "email": "wulong@example.com",
+  "avatarUrl": "https://oss-example.com/knowflow/avatars/2/avatar.webp?Expires=...",
+  "avatarConfigured": true
 }
 ```
 
@@ -251,6 +257,100 @@ Content-Type: application/json
 |---|---|
 | `400` | 请求体为空、邮箱格式错误、邮箱过长，或邮箱已被其他用户使用 |
 | `401` | 未登录、token 无效，或 token 对应用户不存在 |
+
+### 上传当前用户头像
+
+| 项目 | 内容 |
+|---|---|
+| 请求方式 | `POST` |
+| 请求路径 | `/api/auth/me/avatar` |
+| 是否需要登录 | 是 |
+| 状态 | 阶段 21 已实现 |
+
+请求示例：
+
+```http
+POST /api/auth/me/avatar
+Authorization: Bearer <accessToken>
+Content-Type: multipart/form-data
+```
+
+表单字段：
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `file` | file | 是 | 头像文件，支持 `image/jpeg`、`image/png`、`image/webp`，大小上限 2MB |
+
+成功响应示例：
+
+```json
+{
+  "id": 2,
+  "username": "WuLong",
+  "role": "USER",
+  "email": "wulong@example.com",
+  "avatarUrl": "https://oss-example.com/knowflow/avatars/2/avatar.webp?Expires=...",
+  "avatarConfigured": true
+}
+```
+
+规则：
+
+- 阶段 21 头像文件上传到阿里云 OSS，默认对象前缀为 `knowflow/avatars/{userId}/...`，数据库只保存 object key 和更新时间。
+- 后端会校验文件大小、Content-Type 和图片魔数，避免只靠前端或浏览器 MIME 判断。
+- OSS 未配置时，上传接口返回明确但脱敏的错误；`GET /api/auth/me` 仍正常返回，且 `avatarUrl` 为 `null`。
+- 响应只返回短期签名 `avatarUrl` 和 `avatarConfigured`，不返回 object key、AccessKey、Secret 或 bucket 私密配置。
+- 如果用户已有头像，上传新头像会覆盖数据库中的头像引用，并尽力删除旧 OSS 对象；删除失败不影响新头像保存。
+
+失败情况：
+
+| 状态码 | 原因 |
+|---|---|
+| `400` | 文件为空、文件类型不支持、文件过大，或图片内容校验失败 |
+| `401` | 未登录、token 无效，或 token 对应用户不存在 |
+| `500` | OSS 未配置、上传失败或资料保存失败；错误信息必须脱敏 |
+
+### 删除当前用户头像
+
+| 项目 | 内容 |
+|---|---|
+| 请求方式 | `DELETE` |
+| 请求路径 | `/api/auth/me/avatar` |
+| 是否需要登录 | 是 |
+| 状态 | 阶段 21 已实现 |
+
+请求示例：
+
+```http
+DELETE /api/auth/me/avatar
+Authorization: Bearer <accessToken>
+```
+
+成功响应示例：
+
+```json
+{
+  "id": 2,
+  "username": "WuLong",
+  "role": "USER",
+  "email": "wulong@example.com",
+  "avatarUrl": null,
+  "avatarConfigured": false
+}
+```
+
+规则：
+
+- 后端会清空当前用户保存的头像 object key，并尽力删除 OSS 对象。
+- 删除接口不接收 object key 或 userId 参数，避免用户删除其他人的头像对象。
+- 删除 OSS 对象失败时，后端仍会优先保证数据库中的头像引用被清空，并返回脱敏错误或最新用户资料。
+
+失败情况：
+
+| 状态码 | 原因 |
+|---|---|
+| `401` | 未登录、token 无效，或 token 对应用户不存在 |
+| `500` | 删除头像对象或保存资料失败；错误信息必须脱敏 |
 
 ### 删除当前账号
 
@@ -1770,6 +1870,28 @@ Content-Type: application/json
 | `400` | 请求体为空、参数为空、参数超出范围、检索策略非法，或权重之和不等于 `1` |
 | `401` | 未登录、token 无效，或 token 中缺少 userId |
 
+## 阶段 21 OSS 头像配置
+
+阶段 21 的头像上传使用阿里云 OSS。后端只保存 object key，读取用户资料时动态生成短期签名 URL。
+
+环境变量：
+
+| 变量 | 说明 |
+|---|---|
+| `KNOWFLOW_OSS_ENDPOINT` | OSS endpoint，例如 `https://oss-cn-hangzhou.aliyuncs.com` |
+| `KNOWFLOW_OSS_BUCKET` | OSS bucket 名称 |
+| `KNOWFLOW_OSS_ACCESS_KEY_ID` | OSS AccessKey ID |
+| `KNOWFLOW_OSS_ACCESS_KEY_SECRET` | OSS AccessKey Secret |
+| `KNOWFLOW_OSS_AVATAR_PREFIX` | 头像对象前缀，默认 `knowflow/avatars` |
+| `KNOWFLOW_OSS_SIGNED_URL_TTL_SECONDS` | 头像签名 URL 有效期，默认 `3600` 秒 |
+
+安全规则：
+
+- 真实 OSS 密钥只能放在 `.env`、部署平台 Secret 或环境变量中，不提交到仓库。
+- API 响应不返回 OSS AccessKey、Secret、bucket 私密配置或可复用的永久 URL。
+- `avatarUrl` 是短期签名 URL，过期是正常行为；前端刷新用户资料即可获取新的签名 URL。
+- 即使多个项目共用同一个 bucket，也必须使用 `knowflow/avatars/{userId}/...` 这类独立前缀隔离对象路径。
+
 ## 规划中接口
 
 规划中接口单独列出，必须明确标记为“尚未实现”。阶段 13 的当前开发契约已写入上方对应小节，避免前后端重复维护两套描述。
@@ -1782,7 +1904,7 @@ Content-Type: application/json
 
 ### Chat / RAG
 
-> 状态：阶段 6 RAG 问答 MVP 已完成。阶段 13 将在不新增 SSE 的前提下，把 Chat 发送改造成异步生成，并为会话增加未读和生成状态。流式接口暂不实现，保留为后续规划。
+> 状态：阶段 6 RAG 问答 MVP 已完成；阶段 13 增加异步生成、未读和生成状态；阶段 14 增加 RAG 开关与生成打断；阶段 21 新增 SSE 流式问答、`@` 文件上下文和标题感知文档匹配。
 
 | 请求方式 | 请求路径 | 用途 | 状态 |
 |---|---|---|---|
@@ -1791,10 +1913,10 @@ Content-Type: application/json
 | `PATCH` | `/api/chat/sessions/{sessionId}` | 重命名、置顶、取消置顶、标记未读/已读 | 阶段 6 已实现；阶段 13 增加 `unread` |
 | `DELETE` | `/api/chat/sessions/{sessionId}` | 删除会话 | 阶段 6 已实现 |
 | `GET` | `/api/chat/sessions/{sessionId}/messages` | 获取会话消息 | 阶段 6 已实现 |
-| `POST` | `/api/chat/sessions/{sessionId}/messages` | 发送问题并创建后台生成任务 | 阶段 13 已实现异步契约；阶段 14 收尾新增 `model`、`ragEnabled` |
+| `POST` | `/api/chat/sessions/{sessionId}/messages` | 发送问题并创建后台生成任务 | 阶段 13 已实现异步契约；阶段 14 收尾新增 `model`、`ragEnabled`；阶段 21 新增 `mentionedDocumentIds` |
 | `POST` | `/api/chat/sessions/{sessionId}/cancel` | 打断当前会话后台生成 | 阶段 14 收尾新增 |
 | `GET` | `/api/chat/usage/today?timezone=Asia/Shanghai` | 获取今日交谈次数 | 阶段 13 已实现 |
-| `POST` | `/api/chat/sessions/{sessionId}/messages/stream` | 流式问答 | 后续规划，尚未实现 |
+| `POST` | `/api/chat/sessions/{sessionId}/messages/stream` | 流式问答 | 阶段 21 已实现 |
 
 #### 创建会话
 
@@ -2013,7 +2135,8 @@ Content-Type: application/json
   "content": "JWT 登录流程是什么？",
   "limit": 5,
   "model": "gpt-4.1-mini",
-  "ragEnabled": true
+  "ragEnabled": true,
+  "mentionedDocumentIds": [12]
 }
 ```
 
@@ -2048,6 +2171,10 @@ Content-Type: application/json
 - 阶段 13 该接口只同步保存用户消息并把会话状态置为 `GENERATING`，随后由后端后台任务完成检索、Prompt 构造、模型调用、助手消息和引用来源保存。
 - 阶段 14 请求体新增可选 `model`。传入时后端会把它作为本次生成模型；如果当前用户已经有完整 Settings 模型配置，则同步保存为当前模型；如果用户只依赖 `.env`/环境变量兜底配置，则不强制创建用户 Settings 记录。
 - 阶段 14 收尾新增可选 `ragEnabled`。未传时默认 `true`；`true` 表示检索知识库片段并保存真实引用来源，`false` 表示跳过知识库检索，只按当前会话上下文和模型生成回答，响应消息的 `sources` 为空数组且不伪造引用来源。
+- 阶段 21 新增可选 `mentionedDocumentIds`。它表示用户在 Chat 输入框通过 `@` 明确选择的当前知识库文档 ID 列表；开启 RAG 时后端会优先限定在这些文档的已索引 chunks 内检索。
+- `mentionedDocumentIds` 中的文档必须属于当前会话知识库，且当前用户必须可访问该知识库；跨知识库、无权限或不存在的文档按 `404` 处理，避免暴露资源存在性。
+- 如果没有显式 `mentionedDocumentIds`，阶段 21 会从用户问题中做标题感知匹配，去除扩展名、书名号、复制编号、空白、下划线和常见前缀噪声后匹配当前知识库文档。例如 `202502150239_邓林峰_《微服务核心组件实验》实验报告 (2).docx` 可以匹配问题里的 `《微服务核心组件实验》实验报告`。
+- 有显式 mention 或标题匹配命中文档时，后端会把文档名写入 prompt，要求模型优先围绕指定文档回答；没有命中时保持知识库级 RAG 检索。
 - 前端通过轮询 `GET /api/chat/sessions/{sessionId}/messages` 和会话列表获取生成结果。
 - 后端先确认当前用户拥有该会话，并且仍是会话所属知识库成员；当 `ragEnabled !== false` 时，再基于该知识库检索 chunks，构造 prompt 调用模型。
 - 当前 `sources` 来自 `DocumentRetrievalService` 的最终上下文 chunk。开启 RAG 时它可能是阶段 19 用户配置的 `HYBRID` 混合召回，也可能是 `FULLTEXT` 全文检索。
@@ -2064,7 +2191,7 @@ Content-Type: application/json
 - 阶段 13 允许多个会话同时处于 `GENERATING`。后台生成成功后后端把该会话 `unread` 标记为 `true`，前端进入会话后会标记已读。
 - 阶段 14 明确成功/失败状态与已读/未读状态分离：后台生成成功或失败都会把会话标记为 `unread: true`，但 Header 角标只按 `unread` 统计，前端通过 `status` 区分 `IDLE` 或 `FAILED`。
 - 阶段 13/14 模型调用失败继续返回脱敏错误，不泄露 API key、完整 Base URL、model 或供应商敏感错误，并通过会话列表的 `lastErrorMessage` 返回脱敏失败原因。
-- 如新增流式接口，必须先补充 SSE 契约。
+- 阶段 21 后，非流式接口继续保留，用于兼容旧前端或不支持流式的调用；新前端默认使用 SSE 流式接口。
 
 失败情况：
 
@@ -2072,8 +2199,66 @@ Content-Type: application/json
 |---|---|
 | `400` | `content` 为空，或 `limit < 1` |
 | `401` | 未登录或 token 无效 |
-| `404` | 会话不存在，或不属于当前登录用户 |
+| `404` | 会话不存在、不属于当前登录用户，或 `mentionedDocumentIds` 包含不可访问文档 |
 | `500` | 模型调用或消息保存失败 |
+
+#### 流式发送问题
+
+```http
+POST /api/chat/sessions/{sessionId}/messages/stream
+Authorization: Bearer <accessToken>
+Content-Type: application/json
+Accept: text/event-stream
+```
+
+请求示例：
+
+```json
+{
+  "content": "请精炼讲解 @微服务核心组件实验报告",
+  "limit": 5,
+  "model": "gpt-4.1-mini",
+  "ragEnabled": true,
+  "mentionedDocumentIds": [12]
+}
+```
+
+响应类型：
+
+```http
+Content-Type: text/event-stream
+```
+
+事件契约：
+
+| 事件 | data 内容 | 说明 |
+|---|---|---|
+| `session` | `ChatSessionResponse` | 会话进入生成中或最终状态时发送 |
+| `user_message` | `ChatMessageResponse` | 后端已保存的用户消息 |
+| `assistant_message` | `ChatMessageResponse` | 第一个模型 delta 到达后创建的助手消息 |
+| `delta` | `{ "messageId": 11, "delta": "...", "content": "..." }` | `delta` 是本次增量文本，`content` 是后端已保存的当前完整助手内容 |
+| `sources` | `ChatMessageSourceResponse[]` | 实际进入 prompt 的引用来源；无来源时为空数组 |
+| `done` | `{ "message": ChatMessageResponse, "session": ChatSessionResponse }` | 流式生成完成，返回最终助手消息和会话状态 |
+| `error` | `{ "message": "..." }` | 脱敏错误；不得泄露 API Key、Authorization、完整 Base URL、model 或供应商敏感原始错误 |
+
+规则：
+
+- 阶段 21 流式接口使用 OpenAI-compatible SSE。前端通过 `POST + fetch + text/event-stream` 读取；普通 API 仍使用 axios wrapper。
+- 流式回答采用“边流边保存”：第一个 delta 到达时创建 `ASSISTANT` 消息，随后按 delta 追加并更新同一条助手消息的 `content`。刷新页面后，用户能看到已经生成并保存的内容。
+- `mentionedDocumentIds`、标题感知匹配、`ragEnabled`、`model`、`limit` 和权限规则与非流式接口一致。
+- `limit` 为空时默认 `5`，大于 `20` 时按 `20` 处理；实际进入 prompt 的上下文仍受用户 RAG 设置中的 `maxContextChunks` 限制。
+- `ragEnabled: false` 时跳过知识库检索，即使传入 `mentionedDocumentIds` 也不检索文档，`sources` 为空数组且不伪造引用来源。
+- 打断仍使用 `POST /api/chat/sessions/{sessionId}/cancel`。前端同时 abort 当前 fetch 流；后端通过活跃 generationId 阻止被打断后的晚到 delta 或完成结果继续落库。
+- 模型失败时保留已生成的部分内容，会话进入 `FAILED`，并通过 `error` 事件和会话 `lastErrorMessage` 暴露脱敏失败原因。
+
+失败情况：
+
+| 状态码 | 原因 |
+|---|---|
+| `400` | `content` 为空，或 `limit < 1` |
+| `401` | 未登录或 token 无效 |
+| `404` | 会话不存在、不属于当前登录用户，或 `mentionedDocumentIds` 包含不可访问文档 |
+| `500` | 模型流式调用、消息保存或 SSE 输出失败；错误信息必须脱敏 |
 
 #### 打断当前会话后台生成
 

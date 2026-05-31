@@ -4,7 +4,7 @@ KnowFlow AI 是一个 RAG-based 智能知识库问答平台。用户可以上传
 
 ## 当前状态
 
-项目当前处于 **阶段 18：语义检索与混合召回已完成**。
+项目当前已完成 **阶段 21：Chat SSE 流式输出、头像上传与 @ 文件上下文**。
 
 已完成的核心能力：
 
@@ -15,14 +15,17 @@ KnowFlow AI 是一个 RAG-based 智能知识库问答平台。用户可以上传
 - 全文检索：基于 PostgreSQL 全文检索返回相关片段、相关度分数和引用来源。
 - 语义/混合检索：配置 `KNOWFLOW_AI_EMBEDDING_MODEL` 后，文档处理会尝试写入 embedding，Search 和 Chat 以全文分、语义分、混合分排序；未配置或失败时自动降级全文检索。
 - RAG 问答：基于检索结果构建 Prompt，调用 OpenAI-compatible 模型生成回答并保存引用来源。
+- Chat 流式输出：`POST /api/chat/sessions/{sessionId}/messages/stream` 使用 SSE 边生成边保存，刷新页面可看到已生成内容。
+- 文件上下文：Chat 输入框支持 `@` 当前知识库已索引文档，发送时传 `mentionedDocumentIds`；未显式 mention 时，后端会按用户问题中的文件标题做启发式匹配。
 - 用户级模型配置：每个用户可在 Settings 保存 Base URL、API Key、模型和超时时间；API Key 后端加密保存、脱敏返回。
+- 用户头像：Settings 支持上传/删除头像到阿里云 OSS，接口只返回短期签名 `avatarUrl` 和 `avatarConfigured`，不返回 OSS object key 或密钥。
 - Settings 模型测试：支持用当前表单或已保存配置测试真实模型连接。
 - 多会话协同：会话创建、重命名、删除、置顶、取消置顶、未读会话、后台生成状态。
 - Chat 体验：发送时可选择模型，空检索仍可调用用户模型回答但 `sources` 保持为空；右侧引用来源跟随选中回答展示。
 - 使用统计：侧边栏展示今日交谈次数，按当前用户和时区统计。
 - Docker 化：根目录 `compose.yaml` 可启动 PostgreSQL、Spring Boot 后端和前端 Nginx 容器。
 
-阶段 18 的完整 Chat 真实回答验收依赖用户提供可用的真实模型配置。没有真实 Base URL/API Key/Model 时，只能验证应用启动、接口健康、页面流程和脱敏错误；没有配置 `KNOWFLOW_AI_EMBEDDING_MODEL` 时，系统仍会使用全文检索。
+完整 Chat 真实回答验收依赖用户提供可用的真实模型配置。没有真实 Base URL/API Key/Model 时，只能验证应用启动、接口健康、页面流程和脱敏错误；没有配置 `KNOWFLOW_AI_EMBEDDING_MODEL` 时，系统仍会使用全文检索。
 
 ## 技术栈
 
@@ -217,6 +220,12 @@ cd backend
 | `KNOWFLOW_AI_MODEL` | 空 | 可选 AI 兜底模型名。 |
 | `KNOWFLOW_AI_EMBEDDING_MODEL` | 空 | 可选 embedding 模型名；为空时保留全文检索，不写入语义向量。 |
 | `KNOWFLOW_AI_TIMEOUT_SECONDS` | `60` | 模型调用超时时间。 |
+| `KNOWFLOW_OSS_ENDPOINT` | 空 | 可选阿里云 OSS endpoint；为空时头像上传不可用。 |
+| `KNOWFLOW_OSS_BUCKET` | 空 | 可选 OSS bucket 名称。 |
+| `KNOWFLOW_OSS_ACCESS_KEY_ID` | 空 | 可选 OSS AccessKey ID。不要提交真实密钥。 |
+| `KNOWFLOW_OSS_ACCESS_KEY_SECRET` | 空 | 可选 OSS AccessKey Secret。不要提交真实密钥。 |
+| `KNOWFLOW_OSS_AVATAR_PREFIX` | `knowflow/avatars` | 头像对象前缀，用于和其他项目隔离路径。 |
+| `KNOWFLOW_OSS_SIGNED_URL_TTL_SECONDS` | `3600` | 头像签名 URL 有效期。 |
 | `KNOWFLOW_DB_MAX_POOL_SIZE` | `10` | Docker 后端数据库连接池最大连接数。 |
 | `KNOWFLOW_DB_MIN_IDLE` | `1` | Docker 后端数据库连接池最小空闲连接数。 |
 
@@ -313,11 +322,14 @@ Get-Content .\knowflow-backup.sql | docker compose exec -T postgres psql -U know
 - `POST /api/auth/register`
 - `POST /api/auth/login`
 - `GET /api/auth/me`
+- `POST /api/auth/me/avatar`
+- `DELETE /api/auth/me/avatar`
 - `GET /api/knowledge-bases`
 - `POST /api/knowledge-bases/{knowledgeBaseId}/documents`
 - `POST /api/knowledge-bases/{knowledgeBaseId}/search`
 - `POST /api/knowledge-bases/{knowledgeBaseId}/chat/sessions`
 - `POST /api/chat/sessions/{sessionId}/messages`
+- `POST /api/chat/sessions/{sessionId}/messages/stream`
 - `GET /api/chat/usage/today`
 - `GET/PATCH /api/settings/model`
 - `POST /api/settings/model/models`
@@ -334,7 +346,6 @@ Get-Content .\knowflow-backup.sql | docker compose exec -T postgres psql -U know
 ## 后续可扩展方向
 
 - 向量索引后台重建和混合召回权重调优。
-- SSE/流式输出。
 - 扫描版 PDF OCR。
 - PPT/Excel 文档解析。
 - 团队空间和更复杂组织权限。

@@ -1,4 +1,5 @@
 import {
+  useMemo,
   useRef,
   useState,
   type ChangeEvent,
@@ -13,6 +14,7 @@ import {
   Maximize2,
   Minimize2,
   Paperclip,
+  Search,
   Send,
   Upload,
   X,
@@ -35,6 +37,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Tooltip,
@@ -56,6 +59,12 @@ export type ChatComposerPayload = {
   attachments: ChatAttachment[];
   modelId: string;
   ragEnabled: boolean;
+  mentionedDocumentIds: number[];
+};
+
+export type ChatMentionDocument = {
+  id: number;
+  name: string;
 };
 
 type ChatModel = {
@@ -79,6 +88,8 @@ type ChatComposerProps = {
   isLoadingModels?: boolean;
   controlsDisabled?: boolean;
   onCancel?: () => void | Promise<void>;
+  mentionDocuments?: ChatMentionDocument[];
+  isLoadingMentionDocuments?: boolean;
 };
 
 const MAX_CHAT_MESSAGE_LENGTH = 4000;
@@ -137,8 +148,11 @@ export function ChatComposer({
   isLoadingModels = false,
   controlsDisabled = false,
   onCancel,
+  mentionDocuments = [],
+  isLoadingMentionDocuments = false,
 }: ChatComposerProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const textAreaRef = useRef<HTMLTextAreaElement>(null);
   const [chatInput, setChatInput] = useState("");
   const [ragEnabled, setRagEnabled] = useState(true);
   const [modelId, setModelId] = useState("");
@@ -146,6 +160,11 @@ export function ChatComposer({
   const [attachmentSheetOpen, setAttachmentSheetOpen] = useState(false);
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   const [attachmentError, setAttachmentError] = useState("");
+  const [mentionSearch, setMentionSearch] = useState("");
+  const [mentionPickerOpen, setMentionPickerOpen] = useState(false);
+  const [selectedMentions, setSelectedMentions] = useState<
+    ChatMentionDocument[]
+  >([]);
   const availableModels = modelOptions ?? [];
   const currentModelId = selectedModelId ?? modelId;
   const visibleAttachments = showAttachmentButton ? attachments : [];
@@ -168,6 +187,17 @@ export function ChatComposer({
   const chatInputHeight = isInputExpanded
     ? "30vh"
     : `min(30vh, ${Math.min(168, chatLineCount * 24 + 24)}px)`;
+  const filteredMentionDocuments = useMemo(() => {
+    const keyword = mentionSearch.trim().toLowerCase();
+
+    if (!keyword) {
+      return mentionDocuments;
+    }
+
+    return mentionDocuments.filter((document) =>
+      document.name.toLowerCase().includes(keyword),
+    );
+  }, [mentionDocuments, mentionSearch]);
 
   const removeAttachment = (id: string) => {
     setAttachments((currentAttachments) =>
@@ -222,6 +252,57 @@ export function ChatComposer({
     addFiles(event.target.files);
   };
 
+  const handleChatInputChange = (event: ChangeEvent<HTMLTextAreaElement>) => {
+    const nextValue = event.target.value;
+    const cursorPosition = event.target.selectionStart ?? nextValue.length;
+
+    setChatInput(nextValue);
+    if (nextValue.slice(cursorPosition - 1, cursorPosition) === "@") {
+      setMentionPickerOpen(true);
+      setMentionSearch("");
+    }
+  };
+
+  const insertMention = (document: ChatMentionDocument) => {
+    const cursorPosition =
+      textAreaRef.current?.selectionStart ?? chatInput.length;
+    const inputBeforeCursor = chatInput.slice(0, cursorPosition);
+    const inputAfterCursor = chatInput.slice(cursorPosition);
+    const mentionStartIndex = inputBeforeCursor.lastIndexOf("@");
+    const insertion = `@${document.name} `;
+    const nextInput =
+      mentionStartIndex >= 0
+        ? `${inputBeforeCursor.slice(0, mentionStartIndex)}${insertion}${inputAfterCursor}`
+        : `${chatInput}${chatInput.endsWith(" ") || !chatInput ? "" : " "}${insertion}`;
+    const nextCursorPosition =
+      mentionStartIndex >= 0
+        ? mentionStartIndex + insertion.length
+        : nextInput.length;
+
+    setChatInput(nextInput);
+    setSelectedMentions((currentMentions) =>
+      currentMentions.some((mention) => mention.id === document.id)
+        ? currentMentions
+        : [...currentMentions, document],
+    );
+    setMentionPickerOpen(false);
+    setMentionSearch("");
+
+    window.requestAnimationFrame(() => {
+      textAreaRef.current?.focus();
+      textAreaRef.current?.setSelectionRange(
+        nextCursorPosition,
+        nextCursorPosition,
+      );
+    });
+  };
+
+  const removeMention = (documentId: number) => {
+    setSelectedMentions((currentMentions) =>
+      currentMentions.filter((mention) => mention.id !== documentId),
+    );
+  };
+
   const handleSendMessage = async () => {
     if (!hasMessageContent || disabled || isSubmitting) {
       return;
@@ -232,6 +313,7 @@ export function ChatComposer({
       attachments: visibleAttachments,
       modelId: selectedModel?.id ?? currentModelId,
       ragEnabled: showContextControls ? ragEnabled : true,
+      mentionedDocumentIds: selectedMentions.map((mention) => mention.id),
     };
 
     try {
@@ -240,6 +322,9 @@ export function ChatComposer({
       if (showAttachmentButton) {
         setAttachments([]);
       }
+      setSelectedMentions([]);
+      setMentionPickerOpen(false);
+      setMentionSearch("");
       setIsInputExpanded(false);
     } catch {
       return;
@@ -288,6 +373,30 @@ export function ChatComposer({
           </div>
         )}
 
+        {selectedMentions.length > 0 && (
+          <div className="mb-3 flex flex-wrap gap-2">
+            {selectedMentions.map((mention) => (
+              <span
+                key={mention.id}
+                className="inline-flex max-w-full items-center gap-2 rounded-[6px] border border-blue-100 bg-blue-50 px-2 py-1 text-xs text-blue-700"
+                title={mention.name}
+              >
+                <FileText className="size-3.5 shrink-0" />
+                <span className="max-w-[220px] truncate">{mention.name}</span>
+                <button
+                  type="button"
+                  className="rounded text-blue-400 transition-colors hover:text-blue-700"
+                  aria-label={`移除 ${mention.name}`}
+                  onClick={() => removeMention(mention.id)}
+                  disabled={isBusy}
+                >
+                  <X className="size-3.5" />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+
         <div className="flex items-start gap-2">
           {showAttachmentButton && (
             <Button
@@ -302,17 +411,69 @@ export function ChatComposer({
               <Paperclip />
             </Button>
           )}
+          <div className="relative flex-1">
           <Textarea
+            ref={textAreaRef}
             value={chatInput}
             maxLength={MAX_CHAT_MESSAGE_LENGTH}
-            onChange={(event) => setChatInput(event.target.value)}
+            onChange={handleChatInputChange}
             onKeyDown={handleChatKeyDown}
-            className="min-h-12 flex-1 resize-none rounded-[6px] border-transparent px-2 py-2 text-sm leading-6 placeholder:text-slate-400 focus-visible:border-transparent focus-visible:ring-0"
+            onFocus={() => {
+              if (chatInput.endsWith("@")) {
+                setMentionPickerOpen(true);
+              }
+            }}
+            className="min-h-12 w-full resize-none rounded-[6px] border-transparent px-2 py-2 text-sm leading-6 placeholder:text-slate-400 focus-visible:border-transparent focus-visible:ring-0"
             style={{ height: chatInputHeight, maxHeight: "30vh" }}
             placeholder={placeholder}
             aria-label="输入问题"
             disabled={isBusy}
           />
+            {mentionPickerOpen && !isBusy && (
+              <div className="absolute right-0 bottom-full left-0 z-20 mb-2 rounded-[8px] border border-slate-200 bg-white p-2 shadow-lg">
+                <div className="flex items-center gap-2 rounded-[6px] border border-slate-200 px-2">
+                  <Search className="size-3.5 shrink-0 text-slate-400" />
+                  <Input
+                    value={mentionSearch}
+                    onChange={(event) => setMentionSearch(event.target.value)}
+                    placeholder="搜索当前知识库文档"
+                    className="h-8 border-0 px-0 text-xs focus-visible:ring-0"
+                    autoFocus
+                  />
+                </div>
+                <div className="mt-2 max-h-48 overflow-auto">
+                  {isLoadingMentionDocuments ? (
+                    <div className="flex items-center gap-2 px-2 py-3 text-xs text-slate-500">
+                      <Loader2 className="size-3.5 animate-spin" />
+                      正在加载文档...
+                    </div>
+                  ) : filteredMentionDocuments.length > 0 ? (
+                    filteredMentionDocuments.map((document) => (
+                      <button
+                        key={document.id}
+                        type="button"
+                        className="flex w-full items-center gap-2 rounded-[6px] px-2 py-2 text-left text-xs text-slate-700 hover:bg-slate-50"
+                        title={document.name}
+                        onMouseDown={(event) => {
+                          event.preventDefault();
+                          insertMention(document);
+                        }}
+                      >
+                        <FileText className="size-3.5 shrink-0 text-slate-400" />
+                        <span className="min-w-0 flex-1 truncate">
+                          {document.name}
+                        </span>
+                      </button>
+                    ))
+                  ) : (
+                    <div className="px-2 py-3 text-xs text-slate-500">
+                      当前知识库没有匹配文档
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
           <Button
             type="button"
             variant="ghost"

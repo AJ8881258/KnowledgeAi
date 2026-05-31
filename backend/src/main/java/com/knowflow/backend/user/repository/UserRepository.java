@@ -15,7 +15,7 @@ public interface UserRepository {
      * @return
      */
     @Select("""
-                select id,username,password_hash,role,email,created_at,updated_at
+                select id,username,password_hash,role,email,avatar_object_key,avatar_updated_at,created_at,updated_at
                 from users
                 where id = #{id}
             """)
@@ -28,7 +28,7 @@ public interface UserRepository {
      * @return
      */
     @Select("""
-            SELECT id, username, password_hash, role,email, created_at, updated_at
+            SELECT id, username, password_hash, role,email,avatar_object_key,avatar_updated_at, created_at, updated_at
             FROM users
             WHERE username = #{username}
             """)
@@ -116,6 +116,38 @@ public interface UserRepository {
             @Param("userId") Long userId,
             @Param("email") String email
     );
+
+    /**
+     * @param userId 当前用户 ID
+     * @param avatarObjectKey OSS object key，不是公开 URL
+     * @return 更新行数
+     * @Desc 头像只保存 object key。签名 URL 每次读取用户资料时动态生成，避免把临时 URL 当永久地址落库。
+     */
+    @Update("""
+                update users
+                set avatar_object_key = #{avatarObjectKey},
+                    avatar_updated_at = now(),
+                    updated_at = now()
+                where id = #{userId}
+            """)
+    int updateAvatarObjectKeyById(
+            @Param("userId") Long userId,
+            @Param("avatarObjectKey") String avatarObjectKey
+    );
+
+    /**
+     * @param userId 当前用户 ID
+     * @return 更新行数
+     * @Desc 删除头像时清空 object key；OSS 对象删除由存储服务尽力执行，数据库以当前用户资料状态为准。
+     */
+    @Update("""
+                update users
+                set avatar_object_key = null,
+                    avatar_updated_at = now(),
+                    updated_at = now()
+                where id = #{userId}
+            """)
+    int clearAvatarObjectKeyById(Long userId);
 
     /**
      * 删除用户的所有聊天会话。

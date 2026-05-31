@@ -1,119 +1,104 @@
-# 前端任务书：阶段 20 后台任务中心与系统诊断
+# 前端任务书：阶段 21 Chat SSE 流式输出、头像上传与 @ 文件上下文
 
 本文档是前端 Agent 的固定入口。前端 Agent 开始实现前必须先阅读 `AGENTS.md`、`doc/STAGE_PLAN.md`、`doc/PROJECT.md`、`doc/API.md` 和本文档。
 
 ## 当前阶段状态
 
-**阶段 20 前端已完成，并已通过构建和目标 ESLint。**
+**阶段 21 前端已完成，并已通过构建和目标 ESLint。**
 
-阶段 20 前端新增 `/Jobs` 全局后台任务中心，让用户可以跨知识库查看自己可访问的文档处理任务，按状态筛选，刷新或轮询活跃任务，对失败/取消任务发起重试，对排队/运行任务发起取消，并查看脱敏系统诊断摘要。
+阶段 21 前端目标是让 Chat 默认使用 SSE 流式问答，支持 `@` 当前知识库文档上下文，同时在 Settings 增加头像上传/删除，并在 Header/Sidebar 中回显头像。
 
 ## API 接入
 
 继续使用现有 axios wrapper：
 
+- `src/api/auth.ts`
+- `src/api/chat.ts`
 - `src/api/documents.ts`
-- `src/api/system.ts`
 
-不新增直接 `fetch`，不新增组件级 `localStorage`，不新增 mock-only 任务数据。
+阶段 21 技术例外：
+
+- `src/api/chat-stream.ts` 是唯一允许直接使用 `fetch` 的前端文件，用于浏览器读取 `POST + text/event-stream`。其他普通 API 不得新增直接 `fetch`。
 
 新增/扩展类型字段：
 
 ```ts
-type DocumentProcessingJobStatusFilter =
-  | "ALL"
-  | "ACTIVE"
-  | "QUEUED"
-  | "RUNNING"
-  | "SUCCEEDED"
-  | "FAILED"
-  | "CANCELED";
+type UserResponse = {
+  id: number;
+  username: string;
+  role: string;
+  email: string | null;
+  avatarUrl: string | null;
+  avatarConfigured: boolean;
+};
 
-type SystemDiagnosticsResponse = {
-  status: "OK" | "DEGRADED";
-  database: {
-    reachable: boolean;
-  };
-  jobs: {
-    activeCount: number;
-    failedCount: number;
-  };
-  model: {
-    chatFallbackConfigured: boolean;
-    embeddingFallbackConfigured: boolean;
-  };
-  generatedAt: string;
+type SendChatMessageRequest = {
+  content: string;
+  limit?: number;
+  model?: string;
+  ragEnabled?: boolean;
+  mentionedDocumentIds?: number[];
 };
 ```
 
 新增 API wrapper：
 
 ```ts
-getDocumentProcessingJobsGlobal(params)
-retryDocumentProcessingJob(jobId)
-cancelDocumentProcessingJob(jobId)
-getSystemDiagnostics()
+uploadCurrentUserAvatar(file)
+deleteCurrentUserAvatar()
+streamChatSessionMessage(sessionId, request, options)
 ```
-
-字段语义：
-
-- `ACTIVE`：前端筛选项，对应后端 `QUEUED` + `RUNNING`。
-- `CANCELED`：阶段 20 任务终态，表示用户或系统取消，不代表文档一定不可用。
-- `SystemDiagnosticsResponse` 只展示安全摘要，不包含 Base URL、API Key、model、Authorization 或数据库连接信息。
 
 ## 已完成前端实现
 
-1. `/Jobs` 页面
-   - 新增任务中心页面，展示全局文档处理任务。
-   - 支持筛选：全部、进行中、排队、运行、成功、失败、已取消。
-   - 展示任务状态、进度、阶段、消息、错误、知识库/文档上下文和时间。
-   - 活跃任务每 4 秒轮询，终态任务不做无意义高频刷新。
+1. Chat SSE 流式输出
+   - 新增 `src/api/chat-stream.ts`，读取 `session`、`user_message`、`assistant_message`、`delta`、`sources`、`done`、`error` 事件。
+   - `src/components/chat-page/rag-chat-workspace.tsx` 默认使用流式接口发送消息。
+   - 发送后立即展示用户消息；收到 `assistant_message` 后创建助手消息；收到 `delta` 后持续更新同一条助手消息内容。
+   - 收到 `sources` 后更新右侧引用来源面板；收到 `done` 后刷新会话状态和今日统计。
+   - 打断时 abort 当前 fetch 流，并调用后端 cancel API。
 
-2. 任务操作
-   - `FAILED` / `CANCELED` 任务显示重试入口。
-   - `QUEUED` / `RUNNING` 任务显示取消入口。
-   - 操作完成后刷新任务列表和诊断摘要。
-   - 错误提示会二次脱敏，避免前端把后端异常细节原样展示给用户。
+2. `@` 文件上下文
+   - `src/components/chat/ChatComposer.tsx` 监听输入中的 `@`。
+   - 弹出当前知识库已索引文档列表，顶部提供搜索。
+   - 选择文档后插入 `@文件名` 并添加可移除 mention chip。
+   - 发送请求时把 chip 对应的 `mentionedDocumentIds` 传给后端。
+   - 列表仅展示当前知识库内 `INDEXED` 文档，避免选择后端不可检索的文档。
 
-3. 系统诊断摘要
-   - 展示数据库可达性。
-   - 展示当前用户可见活跃任务数和失败任务数。
-   - 展示 Chat/embedding 环境兜底配置是否存在。
-   - 只展示安全布尔状态和计数，不展示具体密钥、地址、模型名或连接串。
+3. 头像上传
+   - `src/api/auth.ts` 增加头像上传/删除 wrapper。
+   - `src/store/auth.ts` 同步保存 `avatarUrl`、`avatarConfigured`。
+   - Settings 账号资料区新增头像上传/删除控件，前端校验 JPEG/PNG/WebP 和 2MB 上限。
+   - Header 和 Sidebar 使用 `avatarUrl` 展示头像，缺失时回退到用户名首字母。
 
-4. 路由和导航
-   - `src/main.tsx` 新增 `/Jobs` 路由。
-   - `src/components/slider-sidebar.tsx` 新增侧边栏入口。
-   - `src/components/slider-layout.tsx` 新增 Header 标题映射。
+## UI 和交互要求
 
-## UI 要求
+- Chat 流式输出期间保持原三栏结构稳定，不刷新整个右侧区域。
+- 打断后保留已生成部分，不再追加旧流后续内容。
+- 无引用来源时只显示轻提示“当前回答没有可展示的引用来源”，不把空 sources 当错误。
+- `@` 文档列表和长文件名必须截断或换行，不能撑破输入区。
+- 头像上传不把文件、签名 URL、OSS object key 或 OSS 配置写入 localStorage。
+- API Key、Authorization、OSS 密钥、完整供应商错误不得出现在 toast、日志或错误详情中。
 
-- 继续使用 shadcn/radix-sera、Lucide、Tailwind 和现有 SaaS 工具风格。
-- 任务中心是操作型后台页面，布局应紧凑、可扫描，不做营销式页面。
-- 长文档名、长错误消息和长任务消息必须截断或换行，不能撑破页面。
-- 权限不足时优先展示后端返回的脱敏错误，不在前端伪造权限判断。
-- 系统诊断只做轻量摘要，不扩展成复杂管理员后台。
+## 验证命令
 
-## 验证命令与结果
-
-已运行：
+阶段收尾已运行：
 
 ```powershell
-pnpm exec eslint src\api\documents.ts src\api\system.ts src\pages\Jobs.tsx src\main.tsx src\components\slider-sidebar.tsx src\components\slider-layout.tsx
 pnpm build
+pnpm exec eslint src/pages/Chat.tsx src/pages/Settings.tsx src/api/chat.ts src/api/chat-stream.ts src/api/auth.ts src/components/chat src/components/chat-page src/components/settings src/components/slider-sidebar.tsx src/components/MainHeader.tsx
 ```
 
 结果：
 
+- `pnpm build` 已通过，仅保留既有 Vite 大 chunk warning。
 - 目标 ESLint 已通过。
-- `pnpm build` 已通过，仅保留既有 Vite chunk size warning。
-
-后续如继续修改阶段 20 前端代码，至少重新运行上述构建和目标 ESLint。
 
 ## 手动验收路径
 
-- `/Jobs`：检查任务列表、筛选、刷新、状态文案和诊断摘要。
-- `/Jobs`：对失败或取消任务执行重试，确认旧任务仍保持终态，新任务进入新的处理流程。
-- `/Jobs`：对排队或运行任务执行取消，确认任务进入 `CANCELED`，且后续不会变回成功或失败。
-- `/Jobs`：以 `VIEWER` 身份确认可以查看可访问知识库任务，但不能重试或取消。
-- `/Jobs`：确认诊断摘要不显示 Base URL、API Key、model、Authorization、数据库连接串或完整堆栈。
+- `/Chat/{sessionId}`：发送问题时助手回答逐步出现，不需要等完整回答。
+- `/Chat/{sessionId}`：生成中点击“打断”，已生成部分保留，后续 token 不再追加。
+- `/Chat/{sessionId}`：输入 `@` 弹出当前知识库文件列表，搜索文件名后可选择并生成 mention chip。
+- `/Chat/{sessionId}`：选择 `@` 文档后发送，回答应围绕指定文档；没有引用时只显示轻提示。
+- `/Chat/{sessionId}`：不使用 `@`，直接问包含文件标题的问题，也应由后端标题感知匹配对应文档。
+- `/Settings`：上传头像后 Avatar 更新；刷新页面后通过签名 URL 继续显示；删除头像后恢复 fallback。

@@ -18,6 +18,9 @@ import com.knowflow.backend.chat.dto.response.ChatSessionResponse;
 import com.knowflow.backend.chat.dto.response.ChatUsageTodayResponse;
 import com.knowflow.backend.chat.dto.response.SendMessageResponse;
 import com.knowflow.backend.chat.service.ChatService;
+import com.knowflow.backend.chat.service.ChatStreamingService;
+import org.springframework.http.MediaType;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import static com.knowflow.backend.common.utils.AuthUtils.getCurrentUserId;
 
@@ -25,9 +28,11 @@ import static com.knowflow.backend.common.utils.AuthUtils.getCurrentUserId;
 @RequestMapping("/api")
 public class ChatController {
     private final ChatService chatService;
+    private final ChatStreamingService chatStreamingService;
 
-    public ChatController(ChatService chatService) {
+    public ChatController(ChatService chatService, ChatStreamingService chatStreamingService) {
         this.chatService = chatService;
+        this.chatStreamingService = chatStreamingService;
     }
 
     @PostMapping("/knowledge-bases/{knowledgeBaseId}/chat/sessions")
@@ -79,6 +84,22 @@ public class ChatController {
             @RequestBody SendMessageRequest request,
             @AuthenticationPrincipal Jwt jwt) {
         return chatService.sendMessage(sessionId, getCurrentUserId(jwt), request);
+    }
+
+    /**
+     * @param sessionId 当前用户自己的会话 ID
+     * @param request Chat 发送请求，支持 content/model/ragEnabled/mentionedDocumentIds
+     * @param jwt 当前登录用户
+     * @return text/event-stream，事件包含 user_message、assistant_message、delta、sources、done、error
+     * @Desc 阶段 21 新增 POST SSE 流式接口。因为前端需要携带 JWT header 和 JSON body，
+     * 这里使用 POST + SseEmitter，而不是只能 GET 的 EventSource 契约。
+     */
+    @PostMapping(value = "/chat/sessions/{sessionId}/messages/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter streamMessage(
+            @PathVariable Long sessionId,
+            @RequestBody SendMessageRequest request,
+            @AuthenticationPrincipal Jwt jwt) {
+        return chatStreamingService.streamMessage(sessionId, getCurrentUserId(jwt), request);
     }
 
     @PostMapping("/chat/sessions/{sessionId}/cancel")

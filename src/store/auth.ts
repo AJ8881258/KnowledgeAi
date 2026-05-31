@@ -17,6 +17,8 @@ export type AuthSession = {
   accessToken: string;
   displayName: string;
   email: string;
+  avatarUrl: string | null;
+  avatarConfigured: boolean;
   loginAt: string;
 };
 
@@ -26,6 +28,8 @@ export type BackendUserSession = {
   role: string;
   tokenType: string;
   accessToken: string;
+  avatarUrl?: string | null;
+  avatarConfigured?: boolean;
 };
 
 export type BackendCurrentUser = {
@@ -33,6 +37,8 @@ export type BackendCurrentUser = {
   username: string;
   role: string;
   email: string | null;
+  avatarUrl?: string | null;
+  avatarConfigured?: boolean;
 };
 
 export type MockUserProfile = {
@@ -197,6 +203,16 @@ function normalizeSession(session: unknown): AuthSession | null {
         : username,
     email:
       typeof sessionRecord.email === "string" ? sessionRecord.email.trim() : "",
+    avatarUrl:
+      typeof sessionRecord.avatarUrl === "string" &&
+      sessionRecord.avatarUrl.trim()
+        ? sessionRecord.avatarUrl.trim()
+        : null,
+    avatarConfigured:
+      typeof sessionRecord.avatarConfigured === "boolean"
+        ? sessionRecord.avatarConfigured
+        : typeof sessionRecord.avatarUrl === "string" &&
+          Boolean(sessionRecord.avatarUrl.trim()),
     loginAt:
       typeof sessionRecord.loginAt === "string" && sessionRecord.loginAt.trim()
         ? sessionRecord.loginAt
@@ -331,6 +347,11 @@ function createSession(
       accessToken,
       displayName,
       email: nextProfile.email,
+      avatarUrl: user.avatarUrl?.trim() || null,
+      avatarConfigured:
+        typeof user.avatarConfigured === "boolean"
+          ? user.avatarConfigured
+          : Boolean(user.avatarUrl?.trim()),
       loginAt: new Date().toISOString(),
     },
     profile: nextProfile,
@@ -357,6 +378,11 @@ export const useAuthStore = create<AuthStore>()(
         const currentSession = get().session;
         const username = user.username.trim();
         const email = user.email?.trim() ?? "";
+        const avatarUrl = user.avatarUrl?.trim() || null;
+        const avatarConfigured =
+          typeof user.avatarConfigured === "boolean"
+            ? user.avatarConfigured
+            : Boolean(avatarUrl);
         const nextProfile = normalizeProfile({
           displayName: username,
           email,
@@ -374,6 +400,8 @@ export const useAuthStore = create<AuthStore>()(
                 role: user.role,
                 displayName: username,
                 email,
+                avatarUrl,
+                avatarConfigured,
               }
             : null,
         });

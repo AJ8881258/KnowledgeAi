@@ -48,6 +48,14 @@ knowflow:
   model:
     # 用户模型 API Key 的加密密钥；正式部署时通过环境变量提供，不能写死生产密钥。
     secret-key: ${KNOWFLOW_MODEL_SECRET_KEY:}
+  oss:
+    # 用户头像存储在阿里云 OSS。bucket 可以和其他项目共用，但必须使用独立前缀隔离 KnowFlow 对象。
+    endpoint: ${KNOWFLOW_OSS_ENDPOINT:}
+    bucket: ${KNOWFLOW_OSS_BUCKET:}
+    access-key-id: ${KNOWFLOW_OSS_ACCESS_KEY_ID:}
+    access-key-secret: ${KNOWFLOW_OSS_ACCESS_KEY_SECRET:}
+    avatar-prefix: ${KNOWFLOW_OSS_AVATAR_PREFIX:knowflow/avatars}
+    signed-url-ttl-seconds: ${KNOWFLOW_OSS_SIGNED_URL_TTL_SECONDS:3600}
 
 server:
   port: 8080

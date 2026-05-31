@@ -50,6 +50,7 @@ export type SendChatMessageRequest = {
   limit?: number;
   model?: string;
   ragEnabled?: boolean;
+  mentionedDocumentIds?: number[];
 };
 
 export type SendChatMessageResponse = {

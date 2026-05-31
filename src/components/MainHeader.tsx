@@ -9,10 +9,9 @@ import { cn } from "@/lib/utils";
 import { useIsMobile } from "@/hooks/use-mobile";
 import {
   clearMockAuthSession,
-  getMockUserProfile,
-  MOCK_AUTH_SESSION_CHANGE_EVENT,
 } from "@/lib/mock-auth";
 import { useChatStatusStore } from "@/store/chat-status";
+import { useAuthStore } from "@/store/auth";
 
 // AlertDialog
 import {
@@ -27,6 +26,7 @@ import {
 } from "@/components/ui/alert-dialog";
 // Button
 import { Button } from "@/components/ui/button";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 // DropdownMenu
 import {
   DropdownMenu,
@@ -46,9 +46,10 @@ const MainHeader = ({ title, desc }: MainHeaderProps) => {
   // state manager
   const isMobile = useIsMobile();
   const navigate = useNavigate();
-  const [displayName, setDisplayName] = useState(
-    () => getMockUserProfile().displayName,
-  );
+  const session = useAuthStore((state) => state.session);
+  const displayName = session?.displayName || session?.username || "User";
+  const avatarUrl = session?.avatarUrl ?? null;
+  const avatarFallback = (displayName || "U").slice(0, 1).toUpperCase();
   const unreadCount = useChatStatusStore((state) => state.unreadCount);
   const refreshUnreadCount = useChatStatusStore(
     (state) => state.refreshUnreadCount,
@@ -59,23 +60,6 @@ const MainHeader = ({ title, desc }: MainHeaderProps) => {
   useEffect(() => {
     void refreshUnreadCount();
   }, [refreshUnreadCount]);
-
-  useEffect(() => {
-    const syncDisplayName = () => {
-      setDisplayName(getMockUserProfile().displayName);
-    };
-
-    window.addEventListener(MOCK_AUTH_SESSION_CHANGE_EVENT, syncDisplayName);
-    window.addEventListener("storage", syncDisplayName);
-
-    return () => {
-      window.removeEventListener(
-        MOCK_AUTH_SESSION_CHANGE_EVENT,
-        syncDisplayName,
-      );
-      window.removeEventListener("storage", syncDisplayName);
-    };
-  }, []);
 
   const handleLogout = () => {
     clearMockAuthSession();
@@ -119,8 +103,14 @@ const MainHeader = ({ title, desc }: MainHeaderProps) => {
               <Button
                 variant="ghost"
                 size="sm"
-                className="flex min-w-0 items-center gap-1 px-2 text-[clamp(0.875rem,1.25vw,1.25rem)]"
+                className="flex min-w-0 items-center gap-2 px-2 text-[clamp(0.875rem,1.25vw,1.25rem)]"
               >
+                <Avatar size="sm">
+                  {avatarUrl ? (
+                    <AvatarImage src={avatarUrl} alt={`${displayName} 头像`} />
+                  ) : null}
+                  <AvatarFallback>{avatarFallback}</AvatarFallback>
+                </Avatar>
                 <span className="flex min-w-0 items-center gap-1">
                   <span className="max-w-24 truncate">{displayName}</span>
                   <span className="shrink-0">Workspace</span>

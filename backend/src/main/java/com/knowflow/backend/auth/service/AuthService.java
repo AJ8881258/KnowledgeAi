@@ -2,19 +2,23 @@ package com.knowflow.backend.auth.service;
 
 import com.knowflow.backend.auth.dto.request.UpdateCurrentUserRequest;
 import com.knowflow.backend.auth.dto.response.UserResponse;
+import com.knowflow.backend.auth.avatar.AvatarStorageService;
 import com.knowflow.backend.user.entity.User;
 import com.knowflow.backend.user.repository.UserRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.multipart.MultipartFile;
 
 @Service
 public class AuthService {
     private final UserRepository userRepository;
+    private final AvatarStorageService avatarStorageService;
 
-    public AuthService(UserRepository userRepository) {
+    public AuthService(UserRepository userRepository, AvatarStorageService avatarStorageService) {
         this.userRepository = userRepository;
+        this.avatarStorageService = avatarStorageService;
     }
 
     /**
@@ -60,7 +64,8 @@ public class AuthService {
      */
     @Transactional
     public void deleteCurrentUser(Long userId) {
-        findCurrentUserOr401(userId);
+        User user = findCurrentUserOr401(userId);
+        avatarStorageService.delete(user.getAvatarObjectKey());
 
         //删除当前用户的会话、消息、引用来源。
         userRepository.deleteChatSessionsByUserId(userId);
@@ -73,6 +78,40 @@ public class AuthService {
         if (deletedRows != 1) {
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Delete account failed");
         }
+    }
+
+    /**
+     * @param userId 当前 JWT 用户 ID
+     * @param file 头像文件，支持 jpeg/png/webp，最大 2MB
+     * @return 更新后的用户资料，包含短期签名 avatarUrl
+     * @Desc 头像文件上传到 OSS，数据库只保存 object key。旧头像删除为尽力操作，避免用户资料更新被旧对象删除失败阻塞。
+     */
+    @Transactional
+    public UserResponse uploadAvatar(Long userId, MultipartFile file) {
+        User user = findCurrentUserOr401(userId);
+        String objectKey = avatarStorageService.upload(userId, file);
+        int updatedRows = userRepository.updateAvatarObjectKeyById(userId, objectKey);
+        if (updatedRows != 1) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User not found");
+        }
+        avatarStorageService.delete(user.getAvatarObjectKey());
+        return getCurrentUser(userId);
+    }
+
+    /**
+     * @param userId 当前 JWT 用户 ID
+     * @return 清空头像后的用户资料
+     * @Desc 删除头像不会向前端暴露 OSS object key；前端只看到 avatarConfigured=false。
+     */
+    @Transactional
+    public UserResponse deleteAvatar(Long userId) {
+        User user = findCurrentUserOr401(userId);
+        int updatedRows = userRepository.clearAvatarObjectKeyById(userId);
+        if (updatedRows != 1) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User not found");
+        }
+        avatarStorageService.delete(user.getAvatarObjectKey());
+        return getCurrentUser(userId);
     }
 
     /**
@@ -96,7 +135,9 @@ public class AuthService {
                 user.getId(),
                 user.getUsername(),
                 user.getRole(),
-                user.getEmail()
+                user.getEmail(),
+                avatarStorageService.createSignedUrl(user.getAvatarObjectKey()),
+                user.getAvatarObjectKey() != null && !user.getAvatarObjectKey().isBlank()
         );
     }
 

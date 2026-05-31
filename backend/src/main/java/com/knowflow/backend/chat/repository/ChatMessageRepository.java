@@ -25,6 +25,26 @@ public interface ChatMessageRepository {
     int insert(ChatMessage message);
 
     /**
+     * @param id 助手消息 ID
+     * @param sessionId 当前会话 ID，用于避免跨会话误更新
+     * @param content 后端已经保存的完整流式内容
+     * @return 更新行数
+     * @Desc 阶段 21 流式输出采用边流边保存。每次 delta 到达后更新同一条 ASSISTANT 消息，
+     * 刷新页面即可读取已经生成的部分回答。
+     */
+    @Update("""
+            update chat_messages
+            set content = #{content}
+            where id = #{id}
+              and session_id = #{sessionId}
+              and role = 'ASSISTANT'
+            """)
+    int updateAssistantContent(
+            @Param("id") Long id,
+            @Param("sessionId") Long sessionId,
+            @Param("content") String content);
+
+    /**
      * 根据会话ID和用户ID查询聊天消息
      *
      * @param sessionId 会话ID

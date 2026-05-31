@@ -4,9 +4,11 @@ import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import {
+  deleteCurrentUserAvatar,
   deleteCurrentUser,
   getCurrentUser,
   updateCurrentUser,
+  uploadCurrentUserAvatar,
   type CurrentUserResponse,
 } from "@/api/auth";
 import {
@@ -138,6 +140,8 @@ export default function Settings() {
     rag: "",
   });
   const [savingProfile, setSavingProfile] = useState(false);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [deletingAvatar, setDeletingAvatar] = useState(false);
   const [savingModel, setSavingModel] = useState(false);
   const [fetchingModels, setFetchingModels] = useState(false);
   const [testingModel, setTestingModel] = useState(false);
@@ -304,6 +308,52 @@ export default function Settings() {
     }
   }
 
+  async function handleUploadAvatar(file: File) {
+    setUploadingAvatar(true);
+
+    try {
+      const updatedUser = await uploadCurrentUserAvatar(file);
+
+      setCurrentUser(updatedUser);
+      syncCurrentUser(updatedUser);
+      toast.success("头像已上传");
+    } catch (error) {
+      if (isUnauthorized(error)) {
+        handleUnauthorized();
+        return;
+      }
+
+      throw new Error(getErrorMessage(error, "头像上传失败，请稍后重试。"), {
+        cause: error,
+      });
+    } finally {
+      setUploadingAvatar(false);
+    }
+  }
+
+  async function handleDeleteAvatar() {
+    setDeletingAvatar(true);
+
+    try {
+      const updatedUser = await deleteCurrentUserAvatar();
+
+      setCurrentUser(updatedUser);
+      syncCurrentUser(updatedUser);
+      toast.success("头像已删除");
+    } catch (error) {
+      if (isUnauthorized(error)) {
+        handleUnauthorized();
+        return;
+      }
+
+      throw new Error(getErrorMessage(error, "头像删除失败，请稍后重试。"), {
+        cause: error,
+      });
+    } finally {
+      setDeletingAvatar(false);
+    }
+  }
+
   async function handleFetchModels(request: FetchModelListRequest) {
     setFetchingModels(true);
     setModelFetchError("");
@@ -433,11 +483,13 @@ export default function Settings() {
     <>
       <div className="flex w-full min-w-0 flex-col gap-4 p-3 text-slate-900 lg:p-4">
       <AccountProfileSection
-        key={currentUser ? `${currentUser.id}-${currentUser.email ?? ""}` : "empty-user"}
+        key={currentUser ? `${currentUser.id}-${currentUser.email ?? ""}-${currentUser.avatarUrl ?? ""}-${currentUser.avatarConfigured}` : "empty-user"}
         user={currentUser}
         loading={loading.profile}
         error={errors.profile}
         saving={savingProfile}
+        uploadingAvatar={uploadingAvatar}
+        deletingAvatar={deletingAvatar}
         preferences={preferences}
         preferencesLoading={loading.preferences}
         preferencesError={errors.preferences}
@@ -445,6 +497,8 @@ export default function Settings() {
         browserTimezone={browserTimezoneRef.current}
         onRetry={loadProfile}
         onSave={handleSaveProfile}
+        onUploadAvatar={handleUploadAvatar}
+        onDeleteAvatar={handleDeleteAvatar}
         onRetryPreferences={loadPreferences}
         onLogout={() => setLogoutDialogOpen(true)}
       />

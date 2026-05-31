@@ -16,7 +16,6 @@ import {
 
 // Avatar
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import MyAvatar from "@/assets/mypic.jpg";
 
 // Button
 import { Button } from "@/components/ui/button";
@@ -25,6 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useChatStatusStore } from "@/store/chat-status";
+import { useAuthStore } from "@/store/auth";
 
 const navList = [
   {
@@ -70,6 +70,11 @@ export function AppSidebar() {
   const { state, isMobile, setOpenMobile } = useSidebar();
   const location = useLocation();
   const navigate = useNavigate();
+  const session = useAuthStore((authState) => authState.session);
+  const avatarUrl = session?.avatarUrl ?? null;
+  const avatarFallback = (session?.displayName || session?.username || "K")
+    .slice(0, 1)
+    .toUpperCase();
   const todayMessageCount = useChatStatusStore(
     (chatState) => chatState.todayMessageCount,
   );
@@ -107,8 +112,8 @@ export function AppSidebar() {
                   className="mr-0 size-[clamp(2.25rem,3vw,3rem)] shrink-0 cursor-pointer 
                 transition-all duration-200 hover:scale-120 group-data-[collapsible=icon]:hidden"
                 >
-                  <AvatarImage src={MyAvatar} />
-                  <AvatarFallback>Avatar</AvatarFallback>
+                  {avatarUrl ? <AvatarImage src={avatarUrl} /> : null}
+                  <AvatarFallback>{avatarFallback}</AvatarFallback>
                 </Avatar>
                 <SidebarTrigger className="" />
               </div>
