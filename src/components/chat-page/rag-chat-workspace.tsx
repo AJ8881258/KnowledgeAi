@@ -162,12 +162,34 @@ function formatCompactDateTime(value: string) {
   }).format(date);
 }
 
-function formatScore(score: number) {
-  if (!Number.isFinite(score)) {
+function formatScore(score?: number | null) {
+  if (typeof score !== "number" || !Number.isFinite(score)) {
     return "-";
   }
 
   return score.toFixed(2);
+}
+
+function getSourceSortScore(source: ChatMessageSourceResponse) {
+  return source.hybridScore ?? source.score ?? source.fulltextScore ?? source.semanticScore ?? 0;
+}
+
+function getRetrievalModeLabel(mode?: string) {
+  const normalizedMode = mode?.trim().toUpperCase();
+
+  if (normalizedMode === "HYBRID") {
+    return "混合";
+  }
+
+  if (normalizedMode === "SEMANTIC") {
+    return "语义";
+  }
+
+  if (normalizedMode === "FULLTEXT") {
+    return "全文";
+  }
+
+  return mode || "检索";
 }
 
 function getMessageRoleLabel(role: ChatMessageResponse["role"]) {
@@ -223,7 +245,7 @@ function buildModelOptions(
 
 function getMessageSources(message: ChatMessageResponse | null | undefined) {
   return [...(message?.sources ?? [])].sort(
-    (first, second) => second.score - first.score,
+    (first, second) => getSourceSortScore(second) - getSourceSortScore(first),
   );
 }
 
@@ -383,7 +405,13 @@ function MessageBubble({
                 </span>
                 <span className="shrink-0">Chunk #{source.chunkIndex}</span>
                 <span className="shrink-0 text-blue-500">
-                  相关度 {formatScore(source.score)}
+                  混合分 {formatScore(source.hybridScore ?? source.score)}
+                </span>
+                <span className="shrink-0 text-blue-500">
+                  全文 {formatScore(source.fulltextScore)}
+                </span>
+                <span className="shrink-0 text-blue-500">
+                  语义 {formatScore(source.semanticScore)}
                 </span>
               </span>
             ))}
@@ -478,7 +506,13 @@ function SourceCard({
           <div className="mt-1 flex flex-wrap gap-2 text-xs text-slate-500">
             <span>Chunk #{source.chunkIndex}</span>
             <span className="text-slate-300">/</span>
-            <span>相关度 {formatScore(source.score)}</span>
+            <span>{getRetrievalModeLabel(source.retrievalMode)}</span>
+            <span className="text-slate-300">/</span>
+            <span>混合分 {formatScore(source.hybridScore ?? source.score)}</span>
+            <span className="text-slate-300">/</span>
+            <span>全文 {formatScore(source.fulltextScore)}</span>
+            <span className="text-slate-300">/</span>
+            <span>语义 {formatScore(source.semanticScore)}</span>
           </div>
         </div>
         <ChevronDown

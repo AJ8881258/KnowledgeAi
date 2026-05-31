@@ -4,6 +4,8 @@ import com.knowflow.backend.document.dto.response.DocumentProcessingJobResponse;
 import com.knowflow.backend.document.entity.Document;
 import com.knowflow.backend.document.entity.DocumentChunk;
 import com.knowflow.backend.document.entity.DocumentProcessingJob;
+import com.knowflow.backend.document.rag.DocumentRetrievalService;
+import com.knowflow.backend.document.rag.EmbeddingModelClient;
 import com.knowflow.backend.document.repository.DocumentChunkRepository;
 import com.knowflow.backend.document.repository.DocumentProcessingJobRepository;
 import com.knowflow.backend.document.repository.DocumentRepository;
@@ -27,6 +29,10 @@ public class DocumentProcessingJobService {
     private static final String STATUS_PROCESSING = "PROCESSING";
     private static final String STATUS_INDEXED = "INDEXED";
     private static final String STATUS_FAILED = "FAILED";
+    private static final String EMBEDDING_STATUS_PROCESSING = "PROCESSING";
+    private static final String EMBEDDING_STATUS_INDEXED = "INDEXED";
+    private static final String EMBEDDING_STATUS_SKIPPED = "SKIPPED";
+    private static final String EMBEDDING_STATUS_FAILED = "FAILED";
     private static final int CHUNK_SIZE = 1000;
     private static final int CHUNK_OVERLAP = 150;
     private static final String NO_REPROCESS_SOURCE_MESSAGE =
@@ -36,6 +42,7 @@ public class DocumentProcessingJobService {
     private final DocumentChunkRepository documentChunkRepository;
     private final DocumentProcessingJobRepository jobRepository;
     private final DocumentTextExtractor documentTextExtractor;
+    private final EmbeddingModelClient embeddingModelClient;
     private final TransactionTemplate transactionTemplate;
 
     public DocumentProcessingJobService(
@@ -43,11 +50,13 @@ public class DocumentProcessingJobService {
             DocumentChunkRepository documentChunkRepository,
             DocumentProcessingJobRepository jobRepository,
             DocumentTextExtractor documentTextExtractor,
+            EmbeddingModelClient embeddingModelClient,
             TransactionTemplate transactionTemplate) {
         this.documentRepository = documentRepository;
         this.documentChunkRepository = documentChunkRepository;
         this.jobRepository = jobRepository;
         this.documentTextExtractor = documentTextExtractor;
+        this.embeddingModelClient = embeddingModelClient;
         this.transactionTemplate = transactionTemplate;
     }
 
@@ -82,6 +91,7 @@ public class DocumentProcessingJobService {
         DocumentProcessingJob job = getJobOrThrow(jobId);
         jobRepository.markRunning(jobId, 10, "READ_SOURCE", "准备处理文档来源");
         documentRepository.updateStatusById(job.getDocumentId(), STATUS_PROCESSING, null);
+        documentRepository.updateEmbeddingStatusById(job.getDocumentId(), EMBEDDING_STATUS_PROCESSING, null);
 
         try {
             if (JOB_TYPE_UPLOAD_INDEX.equals(job.getJobType())) {
@@ -193,6 +203,7 @@ public class DocumentProcessingJobService {
 
         jobRepository.updateProgress(job.getId(), 60, "SPLIT_CHUNKS", "正在切分文档片段");
         List<String> chunks = splitText(text);
+        EmbeddingWritePlan embeddingPlan = buildEmbeddingWritePlan(job.getRequestedBy(), chunks);
         jobRepository.updateProgress(job.getId(), 80, "WRITE_CHUNKS", "正在写入检索索引");
 
         transactionTemplate.executeWithoutResult(status -> {
@@ -200,10 +211,63 @@ public class DocumentProcessingJobService {
                 documentChunkRepository.deleteByDocumentId(document.getId());
             }
             saveChunks(document.getId(), document.getKnowledgeBaseId(), chunks);
+            applyChunkEmbeddings(document.getId(), chunks.size(), embeddingPlan);
             documentRepository.updateSourceTextById(document.getId(), text);
             documentRepository.updateStatusById(document.getId(), STATUS_INDEXED, null);
+            documentRepository.updateEmbeddingStatusById(
+                    document.getId(),
+                    embeddingPlan.status(),
+                    embeddingPlan.errorMessage());
         });
         jobRepository.markSucceeded(job.getId(), "COMPLETED", "文档处理完成");
+    }
+
+    /**
+     * @param userId current user who requested processing; controls user-scoped model credentials
+     * @param chunks text chunks that will be written to document_chunks
+     * @return embedding write plan used inside the database transaction
+     * @Desc Embeddings are an optional Stage 18 semantic enhancement. If the embedding
+     * provider is missing or fails, document text chunks are still saved for full-text retrieval.
+     */
+    private EmbeddingWritePlan buildEmbeddingWritePlan(Long userId, List<String> chunks) {
+        if (!embeddingModelClient.isConfigured(userId)) {
+            return new EmbeddingWritePlan(EMBEDDING_STATUS_SKIPPED, null, List.of());
+        }
+        try {
+            List<List<Double>> vectors = embeddingModelClient.embed(userId, chunks);
+            if (vectors.size() != chunks.size()) {
+                return new EmbeddingWritePlan(EMBEDDING_STATUS_FAILED, "Embedding generation failed", List.of());
+            }
+            return new EmbeddingWritePlan(EMBEDDING_STATUS_INDEXED, null, vectors);
+        } catch (RuntimeException exception) {
+            return new EmbeddingWritePlan(EMBEDDING_STATUS_FAILED, "Embedding generation failed", List.of());
+        }
+    }
+
+    /**
+     * @param documentId target document ID
+     * @param chunkCount number of just-inserted chunks
+     * @param plan embedding vectors or fallback state for each chunk
+     * @Desc Chunk rows are inserted first, then updated by documentId/chunkIndex. This keeps
+     * text indexing independent from vector generation and preserves existing upload behavior.
+     */
+    private void applyChunkEmbeddings(Long documentId, int chunkCount, EmbeddingWritePlan plan) {
+        if (EMBEDDING_STATUS_INDEXED.equals(plan.status())) {
+            for (int index = 0; index < plan.vectors().size(); index++) {
+                documentChunkRepository.updateEmbeddingByDocumentIdAndChunkIndex(
+                        documentId,
+                        index,
+                        EMBEDDING_STATUS_INDEXED,
+                        DocumentRetrievalService.toVectorLiteral(plan.vectors().get(index)));
+            }
+            return;
+        }
+        for (int index = 0; index < chunkCount; index++) {
+            documentChunkRepository.updateEmbeddingStatusByDocumentIdAndChunkIndex(
+                    documentId,
+                    index,
+                    plan.status());
+        }
     }
 
     /**
@@ -267,6 +331,7 @@ public class DocumentProcessingJobService {
 
     private void failJobAndDocument(DocumentProcessingJob job, String safeMessage) {
         documentRepository.updateStatusById(job.getDocumentId(), STATUS_FAILED, safeMessage);
+        documentRepository.updateEmbeddingStatusById(job.getDocumentId(), EMBEDDING_STATUS_FAILED, safeMessage);
         jobRepository.markFailed(job.getId(), "FAILED", "文档处理失败", safeMessage);
     }
 
@@ -280,5 +345,15 @@ public class DocumentProcessingJobService {
     private HttpStatus resolveStatus(ResponseStatusException exception) {
         HttpStatus status = HttpStatus.resolve(exception.getStatusCode().value());
         return status == null ? HttpStatus.INTERNAL_SERVER_ERROR : status;
+    }
+
+    /**
+     * Stage 18 embedding write decision for one processing job.
+     *
+     * @param status document/chunk embedding status to persist after text chunks are saved
+     * @param errorMessage sanitized embedding failure reason; null for INDEXED or SKIPPED
+     * @param vectors pgvector-compatible vectors in chunk order; empty when embeddings are skipped or failed
+     */
+    private record EmbeddingWritePlan(String status, String errorMessage, List<List<Double>> vectors) {
     }
 }

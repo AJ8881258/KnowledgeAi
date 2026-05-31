@@ -33,6 +33,59 @@
 | 阶段 15：知识库质量与文档处理增强 | 已完成 | 文档质量指标、重新处理、摘要生成、前端展示和阶段 15 回归验证完成。 |
 | 阶段 16：文档处理可靠性与真正失败重试 | 已完成 | 上传时保存原始文件 bytes 和成功解析文本，重新处理优先使用原始来源，失败无 chunks 文档可真正重试，前端按可重试能力控制入口。 |
 | 阶段 17：后台任务化与文档处理进度 | 已完成 | 新增文档处理任务表、上传/重新处理任务记录、进度查询接口和 Documents 轮询进度 UI；完整后端回归、前端构建/ESLint 和 browser-use 验收已通过。 |
+| 阶段 18：语义检索与混合召回 | 已完成 | 新增 pgvector、可选 embedding、全文+语义混合排序、检索/Chat 分数拆解和 embedding 状态展示；后端完整回归、前端构建和目标 ESLint 已通过。 |
+
+## 阶段 18：语义检索与混合召回
+
+### 目标
+
+阶段 18 把阶段 9 的 PostgreSQL 全文检索升级为可选语义检索增强：在不强制依赖 embedding 服务的前提下，为已索引文档写入向量，检索和 Chat 共用同一套混合召回路径，并让前端能看到全文分、语义分、混合分和实际召回模式。
+
+### 范围
+
+- 数据库：
+  - 使用 `pgvector/pgvector:pg17` 镜像，并通过 Flyway `V14__add_semantic_retrieval_embeddings.sql` 创建 `vector` 扩展。
+  - `documents` 增加 `embedding_status`、`embedding_error_message`、`embedding_updated_at`。
+  - `document_chunks` 增加 `embedding`、`embedding_status`、`embedding_updated_at`。
+  - `chat_message_sources` 增加 `hybrid_score`、`fulltext_score`、`semantic_score`、`retrieval_mode`。
+- 后端：
+  - 新增 `EmbeddingModelClient` 和 OpenAI-compatible `/embeddings` 客户端。
+  - 新增 `DocumentRetrievalService` 作为 Search API 和 Chat RAG 的统一检索入口。
+  - 文档处理成功写入 chunks 后尝试生成 embedding；embedding 缺失或失败时文档仍可通过全文检索使用。
+  - 配置 `KNOWFLOW_AI_EMBEDDING_MODEL` 时启用语义检索；未配置时保持全文检索。
+  - 混合召回返回 `score`、`hybridScore`、`fulltextScore`、`semanticScore`、`retrievalMode`，其中 `score` 继续作为兼容字段。
+- 前端：
+  - Documents 和知识库详情展示文档 embedding 状态。
+  - 知识库检索测试区展示召回模式、混合分、全文分和语义分。
+  - Chat 引用来源展示同一套分数拆解，确保用户知道回答引用来自全文、语义或混合召回。
+
+### 不做
+
+- 不强制要求用户配置 embedding 模型。
+- 不做向量索引后台重建任务和召回权重 UI 配置。
+- 不做 OCR。
+- 不做 PPT / Excel 解析。
+- 不做 SSE / 流式输出。
+- 不做 Agent 工作流。
+
+### 已完成内容
+
+- 新增 Flyway 迁移 `V14__add_semantic_retrieval_embeddings.sql`。
+- 根目录 `compose.yaml` 和 `backend/compose.yaml` 的 PostgreSQL 镜像已切换为 `pgvector/pgvector:pg17`。
+- `.env.example` 新增 `KNOWFLOW_AI_EMBEDDING_MODEL`。
+- 文档上传和重新处理会在写入 chunks 后尝试写入 embedding 状态和向量。
+- Search API 和 Chat RAG 已统一走 `DocumentRetrievalService`，保证 sources 与 prompt 上下文一致。
+- embedding 不可用、生成失败或查询向量失败时，后端自动降级为全文检索，不阻断上传、检索和 Chat。
+- `DocumentResponse` 已返回 `embeddingStatus`、`embeddingErrorMessage`、`embeddingUpdatedAt`。
+- Search 结果和 Chat 引用来源已返回 `hybridScore`、`fulltextScore`、`semanticScore`、`retrievalMode`。
+- 前端知识库检索区、Chat 引用来源、Documents 列表和详情已展示 embedding 状态与分数拆解。
+
+### 验收结果
+
+- `cd backend && .\mvnw.cmd test` 已通过，95 个测试全部成功。
+- `pnpm build` 已通过。
+- 目标 ESLint 已通过：
+  `pnpm exec eslint src/api/documents.ts src/api/chat.ts src/components/knowledge-bases/knowledge-base-search-panel.tsx src/components/knowledge-bases/knowledge-base-detail-view.tsx src/components/chat-page/rag-chat-workspace.tsx src/components/documents/document-table.tsx src/components/documents/document-details.tsx`。
 
 ## 阶段 17：后台任务化与文档处理进度
 
@@ -333,7 +386,7 @@
 
 - Kubernetes。
 - Spring Cloud 或微服务拆分。
-- Embedding / pgvector。
+- 向量索引后台重建任务和召回权重可配置。
 - SSE 流式输出。
 - 扫描版 PDF OCR。
 - PPT / Excel 解析。

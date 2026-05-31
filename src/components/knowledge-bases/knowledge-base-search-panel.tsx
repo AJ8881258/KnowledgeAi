@@ -28,12 +28,30 @@ import { cn } from "@/lib/utils";
 
 const SEARCH_LIMIT_OPTIONS = [1, 3, 5, 10, 20];
 
-function formatScore(score: number) {
-  if (!Number.isFinite(score)) {
+function formatScore(score?: number | null) {
+  if (typeof score !== "number" || !Number.isFinite(score)) {
     return "-";
   }
 
   return score.toFixed(2);
+}
+
+function getRetrievalModeLabel(mode?: string) {
+  const normalizedMode = mode?.trim().toUpperCase();
+
+  if (normalizedMode === "HYBRID") {
+    return "混合检索";
+  }
+
+  if (normalizedMode === "SEMANTIC") {
+    return "语义检索";
+  }
+
+  if (normalizedMode === "FULLTEXT") {
+    return "全文检索";
+  }
+
+  return mode || "检索结果";
 }
 
 function getHighlightedContent(content: string, keyword: string): ReactNode {
@@ -135,9 +153,20 @@ function SearchResultCard({
             <span>Chunk ID {result.chunkId}</span>
           </div>
         </div>
-        <span className="w-fit shrink-0 rounded-[5px] border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700">
-          相关度 {formatScore(result.score)}
-        </span>
+        <div className="flex w-fit shrink-0 flex-wrap justify-end gap-1 text-xs">
+          <span className="rounded-[5px] border border-blue-200 bg-blue-50 px-2 py-1 font-semibold text-blue-700">
+            {getRetrievalModeLabel(result.retrievalMode)}
+          </span>
+          <span className="rounded-[5px] border border-emerald-200 bg-emerald-50 px-2 py-1 font-semibold text-emerald-700">
+            混合分 {formatScore(result.hybridScore ?? result.score)}
+          </span>
+          <span className="rounded-[5px] border border-slate-200 bg-slate-50 px-2 py-1 text-slate-600">
+            全文 {formatScore(result.fulltextScore)}
+          </span>
+          <span className="rounded-[5px] border border-slate-200 bg-slate-50 px-2 py-1 text-slate-600">
+            语义 {formatScore(result.semanticScore)}
+          </span>
+        </div>
       </header>
       <p className="mt-3 max-h-36 overflow-auto whitespace-pre-wrap break-words rounded-[6px] border border-slate-200 bg-slate-50/70 p-3 text-xs leading-6 text-slate-700">
         {getHighlightedContent(result.content, query)}

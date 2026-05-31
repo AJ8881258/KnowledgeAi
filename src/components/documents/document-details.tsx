@@ -26,6 +26,24 @@ import {
   formatQualityWarning,
 } from "./document-utils";
 
+function formatEmbeddingStatus(status?: string | null) {
+  if (!status) {
+    return "未返回";
+  }
+
+  const statusLabels: Record<string, string> = {
+    PENDING: "待向量化",
+    PROCESSING: "向量化中",
+    INDEXED: "已向量化",
+    COMPLETED: "已向量化",
+    FAILED: "向量失败",
+    SKIPPED: "未启用",
+  };
+  const normalizedStatus = status.trim().toUpperCase();
+
+  return statusLabels[normalizedStatus] ?? status;
+}
+
 export function DocumentDetails({
   item,
   chunks,
@@ -167,6 +185,10 @@ export function DocumentDetails({
                 }
               />
               <DetailRow label="Chunks 数量" value={item.chunkCount} />
+              <DetailRow
+                label="Embedding"
+                value={formatEmbeddingStatus(item.embeddingStatus)}
+              />
               <DetailRow
                 label="重试来源"
                 value={item.sourceStored ? "已保存" : "未保存"}

@@ -4,7 +4,7 @@ KnowFlow AI 是一个 RAG-based 智能知识库问答平台。用户可以上传
 
 ## 当前状态
 
-项目当前处于 **阶段 14：Docker 化和运维收尾已完成**。
+项目当前处于 **阶段 18：语义检索与混合召回已完成**。
 
 已完成的核心能力：
 
@@ -13,6 +13,7 @@ KnowFlow AI 是一个 RAG-based 智能知识库问答平台。用户可以上传
 - 协作权限：单个知识库成员共享，支持 `OWNER` / `EDITOR` / `VIEWER` 权限。
 - 文档处理：支持 `.txt`、`.md`、`.markdown`、文本型 `.pdf`、`.docx`、`.html`、`.htm` 上传解析、切片和索引。
 - 全文检索：基于 PostgreSQL 全文检索返回相关片段、相关度分数和引用来源。
+- 语义/混合检索：配置 `KNOWFLOW_AI_EMBEDDING_MODEL` 后，文档处理会尝试写入 embedding，Search 和 Chat 以全文分、语义分、混合分排序；未配置或失败时自动降级全文检索。
 - RAG 问答：基于检索结果构建 Prompt，调用 OpenAI-compatible 模型生成回答并保存引用来源。
 - 用户级模型配置：每个用户可在 Settings 保存 Base URL、API Key、模型和超时时间；API Key 后端加密保存、脱敏返回。
 - Settings 模型测试：支持用当前表单或已保存配置测试真实模型连接。
@@ -21,7 +22,7 @@ KnowFlow AI 是一个 RAG-based 智能知识库问答平台。用户可以上传
 - 使用统计：侧边栏展示今日交谈次数，按当前用户和时区统计。
 - Docker 化：根目录 `compose.yaml` 可启动 PostgreSQL、Spring Boot 后端和前端 Nginx 容器。
 
-阶段 14 的 browser-use 完整 Chat 真实回答验收依赖用户提供可用的真实模型配置。没有真实 Base URL/API Key/Model 时，只能验证应用启动、接口健康、页面流程和脱敏错误。
+阶段 18 的完整 Chat 真实回答验收依赖用户提供可用的真实模型配置。没有真实 Base URL/API Key/Model 时，只能验证应用启动、接口健康、页面流程和脱敏错误；没有配置 `KNOWFLOW_AI_EMBEDDING_MODEL` 时，系统仍会使用全文检索。
 
 ## 技术栈
 
@@ -214,6 +215,7 @@ cd backend
 | `KNOWFLOW_AI_BASE_URL` | 空 | 可选 OpenAI-compatible 兜底 Base URL，仅当用户未保存自己的模型配置时使用。 |
 | `KNOWFLOW_AI_API_KEY` | 空 | 可选 AI 兜底 API Key。不要提交真实 Key。 |
 | `KNOWFLOW_AI_MODEL` | 空 | 可选 AI 兜底模型名。 |
+| `KNOWFLOW_AI_EMBEDDING_MODEL` | 空 | 可选 embedding 模型名；为空时保留全文检索，不写入语义向量。 |
 | `KNOWFLOW_AI_TIMEOUT_SECONDS` | `60` | 模型调用超时时间。 |
 | `KNOWFLOW_DB_MAX_POOL_SIZE` | `10` | Docker 后端数据库连接池最大连接数。 |
 | `KNOWFLOW_DB_MIN_IDLE` | `1` | Docker 后端数据库连接池最小空闲连接数。 |
@@ -331,7 +333,7 @@ Get-Content .\knowflow-backup.sql | docker compose exec -T postgres psql -U know
 
 ## 后续可扩展方向
 
-- Embedding 和 pgvector 向量检索。
+- 向量索引后台重建和混合召回权重调优。
 - SSE/流式输出。
 - 扫描版 PDF OCR。
 - PPT/Excel 文档解析。

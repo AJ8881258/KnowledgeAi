@@ -697,7 +697,7 @@ Authorization: Bearer <accessToken>
 | `INDEXED` | 已完成文本切片，chunk 已入库 |
 | `FAILED` | 解析或切片失败，失败原因写入 `errorMessage` |
 
-阶段 15-16 已实现的文档质量、摘要和重试能力字段：
+阶段 15-18 已实现的文档质量、摘要、重试和 embedding 能力字段：
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
@@ -711,6 +711,9 @@ Authorization: Bearer <accessToken>
 | `summaryUpdatedAt` | string \| null | 摘要最后生成或覆盖的时间。 |
 | `sourceStored` | boolean | 后端是否保存了可用于重新处理的原始文件 bytes 或解析文本。仅返回布尔值，不返回原始内容。 |
 | `reprocessAvailable` | boolean | 当前文档是否具备可重新处理来源。来源可以是原始 bytes、解析文本，或兼容旧数据的已有 chunks。 |
+| `embeddingStatus` | string \| null | 阶段 18 语义索引状态。当前值包括 `PROCESSING`、`INDEXED`、`SKIPPED`、`FAILED`。`SKIPPED` 表示未配置 embedding 模型或本次不写入向量，文档仍可通过全文检索使用。 |
+| `embeddingErrorMessage` | string \| null | embedding 生成失败时的脱敏原因；成功、跳过或未开始时为 `null`。 |
+| `embeddingUpdatedAt` | string \| null | embedding 状态最后更新时间。 |
 
 #### 上传文档
 
@@ -1039,7 +1042,7 @@ Authorization: Bearer <accessToken>
 
 #### 知识库内文档检索
 
-> 状态：阶段 9 已完成。该接口继续沿用原路径，后端检索实现已从普通关键词匹配升级为 PostgreSQL 全文检索。
+> 状态：阶段 18 已完成。该接口继续沿用原路径；后端从阶段 9 PostgreSQL 全文检索升级为“可选语义检索 + 全文降级”的混合召回。
 
 | 项目 | 内容 |
 |---|---|
@@ -1076,7 +1079,11 @@ Authorization: Bearer <accessToken>
       "documentName": "note.md",
       "chunkIndex": 0,
       "content": "...",
-      "score": 0.42
+      "score": 0.57,
+      "hybridScore": 0.57,
+      "fulltextScore": 0.42,
+      "semanticScore": 0.64,
+      "retrievalMode": "HYBRID"
     }
   ]
 }
@@ -1084,13 +1091,19 @@ Authorization: Bearer <accessToken>
 
 说明：
 
-- 阶段 9 已使用 PostgreSQL 全文检索，不是语义向量检索。
-- 阶段 9 未接新大模型、未引入 embedding、未引入 pgvector、未新增搜索引擎。
+- 阶段 18 已引入 pgvector 字段和可选 OpenAI-compatible embedding 调用，但不强制启用语义检索。
+- 后端通过 `DocumentRetrievalService` 统一 Search API 和 Chat RAG 的检索路径，保证返回给前端的 sources 与进入 prompt 的上下文一致。
+- 配置 `KNOWFLOW_AI_EMBEDDING_MODEL` 且当前用户有可用 Base URL/API Key 时，会尝试用 query embedding 做语义召回，并与全文分组成混合排序。
+- 未配置 embedding、embedding 调用失败、文档没有可用向量或语义分全为 0 时，后端自动降级为全文检索。
 - 阶段 12 后，后端必须先校验当前 JWT 用户是该知识库成员；非成员访问时统一返回 `404`。
 - SQL 检索时必须限制 `knowledge_base_id`，并通过成员权限校验避免通过知识库 ID 或文档 ID 搜到无权访问的数据。
 - 只检索 `status = 'INDEXED'` 的文档。
-- `score` 表示 PostgreSQL 全文检索相关度分数，用于结果排序和 RAG 引用来源排序；它不是语义相似度，也不保证不同知识库之间可直接比较。
-- `query`、`results`、`chunkId`、`documentId`、`documentName`、`chunkIndex`、`content`、`score` 字段保持兼容。
+- `retrievalMode` 当前为 `HYBRID` 或 `FULLTEXT`。`HYBRID` 表示混合排序结果；`FULLTEXT` 表示全文检索降级结果。
+- `fulltextScore` 表示 PostgreSQL 全文检索相关度分数。
+- `semanticScore` 表示当前 query embedding 与 chunk embedding 的语义相似度归一化分数。
+- `hybridScore` 表示阶段 18 排序用的混合分数；当前后端按语义分 0.7、全文分 0.3 组合。
+- `score` 是兼容字段：混合模式下等于 `hybridScore`，全文降级时等于 `fulltextScore`。
+- `query`、`results`、`chunkId`、`documentId`、`documentName`、`chunkIndex`、`content`、`score` 字段保持兼容；阶段 18 新增 `hybridScore`、`fulltextScore`、`semanticScore`、`retrievalMode`。
 
 失败情况：
 
@@ -1712,7 +1725,11 @@ Authorization: Bearer <accessToken>
         "chunkId": 8,
         "chunkIndex": 0,
         "content": "登录成功后生成 JWT...",
-        "score": 0.42
+        "score": 0.57,
+        "hybridScore": 0.57,
+        "fulltextScore": 0.42,
+        "semanticScore": 0.64,
+        "retrievalMode": "HYBRID"
       }
     ],
     "createdAt": "2026-05-16T10:01:10Z"
@@ -1772,7 +1789,9 @@ Content-Type: application/json
 - 阶段 14 收尾新增可选 `ragEnabled`。未传时默认 `true`；`true` 表示检索知识库片段并保存真实引用来源，`false` 表示跳过知识库检索，只按当前会话上下文和模型生成回答，响应消息的 `sources` 为空数组且不伪造引用来源。
 - 前端通过轮询 `GET /api/chat/sessions/{sessionId}/messages` 和会话列表获取生成结果。
 - 后端先确认当前用户拥有该会话，并且仍是会话所属知识库成员；当 `ragEnabled !== false` 时，再基于该知识库检索 chunks，构造 prompt 调用模型。
-- 当前 `sources` 来自阶段 9 PostgreSQL 全文检索结果，`score` 表示全文检索相关度分数。
+- 当前 `sources` 来自阶段 18 `DocumentRetrievalService` 的最终上下文 chunk。开启 RAG 时它可能是 `HYBRID` 混合召回，也可能因 embedding 缺失或失败降级为 `FULLTEXT` 全文检索。
+- Chat source 的 `score`、`hybridScore`、`fulltextScore`、`semanticScore`、`retrievalMode` 与 Search API 字段语义一致；`score` 继续作为兼容字段。
+- 只有实际进入 prompt 的 chunks 会保存为 `sources`，因此 sources 和回答上下文保持一致；空检索或 `ragEnabled: false` 时 `sources` 为空数组。
 - `limit` 为空时默认 `5`，大于 `20` 时按 `20` 处理。
 - `model` 为空时使用当前用户 Settings 中保存的模型；如果用户没有完整模型配置，则允许按本地开发兜底配置处理。
 - 本地开发兜底配置可以来自后端环境变量或项目根目录/backend 目录的 `.env`，包括 `KNOWFLOW_AI_BASE_URL`、`KNOWFLOW_AI_API_KEY`、`KNOWFLOW_AI_MODEL`。

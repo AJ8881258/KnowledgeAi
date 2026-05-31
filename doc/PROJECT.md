@@ -4,7 +4,7 @@
 
 KnowFlow AI 是一个智能知识库问答平台。用户上传学习资料、项目文档或产品文档后，可以基于自己的资料进行检索增强问答。
 
-项目当前已完成 **阶段 17：后台任务化与文档处理进度**。当前版本已经具备从本地开发到 Docker 全量启动的完整复现路径，并补齐文档质量指标、重新处理入口、文档摘要、原始来源持久化、真正失败重试和持久化文档处理任务；`do.md` 作为本地任务输入文件已加入 `.gitignore`，不再作为项目文件提交。
+项目当前已完成 **阶段 18：语义检索与混合召回**。当前版本已经具备从本地开发到 Docker 全量启动的完整复现路径，并补齐文档质量指标、重新处理入口、文档摘要、原始来源持久化、真正失败重试、持久化文档处理任务、可选 embedding、pgvector 向量字段和全文+语义混合检索；`do.md` 作为本地任务输入文件已加入 `.gitignore`，不再作为项目文件提交。
 
 ## 当前能力
 
@@ -23,6 +23,7 @@ KnowFlow AI 是一个智能知识库问答平台。用户上传学习资料、�
 - 文档重新处理：`OWNER` / `EDITOR` 可优先基于保存的原始文件 bytes 或解析文本重新处理并替换 chunks；旧文档没有来源时回退已有 chunks，完全无来源时返回明确错误。
 - 文档摘要：使用当前用户模型配置或环境兜底生成摘要，摘要不作为 Chat 引用来源。
 - PostgreSQL 全文检索，返回相关度分数。
+- 阶段 18 语义检索增强：配置 `KNOWFLOW_AI_EMBEDDING_MODEL` 后，文档处理会尝试写入 embedding，Search 和 Chat 通过全文分、语义分、混合分共同排序；未配置或 embedding 失败时自动降级为全文检索。
 - RAG/Chat：会话、消息、引用来源、最近 6 条以内上下文、后台生成状态、RAG 开关和生成打断。
 - 用户级模型配置：Base URL、加密 API Key、Model、timeout。
 - Settings 模型列表拉取和真实模型连接测试。
@@ -45,9 +46,10 @@ KnowFlow AI 是一个智能知识库问答平台。用户上传学习资料、�
 
 ## 当前阶段状态
 
-- 阶段 0-17 已完成。
+- 阶段 0-18 已完成。
 - 阶段 17 为文档上传和重新处理新增 `document_processing_jobs` 持久化任务表。前端 Documents 页面会轮询活跃任务，展示进度、阶段、消息和失败原因，并在任务活跃时禁用重复重新处理。
-- 阶段 17 已通过完整后端回归、前端构建、目标 ESLint 和 browser-use 文档处理流程验收。
+- 阶段 18 新增可选 embedding 和混合检索。Search API 和 Chat RAG 共用 `DocumentRetrievalService`，返回 `hybridScore`、`fulltextScore`、`semanticScore`、`retrievalMode`，并保持 `score` 兼容字段。
+- 阶段 18 已通过完整后端回归、前端构建和目标 ESLint。
 - `do.md` 修复已完成：Chat 模型选择、进入会话自动滚动、用户模型配置复用、Settings 模型测试、退出登录确认、引用来源跟随选中回答、未读角标、响应式问题、RAG tooltip、生成打断和 `.env` 本地模型兜底均已纳入阶段 14 收尾记录。
 - 本轮收尾新增 `ragEnabled` 和生成打断接口，API 契约已同步到 `doc/API.md`。
 - 完整 Chat 真实回答验收仍依赖用户在 `/Settings` 提供可用的真实模型 Base URL/API Key/Model。
@@ -74,7 +76,7 @@ KnowFlow AI 是一个智能知识库问答平台。用户上传学习资料、�
 - Spring Web MVC
 - Spring Security
 - MyBatis
-- PostgreSQL
+- PostgreSQL + pgvector
 - Flyway
 - Maven
 - Docker Compose
@@ -101,6 +103,7 @@ Browser -> frontend Nginx container -> backend Spring Boot container -> postgres
 - `config`：Security、JWT、跨域和环境配置。
 - `knowledgebase`：知识库 CRUD 和成员权限。
 - `document`：文档上传、解析、切片、全文检索、处理任务进度。
+- `document.rag`：阶段 18 检索统一入口、embedding 客户端、全文/语义混合召回和降级。
 - `chat`：会话、消息、未读、后台生成状态、今日交谈次数。
 - `rag`：检索结果转 Prompt、模型调用适配、引用来源。
 - `settings`：用户模型配置、模型测试、偏好、RAG 参数。
@@ -240,6 +243,7 @@ JWT：
 - `KNOWFLOW_AI_BASE_URL`
 - `KNOWFLOW_AI_API_KEY`
 - `KNOWFLOW_AI_MODEL`
+- `KNOWFLOW_AI_EMBEDDING_MODEL`
 - `KNOWFLOW_AI_TIMEOUT_SECONDS`
 
 服务端口：
@@ -305,8 +309,8 @@ Get-Content .\knowflow-backup.sql | docker compose exec -T postgres psql -U know
 
 ## 后续扩展
 
-- 阶段 17：完成持久化文档处理任务和 Documents 页面进度展示后，下一步可考虑 OCR、PPT/Excel 解析、向量检索或 SSE 流式输出。
-- Embedding 和 pgvector 向量检索。
+- 阶段 18：已完成可选 embedding、pgvector 字段和全文+语义混合检索；后续可考虑向量索引后台重建任务、召回权重可配置、OCR 或 SSE 流式输出。
+- 向量索引后台重建和检索权重调优。
 - SSE 流式输出。
 - OCR。
 - PPT/Excel 文档解析。

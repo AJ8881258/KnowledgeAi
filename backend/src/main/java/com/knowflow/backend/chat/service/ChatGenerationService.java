@@ -8,7 +8,7 @@ import com.knowflow.backend.chat.repository.ChatMessageRepository;
 import com.knowflow.backend.chat.repository.ChatMessageSourceRepository;
 import com.knowflow.backend.chat.repository.ChatSessionRepository;
 import com.knowflow.backend.document.dto.response.SearchResultResponse;
-import com.knowflow.backend.document.repository.DocumentChunkRepository;
+import com.knowflow.backend.document.rag.DocumentRetrievalService;
 import com.knowflow.backend.settings.entity.UserRagSettings;
 import com.knowflow.backend.settings.service.SettingsService;
 import org.springframework.scheduling.annotation.Async;
@@ -22,7 +22,7 @@ import static com.knowflow.backend.common.model.ModelProviderErrors.safeMessage;
 
 @Service
 public class ChatGenerationService {
-    private final DocumentChunkRepository documentChunkRepository;
+    private final DocumentRetrievalService documentRetrievalService;
     private final ChatMessageRepository chatMessageRepository;
     private final ChatMessageSourceRepository chatMessageSourceRepository;
     private final ChatSessionRepository chatSessionRepository;
@@ -32,7 +32,7 @@ public class ChatGenerationService {
     private final TransactionTemplate transactionTemplate;
 
     public ChatGenerationService(
-            DocumentChunkRepository documentChunkRepository,
+            DocumentRetrievalService documentRetrievalService,
             ChatMessageRepository chatMessageRepository,
             ChatMessageSourceRepository chatMessageSourceRepository,
             ChatSessionRepository chatSessionRepository,
@@ -40,7 +40,7 @@ public class ChatGenerationService {
             ChatModelClient chatModelClient,
             SettingsService settingsService,
             PlatformTransactionManager transactionManager) {
-        this.documentChunkRepository = documentChunkRepository;
+        this.documentRetrievalService = documentRetrievalService;
         this.chatMessageRepository = chatMessageRepository;
         this.chatMessageSourceRepository = chatMessageSourceRepository;
         this.chatSessionRepository = chatSessionRepository;
@@ -97,7 +97,7 @@ public class ChatGenerationService {
     ) {
         UserRagSettings ragSettings = settingsService.getEffectiveRagSettings(userId);
         List<SearchResultResponse> retrievedChunks = ragEnabled
-                ? documentChunkRepository.searchIndexedChunks(
+                ? documentRetrievalService.search(
                 knowledgeBaseId,
                 userId,
                 question,
@@ -169,6 +169,10 @@ public class ChatGenerationService {
             source.setChunkIndex(chunk.getChunkIndex());
             source.setContent(chunk.getContent());
             source.setScore(chunk.getScore());
+            source.setHybridScore(chunk.getHybridScore());
+            source.setFulltextScore(chunk.getFulltextScore());
+            source.setSemanticScore(chunk.getSemanticScore());
+            source.setRetrievalMode(chunk.getRetrievalMode());
             chatMessageSourceRepository.insert(source);
         }
     }

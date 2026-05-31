@@ -1,138 +1,107 @@
-# 后端任务书：阶段 17 后台任务化与文档处理进度
+# 后端任务书：阶段 18 语义检索与混合召回
 
 本文档是后端 Agent 的固定入口。后端 Agent 开始实现前必须先阅读 `AGENTS.md`、`doc/STAGE_PLAN.md`、`doc/PROJECT.md`、`doc/API.md` 和本文档。
 
 ## 当前阶段状态
 
-**阶段 17 后端已完成，并已通过 PostgreSQL 完整后端集成回归。**
+**阶段 18 后端已完成，并已通过 PostgreSQL 完整后端集成回归。**
 
-阶段 17 把文档上传和重新处理从“只看最终文档状态”升级为“有持久化处理任务和可轮询进度”。本阶段不引入 MQ、OCR、PPT/Excel、embedding/pgvector、SSE 或复杂任务中心。
+阶段 18 在阶段 9 全文检索、阶段 17 持久化文档处理任务的基础上，加入可选 embedding、pgvector 字段和 Search/Chat 共用的混合召回路径。embedding 不是强依赖：未配置、调用失败或文档无可用向量时，系统必须继续走全文检索。
 
 ## 数据库变更
 
 新增 Flyway 迁移：
 
-- `V13__create_document_processing_jobs.sql`
+- `V14__add_semantic_retrieval_embeddings.sql`
 
-新增表：
+主要变更：
 
-- `document_processing_jobs`
-
-字段：
-
-- `id`
-- `document_id`
-- `knowledge_base_id`
-- `requested_by`
-- `job_type`：`UPLOAD_INDEX` / `REPROCESS`
-- `status`：`QUEUED` / `RUNNING` / `SUCCEEDED` / `FAILED` / `CANCELED`
-- `progress_percent`：0-100 的粗粒度进度
-- `stage`：阶段码，例如 `QUEUED`、`READ_SOURCE`、`EXTRACT_TEXT`、`SPLIT_CHUNKS`、`WRITE_CHUNKS`、`COMPLETED`、`FAILED`
-- `message`：脱敏用户可读进度消息
-- `error_message`：脱敏失败原因
-- `started_at`
-- `finished_at`
-- `created_at`
-- `updated_at`
+- `CREATE EXTENSION IF NOT EXISTS vector`
+- `documents`
+  - `embedding_status`
+  - `embedding_error_message`
+  - `embedding_updated_at`
+- `document_chunks`
+  - `embedding vector`
+  - `embedding_status`
+  - `embedding_updated_at`
+- `chat_message_sources`
+  - `hybrid_score`
+  - `fulltext_score`
+  - `semantic_score`
+  - `retrieval_mode`
 
 设计说明：
 
-- 任务表独立于 `documents`，因为一个文档可以上传一次但被多次重新处理。
-- `documents.status` 继续表示当前可检索材料化状态；`document_processing_jobs.status` 表示某次处理尝试的状态。
-- 进度使用固定里程碑，不伪造字节级进度，因为当前解析器没有可靠的流式进度。
+- `documents.embedding_status` 给前端展示文档级语义索引状态，避免用户误以为全文检索失败就是文档不可用。
+- `document_chunks.embedding` 保存 pgvector 向量；文本 chunks 仍是检索和引用来源的基础。
+- `chat_message_sources` 保存分数拆解，保证历史回答也能展示当时的召回模式和分数。
 
-## 已完成接口
+## 已完成后端实现
 
-### 上传文档
+新增文件：
 
-- `POST /api/knowledge-bases/{knowledgeBaseId}/documents`
-- 创建文档记录后创建 `UPLOAD_INDEX` 任务。
-- 同步模式下会立即执行任务并返回终态。
-- 后台模式下可返回 `PROCESSING`，前端通过任务接口轮询。
+- `backend/src/main/java/com/knowflow/backend/document/rag/EmbeddingModelClient.java`
+- `backend/src/main/java/com/knowflow/backend/document/rag/OpenAiCompatibleEmbeddingModelClient.java`
+- `backend/src/main/java/com/knowflow/backend/document/rag/DocumentRetrievalService.java`
 
-### 重新处理文档
+核心改动：
 
-- `POST /api/documents/{documentId}/reprocess`
-- 创建 `REPROCESS` 任务。
-- 保持阶段 16 来源优先级：`source_bytes` -> `source_text` -> 旧 chunks fallback。
-- 只有 `OWNER` / `EDITOR` 可调用；`VIEWER` 返回 `403`，非成员返回 `404`。
+- `AiProperties` 新增 `embeddingModel`，对应环境变量 `KNOWFLOW_AI_EMBEDDING_MODEL`。
+- Docker PostgreSQL 镜像切换为 `pgvector/pgvector:pg17`。
+- `DocumentProcessingJobService` 在写入 chunks 后尝试生成 embedding，并按结果写入 `INDEXED`、`SKIPPED` 或 `FAILED`。
+- `DocumentRepository`、`DocumentChunkRepository` 支持 embedding 状态写入、全文检索降级和混合检索 SQL。
+- `DocumentController` 的知识库检索接口改为走 `DocumentRetrievalService`。
+- `ChatGenerationService` 也使用同一个 `DocumentRetrievalService`，保证 Chat prompt 上下文与返回给前端的 sources 完全一致。
+- `DocumentResponse` 返回 `embeddingStatus`、`embeddingErrorMessage`、`embeddingUpdatedAt`。
+- `SearchResultResponse` 和 `ChatSourceResponse` 返回 `hybridScore`、`fulltextScore`、`semanticScore`、`retrievalMode`，并保留兼容字段 `score`。
 
-### 查询处理任务
+## 检索语义
 
-- `GET /api/knowledge-bases/{knowledgeBaseId}/document-processing-jobs?limit=20`
-- `GET /api/documents/{documentId}/processing-jobs?limit=10`
-- `GET /api/document-processing-jobs/{jobId}`
+- 未配置 `KNOWFLOW_AI_EMBEDDING_MODEL`：直接走 PostgreSQL 全文检索，`retrievalMode = FULLTEXT`。
+- 已配置 embedding 且用户模型配置或环境兜底配置可用：查询时先生成 query embedding，再执行混合召回。
+- 混合召回当前排序：`semanticScore * 0.7 + fulltextScore * 0.3`。
+- 如果 embedding 调用失败、返回空向量、文档没有可用向量或语义分全为 0，后端自动降级为全文检索。
+- `score` 是兼容字段：混合模式下等于 `hybridScore`，全文模式下等于 `fulltextScore`。
 
-权限规则：
+## 安全与降级规则
 
-- 知识库成员可查看该知识库内文档处理任务。
-- 非成员访问任务、文档或知识库任务列表返回 `404`，避免暴露资源存在性。
-- `limit` 最小为 1，最大为 50，默认 20。
-
-## 后端实现要点
-
-1. 控制器职责
-   - `DocumentController` 只负责权限、文件基础校验、文档记录创建、任务创建和启动。
-   - 解析、切片、事务写入和失败状态流转下沉到 `DocumentProcessingJobService`。
-
-2. 任务执行
-   - `DocumentProcessingJobRunner` 根据 `knowflow.documents.processing.async-enabled` 决定同步执行或交给后台 worker。
-   - 默认同步，便于现有测试和旧阶段契约保持确定性。
-   - `DocumentProcessingAsyncWorker` 单独作为 Spring Bean 承载 `@Async`，避免同类 self-invocation 导致异步失效。
-
-3. 状态流转
-   - 创建任务后立即把文档置为 `PROCESSING`。
-   - 开始执行时任务置为 `RUNNING`。
-   - 文本提取、切片、写 chunks 使用固定进度阶段。
-   - 成功后文档置为 `INDEXED`，任务置为 `SUCCEEDED`。
-   - 失败后文档置为 `FAILED`，任务置为 `FAILED`，错误必须脱敏。
-
-4. 事务规则
-   - 写 chunks 和更新文档最终状态在事务内完成。
-   - 重新处理失败不能留下半替换 chunks。
-
-5. 注释要求
-   - 新增或修改的后端功能代码必须保留有价值注释，说明功能、关键参数、参数含义、与旧逻辑区别。
-   - 优先注释 DTO 字段语义、任务状态流转、同步/异步选择、失败脱敏、任务表与文档表关系。
+- embedding 调用使用当前用户保存的 Base URL/API Key；没有用户配置时才使用环境变量兜底。
+- API Key 永远不返回前端，不写入日志，不进入错误响应。
+- embedding 失败不应导致文档上传、重新处理、Search 或 Chat 失败；失败只影响语义增强，全文检索仍可用。
+- Search 和 Chat 仍必须按知识库成员权限隔离，非成员返回 `404`。
+- Chat 引用来源仍只来自真实 chunks，不伪造来源；空检索或关闭 RAG 时 `sources: []`。
 
 ## 测试覆盖
 
-已新增：
+新增测试：
 
-- `DocumentProcessingJobRunnerTests`
-  - 异步开启时委托 `DocumentProcessingAsyncWorker`。
-  - 异步关闭时直接调用 `DocumentProcessingJobService`。
+- `Stage18HybridRetrievalTests`
 
-- `Stage17DocumentProcessingJobTests`
-  - 上传创建成功任务，进度和历史字段可查询。
-  - editor 可重新处理并替换 chunks。
-  - viewer 可读任务但不能创建重新处理任务。
-  - 非成员不能读取处理任务。
-  - 上传失败会创建失败任务并写入脱敏错误。
+覆盖重点：
 
-## 验证命令
+- 文档上传处理成功后写入 embedding 状态。
+- 混合检索返回 `HYBRID`，并返回语义分、全文分和混合分。
+- Chat sources 使用同一套混合召回排序和分数拆解。
+- embedding 生成失败时文档状态仍可用，检索降级为 `FULLTEXT`。
+- 阶段 7-18 既有回归仍通过。
 
-无需数据库的验证：
+## 验证命令与结果
 
-```powershell
-cd backend
-.\mvnw.cmd -Dtest=DocumentProcessingJobRunnerTests test
-.\mvnw.cmd -DskipTests package
-```
-
-需要 PostgreSQL 的验证：
+已运行：
 
 ```powershell
 cd backend
-.\mvnw.cmd -Dtest=Stage17DocumentProcessingJobTests test
-.\mvnw.cmd "-Dtest=Stage15DocumentQualityTests,Stage16DocumentRetryTests,Stage17DocumentProcessingJobTests" test
 .\mvnw.cmd test
 ```
 
-当前环境如果 `localhost:5432` 未启动，不要擅自启动数据库；先向用户确认是否需要启动并在验证后保留或关闭。
+结果：
 
-## 最终验收结果
+- 95 个测试全部通过。
 
-- `cd backend && .\mvnw.cmd test` 已通过，91 个测试全部成功。
-- Flyway 已验证 13 个迁移，`document_processing_jobs` 迁移包含在完整回归中。
-- 阶段 17 新增的 `DocumentProcessingJobRunnerTests` 和 `Stage17DocumentProcessingJobTests` 已纳入完整回归并通过。
+后续如继续修改阶段 18 后端代码，至少重新运行：
+
+```powershell
+cd backend
+.\mvnw.cmd test
+```

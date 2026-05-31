@@ -46,7 +46,8 @@ public interface DocumentRepository {
 
     @Select("""
             select id, knowledge_base_id, original_filename, content_type, size_bytes,
-                   status, error_message, summary, summary_updated_at,
+                   status, error_message, embedding_status, embedding_error_message, embedding_updated_at,
+                   summary, summary_updated_at,
                    source_bytes is not null as source_bytes_stored,
                    source_text is not null and source_text <> '' as source_text_stored,
                    source_text_updated_at,
@@ -59,7 +60,8 @@ public interface DocumentRepository {
 
     @Select("""
             select id, knowledge_base_id, original_filename, content_type, size_bytes,
-                   status, error_message, summary, summary_updated_at,
+                   status, error_message, embedding_status, embedding_error_message, embedding_updated_at,
+                   summary, summary_updated_at,
                    source_bytes is not null as source_bytes_stored,
                    source_text is not null and source_text <> '' as source_text_stored,
                    source_text_updated_at,
@@ -75,7 +77,8 @@ public interface DocumentRepository {
 
     @Select("""
             select id, knowledge_base_id, original_filename, content_type, size_bytes,
-                   status, error_message, summary, summary_updated_at,
+                   status, error_message, embedding_status, embedding_error_message, embedding_updated_at,
+                   summary, summary_updated_at,
                    source_bytes is not null as source_bytes_stored,
                    source_text is not null and source_text <> '' as source_text_stored,
                    source_text_updated_at,
@@ -88,7 +91,8 @@ public interface DocumentRepository {
 
     @Select("""
             select d.id, d.knowledge_base_id, d.original_filename, d.content_type, d.size_bytes,
-                   d.status, d.error_message, d.summary, d.summary_updated_at,
+                   d.status, d.error_message, d.embedding_status, d.embedding_error_message, d.embedding_updated_at,
+                   d.summary, d.summary_updated_at,
                    d.source_bytes is not null as source_bytes_stored,
                    d.source_text is not null and d.source_text <> '' as source_text_stored,
                    d.source_text_updated_at,
@@ -105,7 +109,8 @@ public interface DocumentRepository {
 
     @Select("""
             select d.id, d.knowledge_base_id, d.original_filename, d.content_type, d.size_bytes,
-                   d.status, d.error_message, d.summary, d.summary_updated_at,
+                   d.status, d.error_message, d.embedding_status, d.embedding_error_message, d.embedding_updated_at,
+                   d.summary, d.summary_updated_at,
                    d.source_bytes,
                    d.source_bytes is not null as source_bytes_stored,
                    d.source_text,
@@ -155,6 +160,27 @@ public interface DocumentRepository {
             @Param("id") Long id,
             @Param("status") String status,
             @Param("errorMessage") String errorMessage);
+
+    /**
+     * @param id document ID
+     * @param embeddingStatus semantic indexing state: PROCESSING, INDEXED, SKIPPED, or FAILED
+     * @param embeddingErrorMessage sanitized failure reason; null for successful or skipped indexing
+     * @return updated row count
+     * @Desc Stage 18 keeps document text indexing separate from embedding indexing.
+     * A document can remain searchable by full-text while this field reports semantic indexing failure.
+     */
+    @Update("""
+            update documents
+            set embedding_status = #{embeddingStatus},
+                embedding_error_message = #{embeddingErrorMessage},
+                embedding_updated_at = now(),
+                updated_at = now()
+            where id = #{id}
+            """)
+    int updateEmbeddingStatusById(
+            @Param("id") Long id,
+            @Param("embeddingStatus") String embeddingStatus,
+            @Param("embeddingErrorMessage") String embeddingErrorMessage);
 
     /**
      * Stores the normalized text produced by a successful extraction.

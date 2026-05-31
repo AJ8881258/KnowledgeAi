@@ -15,6 +15,13 @@ public class DocumentResponse {
     private Long sizeBytes;
     private String status;
     private String errorMessage;
+    /**
+     * Semantic embedding state for UI badges. Search can still work through full-text
+     * retrieval when this value is SKIPPED or FAILED.
+     */
+    private String embeddingStatus;
+    private String embeddingErrorMessage;
+    private OffsetDateTime embeddingUpdatedAt;
     private Long createdBy;
     private OffsetDateTime createdAt;
     private OffsetDateTime updatedAt;
@@ -65,6 +72,9 @@ public class DocumentResponse {
         this.sizeBytes = document.getSizeBytes();
         this.status = document.getStatus();
         this.errorMessage = document.getErrorMessage();
+        this.embeddingStatus = document.getEmbeddingStatus();
+        this.embeddingErrorMessage = document.getEmbeddingErrorMessage();
+        this.embeddingUpdatedAt = document.getEmbeddingUpdatedAt();
         this.createdBy = document.getCreatedBy();
         this.createdAt = document.getCreatedAt();
         this.updatedAt = document.getUpdatedAt();

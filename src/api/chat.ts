@@ -19,7 +19,11 @@ export type ChatMessageSourceResponse = {
   chunkId: number;
   chunkIndex: number;
   content: string;
-  score: number;
+  score?: number;
+  hybridScore?: number;
+  fulltextScore?: number;
+  semanticScore?: number;
+  retrievalMode?: string;
 };
 
 export type ChatMessageResponse = {

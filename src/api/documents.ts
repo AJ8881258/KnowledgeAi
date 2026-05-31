@@ -49,6 +49,7 @@ export type DocumentResponse = {
   summaryUpdatedAt?: string | null;
   sourceStored?: boolean;
   reprocessAvailable?: boolean;
+  embeddingStatus?: string | null;
 };
 
 export type DocumentChunkResponse = {
@@ -69,7 +70,11 @@ export type SearchResultResponse = {
   documentName: string;
   chunkIndex: number;
   content: string;
-  score: number;
+  score?: number;
+  hybridScore?: number;
+  fulltextScore?: number;
+  semanticScore?: number;
+  retrievalMode?: string;
 };
 
 export type SearchDocumentsResponse = {

@@ -43,6 +43,7 @@ knowflow:
     base-url: ${KNOWFLOW_AI_BASE_URL:}
     api-key: ${KNOWFLOW_AI_API_KEY:}
     model: ${KNOWFLOW_AI_MODEL:}
+    embedding-model: ${KNOWFLOW_AI_EMBEDDING_MODEL:}
     timeout-seconds: ${KNOWFLOW_AI_TIMEOUT_SECONDS:60}
   model:
     # 用户模型 API Key 的加密密钥；正式部署时通过环境变量提供，不能写死生产密钥。

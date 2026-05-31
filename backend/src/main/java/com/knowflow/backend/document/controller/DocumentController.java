@@ -12,6 +12,7 @@ import com.knowflow.backend.document.dto.response.SearchDocumentResponse;
 import com.knowflow.backend.document.dto.response.SearchResultResponse;
 import com.knowflow.backend.document.entity.Document;
 import com.knowflow.backend.document.entity.DocumentProcessingJob;
+import com.knowflow.backend.document.rag.DocumentRetrievalService;
 import com.knowflow.backend.document.repository.DocumentChunkRepository;
 import com.knowflow.backend.document.repository.DocumentRepository;
 import com.knowflow.backend.document.service.DocumentProcessingJobRunner;
@@ -63,6 +64,7 @@ public class DocumentController {
     private final KnowledgeBaseAccessService accessService;
     private final DocumentRepository documentRepository;
     private final DocumentChunkRepository documentChunkRepository;
+    private final DocumentRetrievalService documentRetrievalService;
     private final DocumentProcessingJobService documentProcessingJobService;
     private final DocumentProcessingJobRunner documentProcessingJobRunner;
     private final ChatModelClient chatModelClient;
@@ -71,12 +73,14 @@ public class DocumentController {
             KnowledgeBaseAccessService accessService,
             DocumentRepository documentRepository,
             DocumentChunkRepository documentChunkRepository,
+            DocumentRetrievalService documentRetrievalService,
             DocumentProcessingJobService documentProcessingJobService,
             DocumentProcessingJobRunner documentProcessingJobRunner,
             ChatModelClient chatModelClient) {
         this.accessService = accessService;
         this.documentRepository = documentRepository;
         this.documentChunkRepository = documentChunkRepository;
+        this.documentRetrievalService = documentRetrievalService;
         this.documentProcessingJobService = documentProcessingJobService;
         this.documentProcessingJobRunner = documentProcessingJobRunner;
         this.chatModelClient = chatModelClient;
@@ -169,7 +173,7 @@ public class DocumentController {
         String query = normalizeSearchQuery(request == null ? null : request.getQuery());
         Integer limit = normalizeSearchLimit(request == null ? null : request.getLimit());
 
-        List<SearchResultResponse> results = documentChunkRepository.searchIndexedChunks(
+        List<SearchResultResponse> results = documentRetrievalService.search(
                 knowledgeBaseId,
                 userId,
                 query,

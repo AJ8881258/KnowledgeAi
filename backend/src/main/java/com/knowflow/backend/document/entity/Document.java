@@ -15,6 +15,13 @@ public class Document {
     private String status;
     private String errorMessage;
     /**
+     * Stage 18 semantic indexing state for this document.
+     * Text indexing can still be INDEXED when this value is FAILED or SKIPPED.
+     */
+    private String embeddingStatus;
+    private String embeddingErrorMessage;
+    private OffsetDateTime embeddingUpdatedAt;
+    /**
      * 文档级摘要。它只用于文档详情展示，不参与检索，也不会写入 Chat 引用来源。
      */
     private String summary;

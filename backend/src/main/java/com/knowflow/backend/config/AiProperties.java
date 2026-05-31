@@ -13,5 +13,11 @@ public class AiProperties {
     private String baseUrl;
     private String apiKey;
     private String model;
+    /**
+     * OpenAI-compatible embedding model used for Stage 18 semantic retrieval.
+     * Chat model selection remains user configurable; embeddings stay backend-configured
+     * because they are an indexing concern and must be stable across document chunks.
+     */
+    private String embeddingModel;
     private Integer timeoutSeconds = 60;
 }

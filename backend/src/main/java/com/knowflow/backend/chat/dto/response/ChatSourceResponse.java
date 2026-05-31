@@ -16,6 +16,10 @@ public class ChatSourceResponse {
     private Integer chunkIndex;
     private String content;
     private Double score;
+    private Double hybridScore;
+    private Double fulltextScore;
+    private Double semanticScore;
+    private String retrievalMode;
 
     public ChatSourceResponse(){}
 
@@ -26,5 +30,9 @@ public class ChatSourceResponse {
         this.chunkIndex = source.getChunkIndex();
         this.content = source.getContent();
         this.score = source.getScore();
+        this.hybridScore = source.getHybridScore();
+        this.fulltextScore = source.getFulltextScore();
+        this.semanticScore = source.getSemanticScore();
+        this.retrievalMode = source.getRetrievalMode();
     }
 }

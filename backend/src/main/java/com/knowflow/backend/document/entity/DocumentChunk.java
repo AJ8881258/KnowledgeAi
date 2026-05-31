@@ -13,6 +13,10 @@ public class DocumentChunk {
     private Integer chunkIndex;
     private String content;
     private Integer charCount;
+    /**
+     * Per-chunk embedding state for semantic retrieval fallback diagnostics.
+     */
+    private String embeddingStatus;
     private OffsetDateTime createdAt;
 
 }

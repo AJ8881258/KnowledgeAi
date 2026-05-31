@@ -20,10 +20,12 @@ public interface ChatMessageSourceRepository {
     @Insert("""
                 insert into chat_message_sources (
                 message_id, document_id, document_name, chunk_id,
-                chunk_index, content, score)
+                chunk_index, content, score, hybrid_score, fulltext_score,
+                semantic_score, retrieval_mode)
                 values (
                 #{messageId}, #{documentId}, #{documentName}, #{chunkId},
-                #{chunkIndex}, #{content}, #{score}
+                #{chunkIndex}, #{content}, #{score}, #{hybridScore}, #{fulltextScore},
+                #{semanticScore}, #{retrievalMode}
                 )
             """)
     int insert(ChatMessageSource source);
@@ -38,7 +40,8 @@ public interface ChatMessageSourceRepository {
      */
     @Select("""
             SELECT id, message_id, document_id, document_name, chunk_id,
-            chunk_index, content, score, created_at
+            chunk_index, content, score, hybrid_score, fulltext_score,
+            semantic_score, retrieval_mode, created_at
              FROM chat_message_sources
              WHERE message_id = #{messageId}
              ORDER BY id ASC

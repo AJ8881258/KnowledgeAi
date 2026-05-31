@@ -92,6 +92,24 @@ export function DocumentTable({
     doc.reprocessAvailable !== false &&
     !activeJobsByDocumentId?.has(doc.id);
 
+  const formatEmbeddingStatus = (status?: string | null) => {
+    if (!status) {
+      return "未返回";
+    }
+
+    const statusLabels: Record<string, string> = {
+      PENDING: "待向量化",
+      PROCESSING: "向量化中",
+      INDEXED: "已向量化",
+      COMPLETED: "已向量化",
+      FAILED: "向量失败",
+      SKIPPED: "未启用",
+    };
+    const normalizedStatus = status.trim().toUpperCase();
+
+    return statusLabels[normalizedStatus] ?? status;
+  };
+
   return (
     <section className="overflow-hidden rounded-[6px] border border-slate-200 bg-white shadow-sm">
         <div className="flex flex-col divide-y divide-slate-100 md:hidden">
@@ -134,6 +152,12 @@ export function DocumentTable({
                     <span className="block text-slate-400">Chunks</span>
                     <span className="mt-1 block text-slate-700">
                       {doc.chunkCount}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="block text-slate-400">Embedding</span>
+                    <span className="mt-1 block text-slate-700">
+                      {formatEmbeddingStatus(doc.embeddingStatus)}
                     </span>
                   </div>
                   <div>
@@ -216,6 +240,7 @@ export function DocumentTable({
                 <th className="px-4 py-4 font-medium">知识库</th>
                 <th className="px-4 py-4 font-medium">状态</th>
                 <th className="px-4 py-4 font-medium">chunks</th>
+                <th className="px-4 py-4 font-medium">Embedding</th>
                 <th className="px-4 py-4 font-medium">质量</th>
                 <th className="px-4 py-4 font-medium">大小</th>
                 <th className="px-4 py-4 font-medium">上传时间</th>
@@ -258,6 +283,11 @@ export function DocumentTable({
                     </td>
                     <td className="px-4 py-5 text-slate-600">
                       {doc.chunkCount}
+                    </td>
+                    <td className="px-4 py-5">
+                      <span className="rounded-[4px] border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-600">
+                        {formatEmbeddingStatus(doc.embeddingStatus)}
+                      </span>
                     </td>
                     <td className="px-4 py-5">
                       <div className="min-w-[128px] text-xs text-slate-500">
@@ -332,7 +362,7 @@ export function DocumentTable({
               ) : (
                 <tr>
                   <td
-                    colSpan={9}
+                    colSpan={10}
                     className="px-4 py-16 text-center text-sm text-slate-500"
                   >
                     当前知识库暂无文档

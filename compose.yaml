@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:17
+    image: pgvector/pgvector:pg17
     container_name: knowflow-postgres
     restart: unless-stopped
     environment:
@@ -38,6 +38,7 @@ services:
       KNOWFLOW_AI_BASE_URL: ${KNOWFLOW_AI_BASE_URL:-}
       KNOWFLOW_AI_API_KEY: ${KNOWFLOW_AI_API_KEY:-}
       KNOWFLOW_AI_MODEL: ${KNOWFLOW_AI_MODEL:-}
+      KNOWFLOW_AI_EMBEDDING_MODEL: ${KNOWFLOW_AI_EMBEDDING_MODEL:-}
       KNOWFLOW_AI_TIMEOUT_SECONDS: ${KNOWFLOW_AI_TIMEOUT_SECONDS:-60}
     ports:
       - "${KNOWFLOW_BACKEND_PORT:-8080}:8080"

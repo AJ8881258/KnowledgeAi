@@ -10,6 +10,7 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Delete;
+import org.apache.ibatis.annotations.Update;
 
 @Mapper
 public interface DocumentChunkRepository {
@@ -35,7 +36,7 @@ public interface DocumentChunkRepository {
 
     // 查询文档片段
     @Select("""
-            SELECT id, document_id, knowledge_base_id, chunk_index, content, char_count, created_at
+            SELECT id, document_id, knowledge_base_id, chunk_index, content, char_count, embedding_status, created_at
             FROM document_chunks
             WHERE document_id = #{documentId}
             ORDER BY chunk_index
@@ -132,7 +133,23 @@ public interface DocumentChunkRepository {
                             THEN ts_rank_cd(to_tsvector('simple', c.content), search_query.ts_query)
                         ELSE 0.0
                     END AS double precision
-                ) AS score
+                ) AS score,
+                CAST(
+                    CASE
+                        WHEN to_tsvector('simple', c.content) @@ search_query.ts_query
+                            THEN ts_rank_cd(to_tsvector('simple', c.content), search_query.ts_query)
+                        ELSE 0.0
+                    END AS double precision
+                ) AS hybrid_score,
+                CAST(
+                    CASE
+                        WHEN to_tsvector('simple', c.content) @@ search_query.ts_query
+                            THEN ts_rank_cd(to_tsvector('simple', c.content), search_query.ts_query)
+                        ELSE 0.0
+                    END AS double precision
+                ) AS fulltext_score,
+                CAST(0.0 AS double precision) AS semantic_score,
+                'FULLTEXT' AS retrieval_mode
             FROM document_chunks c
             JOIN documents d ON d.id = c.document_id
             JOIN knowledge_bases kb ON kb.id = d.knowledge_base_id
@@ -156,4 +173,142 @@ public interface DocumentChunkRepository {
             @Param("userId") Long userId,
             @Param("query") String query,
             @Param("limit") Integer limit);
+
+    /**
+     * @param knowledgeBaseId knowledge base search scope
+     * @param userId current JWT user; used in the membership join to prevent cross-user leakage
+     * @param query original text query for PostgreSQL full-text scoring
+     * @param queryEmbedding pgvector literal generated from the same query, for example [0.1,0.2]
+     * @param limit maximum number of chunks to return
+     * @return chunks ranked by a weighted semantic/full-text score with per-score breakdown fields
+     * @Desc Stage 18 hybrid retrieval keeps the old full-text signal and adds semantic similarity.
+     * The response still fills the old score field so older frontend code remains compatible.
+     */
+    @Select("""
+            WITH search_query AS (
+                SELECT websearch_to_tsquery('simple', #{query}) AS ts_query
+            ),
+            query_embedding AS (
+                SELECT #{queryEmbedding}::vector AS embedding
+            ),
+            accessible_chunks AS (
+                SELECT c.id,
+                       c.document_id,
+                       d.original_filename AS document_name,
+                       c.chunk_index,
+                       c.content,
+                       d.updated_at,
+                       c.embedding,
+                       c.embedding_status
+                FROM document_chunks c
+                JOIN documents d ON d.id = c.document_id
+                JOIN knowledge_bases kb ON kb.id = d.knowledge_base_id
+                LEFT JOIN knowledge_base_members m
+                  ON m.knowledge_base_id = kb.id
+                 AND m.user_id = #{userId}
+                WHERE c.knowledge_base_id = #{knowledgeBaseId}
+                  AND d.knowledge_base_id = #{knowledgeBaseId}
+                  AND d.status = 'INDEXED'
+                  AND (kb.created_by = #{userId} OR m.user_id = #{userId})
+            ),
+            fulltext AS (
+                SELECT c.id AS chunk_id,
+                       CAST(
+                           CASE
+                               WHEN to_tsvector('simple', c.content) @@ search_query.ts_query
+                                   THEN ts_rank_cd(to_tsvector('simple', c.content), search_query.ts_query)
+                               ELSE 0.0
+                           END AS double precision
+                       ) AS fulltext_score
+                FROM accessible_chunks c
+                CROSS JOIN search_query
+                WHERE to_tsvector('simple', c.content) @@ search_query.ts_query
+                   OR position(lower(#{query}) in lower(c.content)) > 0
+            ),
+            semantic AS (
+                SELECT c.id AS chunk_id,
+                       CAST(GREATEST(0.0, 1.0 - (c.embedding <=> query_embedding.embedding)) AS double precision) AS semantic_score
+                FROM accessible_chunks c
+                CROSS JOIN query_embedding
+                WHERE c.embedding IS NOT NULL
+                  AND c.embedding_status = 'INDEXED'
+            ),
+            combined AS (
+                SELECT c.id AS chunk_id,
+                       c.document_id,
+                       c.document_name,
+                       c.chunk_index,
+                       c.content,
+                       c.updated_at,
+                       COALESCE(f.fulltext_score, 0.0) AS fulltext_score,
+                       COALESCE(s.semantic_score, 0.0) AS semantic_score
+                FROM accessible_chunks c
+                LEFT JOIN fulltext f ON f.chunk_id = c.id
+                LEFT JOIN semantic s ON s.chunk_id = c.id
+                WHERE f.chunk_id IS NOT NULL OR s.chunk_id IS NOT NULL
+            )
+            SELECT chunk_id,
+                   document_id,
+                   document_name,
+                   chunk_index,
+                   content,
+                   CAST((semantic_score * 0.7 + fulltext_score * 0.3) AS double precision) AS score,
+                   CAST((semantic_score * 0.7 + fulltext_score * 0.3) AS double precision) AS hybrid_score,
+                   fulltext_score,
+                   semantic_score,
+                   'HYBRID' AS retrieval_mode
+            FROM combined
+            ORDER BY hybrid_score DESC, fulltext_score DESC, updated_at DESC, chunk_id ASC
+            LIMIT #{limit}
+            """)
+    List<SearchResultResponse> searchHybridIndexedChunks(
+            @Param("knowledgeBaseId") Long knowledgeBaseId,
+            @Param("userId") Long userId,
+            @Param("query") String query,
+            @Param("queryEmbedding") String queryEmbedding,
+            @Param("limit") Integer limit);
+
+    /**
+     * @param documentId document that owns the chunk
+     * @param chunkIndex stable chunk index inside the document
+     * @param embeddingStatus INDEXED when vector exists, FAILED/SKIPPED otherwise
+     * @param embeddingLiteral pgvector literal, or null when no vector is available
+     * @return updated row count
+     * @Desc Embeddings are updated after text chunks are inserted so text indexing can still
+     * succeed even if the semantic model fails.
+     */
+    @Update("""
+            UPDATE document_chunks
+            SET embedding = CASE WHEN #{embeddingLiteral} IS NULL THEN NULL ELSE #{embeddingLiteral}::vector END,
+                embedding_status = #{embeddingStatus},
+                embedding_updated_at = now()
+            WHERE document_id = #{documentId}
+              AND chunk_index = #{chunkIndex}
+            """)
+    int updateEmbeddingByDocumentIdAndChunkIndex(
+            @Param("documentId") Long documentId,
+            @Param("chunkIndex") Integer chunkIndex,
+            @Param("embeddingStatus") String embeddingStatus,
+            @Param("embeddingLiteral") String embeddingLiteral);
+
+    /**
+     * @param documentId document that owns the chunk
+     * @param chunkIndex stable chunk index inside the document
+     * @param embeddingStatus FAILED or SKIPPED when no vector should be stored
+     * @return updated row count
+     * @Desc This method intentionally avoids `::vector` parameters. When embedding is skipped
+     * or the provider fails, PostgreSQL does not need to infer a vector type from null.
+     */
+    @Update("""
+            UPDATE document_chunks
+            SET embedding = NULL,
+                embedding_status = #{embeddingStatus},
+                embedding_updated_at = now()
+            WHERE document_id = #{documentId}
+              AND chunk_index = #{chunkIndex}
+            """)
+    int updateEmbeddingStatusByDocumentIdAndChunkIndex(
+            @Param("documentId") Long documentId,
+            @Param("chunkIndex") Integer chunkIndex,
+            @Param("embeddingStatus") String embeddingStatus);
 }

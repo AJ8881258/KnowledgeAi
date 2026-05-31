@@ -10,5 +10,13 @@ public class SearchResultResponse {
     private String documentName;
     private Integer chunkIndex;
     private String content;
+    /**
+     * Backward-compatible relevance score. In Stage 18 it mirrors hybridScore
+     * when semantic retrieval is active and fulltextScore when it falls back.
+     */
     private Double score;
+    private Double hybridScore;
+    private Double fulltextScore;
+    private Double semanticScore;
+    private String retrievalMode;
 }

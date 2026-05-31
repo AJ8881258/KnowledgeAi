@@ -16,6 +16,24 @@ import { KnowledgeBaseSearchPanel } from "./knowledge-base-search-panel";
 import type { DetailDocument, DetailDocumentTab, KnowledgeBase } from "./knowledge-base-types";
 import { formatCompactDateTime, formatCount, formatFileSize, formatQualityWarning, getDocumentCountByTab, getFilteredDocuments, mapDetailDocument } from "./knowledge-base-utils";
 
+function formatEmbeddingStatus(status?: string | null) {
+  if (!status) {
+    return "未返回";
+  }
+
+  const statusLabels: Record<string, string> = {
+    PENDING: "待向量化",
+    PROCESSING: "向量化中",
+    INDEXED: "已向量化",
+    COMPLETED: "已向量化",
+    FAILED: "向量失败",
+    SKIPPED: "未启用",
+  };
+  const normalizedStatus = status.trim().toUpperCase();
+
+  return statusLabels[normalizedStatus] ?? status;
+}
+
 function KnowledgeBaseSwitcher({
   current,
   items,
@@ -291,6 +309,9 @@ export function KnowledgeBaseDetailView({
                             {formatCount(doc.charCount)} 字符 · 平均{" "}
                             {formatCount(doc.averageChunkLength)}
                           </div>
+                          <div className="mt-1 truncate text-xs text-slate-500">
+                            Embedding {formatEmbeddingStatus(doc.embeddingStatus)}
+                          </div>
                           {doc.qualityWarnings?.length ? (
                             <div className="mt-1 truncate text-xs text-amber-700">
                               {formatQualityWarning(doc.qualityWarnings[0])}
@@ -409,6 +430,10 @@ export function KnowledgeBaseDetailView({
                         <div className="mt-1 truncate text-xs text-slate-500">
                           {formatCount(document.charCount)} 字符 · 平均{" "}
                           {formatCount(document.averageChunkLength)}
+                        </div>
+                        <div className="mt-1 truncate text-xs text-slate-500">
+                          Embedding{" "}
+                          {formatEmbeddingStatus(document.embeddingStatus)}
                         </div>
                         {document.qualityWarnings?.length ? (
                           <div className="mt-1 truncate text-xs text-amber-700">
