@@ -24,6 +24,10 @@ const headerMap: Record<string, HeaderConfig> = {
     title: "文档",
     description: "查看和管理上传的文档",
   },
+  "/Jobs": {
+    title: "任务中心",
+    description: "查看、筛选和处理全局文档后台任务",
+  },
   "/Chat": {
     title: "聊天",
     description: "正式知识库问答入口",
@@ -54,8 +58,10 @@ export default function Layout() {
     ? "/KnowledgeBases"
     : location.pathname.startsWith("/Chat")
       ? "/Chat"
-      : location.pathname.startsWith("/Settings")
-        ? "/Settings"
+      : location.pathname.startsWith("/Jobs")
+        ? "/Jobs"
+        : location.pathname.startsWith("/Settings")
+          ? "/Settings"
       : location.pathname;
   const header = headerMap[headerPath] ?? {
     title: "页面",

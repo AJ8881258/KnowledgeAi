@@ -114,6 +114,109 @@ public interface DocumentProcessingJobRepository {
             @Param("limit") Integer limit);
 
     /**
+     * Lists the newest processing jobs across every knowledge base visible to the user.
+     *
+     * @param userId current JWT user; used to join membership instead of exposing all tenant jobs
+     * @param limit bounded page size from the controller
+     * @return jobs ordered with active work first, then by last update
+     */
+    @Select("""
+            select j.id, j.document_id, j.knowledge_base_id, j.requested_by, j.job_type, j.status,
+                   j.progress_percent, j.stage, j.message, j.error_message,
+                   j.started_at, j.finished_at, j.created_at, j.updated_at
+            from document_processing_jobs j
+            join knowledge_bases kb on kb.id = j.knowledge_base_id
+            left join knowledge_base_members m
+              on m.knowledge_base_id = kb.id
+             and m.user_id = #{userId}
+            where kb.created_by = #{userId} or m.user_id = #{userId}
+            order by
+                case when j.status in ('QUEUED', 'RUNNING') then 0 else 1 end,
+                j.updated_at desc,
+                j.id desc
+            limit #{limit}
+            """)
+    List<DocumentProcessingJob> findRecentAccessible(
+            @Param("userId") Long userId,
+            @Param("limit") Integer limit);
+
+    /**
+     * Lists visible jobs matching one exact terminal or active status.
+     *
+     * @param status one normalized status value, for example FAILED or CANCELED
+     */
+    @Select("""
+            select j.id, j.document_id, j.knowledge_base_id, j.requested_by, j.job_type, j.status,
+                   j.progress_percent, j.stage, j.message, j.error_message,
+                   j.started_at, j.finished_at, j.created_at, j.updated_at
+            from document_processing_jobs j
+            join knowledge_bases kb on kb.id = j.knowledge_base_id
+            left join knowledge_base_members m
+              on m.knowledge_base_id = kb.id
+             and m.user_id = #{userId}
+            where j.status = #{status}
+              and (kb.created_by = #{userId} or m.user_id = #{userId})
+            order by j.updated_at desc, j.id desc
+            limit #{limit}
+            """)
+    List<DocumentProcessingJob> findRecentAccessibleByStatus(
+            @Param("userId") Long userId,
+            @Param("status") String status,
+            @Param("limit") Integer limit);
+
+    /**
+     * Lists visible jobs that still represent active background work.
+     */
+    @Select("""
+            select j.id, j.document_id, j.knowledge_base_id, j.requested_by, j.job_type, j.status,
+                   j.progress_percent, j.stage, j.message, j.error_message,
+                   j.started_at, j.finished_at, j.created_at, j.updated_at
+            from document_processing_jobs j
+            join knowledge_bases kb on kb.id = j.knowledge_base_id
+            left join knowledge_base_members m
+              on m.knowledge_base_id = kb.id
+             and m.user_id = #{userId}
+            where j.status in ('QUEUED', 'RUNNING')
+              and (kb.created_by = #{userId} or m.user_id = #{userId})
+            order by j.updated_at desc, j.id desc
+            limit #{limit}
+            """)
+    List<DocumentProcessingJob> findRecentAccessibleActive(
+            @Param("userId") Long userId,
+            @Param("limit") Integer limit);
+
+    /**
+     * Counts active jobs visible to one user for safe diagnostics. The count is scoped
+     * through membership and never exposes jobs from private knowledge bases.
+     */
+    @Select("""
+            select count(*)
+            from document_processing_jobs j
+            join knowledge_bases kb on kb.id = j.knowledge_base_id
+            left join knowledge_base_members m
+              on m.knowledge_base_id = kb.id
+             and m.user_id = #{userId}
+            where j.status in ('QUEUED', 'RUNNING')
+              and (kb.created_by = #{userId} or m.user_id = #{userId})
+            """)
+    long countAccessibleActive(@Param("userId") Long userId);
+
+    /**
+     * Counts failed jobs visible to one user for the task center summary and diagnostics.
+     */
+    @Select("""
+            select count(*)
+            from document_processing_jobs j
+            join knowledge_bases kb on kb.id = j.knowledge_base_id
+            left join knowledge_base_members m
+              on m.knowledge_base_id = kb.id
+             and m.user_id = #{userId}
+            where j.status = 'FAILED'
+              and (kb.created_by = #{userId} or m.user_id = #{userId})
+            """)
+    long countAccessibleFailed(@Param("userId") Long userId);
+
+    /**
      * Marks a queued job as running and records the first visible progress stage.
      *
      * @param id job ID
@@ -132,6 +235,7 @@ public interface DocumentProcessingJobRepository {
                 started_at = coalesce(started_at, now()),
                 updated_at = now()
             where id = #{id}
+              and status = 'QUEUED'
             """)
     int markRunning(
             @Param("id") Long id,
@@ -170,6 +274,7 @@ public interface DocumentProcessingJobRepository {
                 finished_at = now(),
                 updated_at = now()
             where id = #{id}
+              and status in ('QUEUED', 'RUNNING')
             """)
     int markSucceeded(
             @Param("id") Long id,
@@ -189,10 +294,37 @@ public interface DocumentProcessingJobRepository {
                 finished_at = now(),
                 updated_at = now()
             where id = #{id}
+              and status in ('QUEUED', 'RUNNING')
             """)
     int markFailed(
             @Param("id") Long id,
             @Param("stage") String stage,
             @Param("message") String message,
             @Param("errorMessage") String errorMessage);
+
+    /**
+     * Cancels a queued or running job. Terminal states are excluded so a late cancel request
+     * cannot rewrite SUCCEEDED/FAILED history.
+     *
+     * @param id job ID
+     * @param stage machine-readable cancellation stage
+     * @param message safe user-facing cancellation message
+     * @return updated row count; 0 means the job was already terminal or missing
+     */
+    @Update("""
+            update document_processing_jobs
+            set status = 'CANCELED',
+                progress_percent = progress_percent,
+                stage = #{stage},
+                message = #{message},
+                error_message = null,
+                finished_at = now(),
+                updated_at = now()
+            where id = #{id}
+              and status in ('QUEUED', 'RUNNING')
+            """)
+    int markCanceled(
+            @Param("id") Long id,
+            @Param("stage") String stage,
+            @Param("message") String message);
 }

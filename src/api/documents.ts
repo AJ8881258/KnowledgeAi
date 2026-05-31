@@ -14,6 +14,10 @@ export type DocumentProcessingJobStatus =
   | "FAILED"
   | "CANCELED";
 
+export type DocumentProcessingJobStatusFilter =
+  | "ACTIVE"
+  | DocumentProcessingJobStatus;
+
 export type DocumentProcessingJobResponse = {
   id: number;
   documentId: number;
@@ -165,6 +169,37 @@ export async function getDocumentProcessingJobs(
 export async function getDocumentProcessingJob(jobId: number | string) {
   const response = await http.get<DocumentProcessingJobResponse>(
     `/document-processing-jobs/${jobId}`,
+  );
+
+  return response.data;
+}
+
+export async function getDocumentProcessingJobsGlobal({
+  status,
+  limit = 50,
+}: {
+  status?: DocumentProcessingJobStatusFilter;
+  limit?: number;
+} = {}) {
+  const response = await http.get<DocumentProcessingJobResponse[]>(
+    "/document-processing-jobs",
+    { params: { status, limit } },
+  );
+
+  return response.data;
+}
+
+export async function retryDocumentProcessingJob(jobId: number | string) {
+  const response = await http.post<DocumentProcessingJobResponse>(
+    `/document-processing-jobs/${jobId}/retry`,
+  );
+
+  return response.data;
+}
+
+export async function cancelDocumentProcessingJob(jobId: number | string) {
+  const response = await http.post<DocumentProcessingJobResponse>(
+    `/document-processing-jobs/${jobId}/cancel`,
   );
 
   return response.data;

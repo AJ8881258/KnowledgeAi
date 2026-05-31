@@ -957,7 +957,7 @@ Authorization: Bearer <accessToken>
 
 #### 文档处理任务响应字段
 
-> 状态：阶段 17 已实现。
+> 状态：阶段 20 已实现。阶段 17 引入知识库/文档局部任务查询，阶段 20 扩展为全局任务中心、重试、取消和安全诊断能力。
 
 `DocumentProcessingJobResponse`：
 
@@ -984,6 +984,100 @@ Authorization: Bearer <accessToken>
 - `REBUILD_SEMANTIC_INDEX` 只表示语义向量刷新任务，不代表文档正文重新解析；此类任务失败时不应把已可全文检索的文档从 `INDEXED` 降级为不可用。
 - 前端应优先用活跃任务显示“后台处理中”和进度，用文档状态显示最终可检索状态。
 - 任务消息和错误不得包含服务器路径、堆栈、API Key、Authorization header 或模型供应商敏感错误。
+- 阶段 20 后端对 `markRunning`、`markSucceeded`、`markFailed` 使用状态条件保护，避免用户取消任务后，异步 worker 的迟到结果再次写入任务状态、进度或错误并覆盖 `CANCELED`。
+
+#### 获取全局文档处理任务列表
+
+| 项目 | 内容 |
+|---|---|
+| 请求方式 | `GET` |
+| 请求路径 | `/api/document-processing-jobs?status=ACTIVE&limit=20` |
+| 是否需要登录 | 是 |
+| 状态 | 阶段 20 已实现 |
+
+查询参数：
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `status` | string | 否 | 支持 `ACTIVE`、`QUEUED`、`RUNNING`、`SUCCEEDED`、`FAILED`、`CANCELED`。`ACTIVE` 表示 `QUEUED` + `RUNNING`。不传时返回全部状态。 |
+| `limit` | number | 否 | 返回数量，默认 20，最小 1，最大 50。 |
+
+说明：
+
+- 返回当前用户可访问知识库下的文档处理任务，包含自己创建和共享知识库内的任务。
+- 非成员任务不会出现在列表中，避免暴露资源存在性。
+- 列表用于 `/Jobs` 全局任务中心；知识库/文档局部任务接口继续保留。
+
+成功响应示例：
+
+```json
+[
+  {
+    "id": 18,
+    "documentId": 7,
+    "knowledgeBaseId": 3,
+    "requestedBy": 1,
+    "jobType": "REPROCESS",
+    "status": "RUNNING",
+    "progressPercent": 40,
+    "stage": "SPLIT_CHUNKS",
+    "message": "正在切分文档片段",
+    "errorMessage": null,
+    "startedAt": "2026-05-31T10:05:00Z",
+    "finishedAt": null,
+    "createdAt": "2026-05-31T10:04:50Z",
+    "updatedAt": "2026-05-31T10:05:10Z"
+  }
+]
+```
+
+#### 重试文档处理任务
+
+| 项目 | 内容 |
+|---|---|
+| 请求方式 | `POST` |
+| 请求路径 | `/api/document-processing-jobs/{jobId}/retry` |
+| 是否需要登录 | 是 |
+| 状态 | 阶段 20 已实现 |
+
+说明：
+
+- 当前用户必须是任务所属知识库的 `OWNER` 或 `EDITOR`。
+- 只允许重试 `FAILED` 或 `CANCELED` 任务。
+- 重试会创建一条新的处理任务，不会修改旧的终态任务，便于保留失败/取消历史。
+
+失败情况：
+
+| 状态码 | 原因 |
+|---|---|
+| `401` | 未登录或 token 无效 |
+| `403` | 当前用户是 `VIEWER`，可以查看但无权重试 |
+| `404` | 任务不存在，或当前用户不是任务所属知识库成员 |
+| `409` | 任务不是 `FAILED` / `CANCELED`，不能重试 |
+
+#### 取消文档处理任务
+
+| 项目 | 内容 |
+|---|---|
+| 请求方式 | `POST` |
+| 请求路径 | `/api/document-processing-jobs/{jobId}/cancel` |
+| 是否需要登录 | 是 |
+| 状态 | 阶段 20 已实现 |
+
+说明：
+
+- 当前用户必须是任务所属知识库的 `OWNER` 或 `EDITOR`。
+- 只允许取消 `QUEUED` 或 `RUNNING` 任务。
+- 取消采用协作式语义：后端不强行杀掉已经执行中的线程，但任务记录会进入 `CANCELED`，后续迟到的成功或失败更新不能覆盖该终态。
+
+失败情况：
+
+| 状态码 | 原因 |
+|---|---|
+| `401` | 未登录或 token 无效 |
+| `403` | 当前用户是 `VIEWER`，可以查看但无权取消 |
+| `404` | 任务不存在，或当前用户不是任务所属知识库成员 |
+| `409` | 任务已进入 `SUCCEEDED`、`FAILED` 或 `CANCELED`，不能取消 |
 
 #### 获取知识库处理任务列表
 
@@ -1270,6 +1364,60 @@ GET /api/health
 
 - 用于本地开发、联调和演示前快速确认后端服务已启动。
 - 该接口已在 Spring Security 中放行，不需要携带 JWT。
+
+### 系统诊断
+
+| 项目 | 内容 |
+|---|---|
+| 请求方式 | `GET` |
+| 请求路径 | `/api/system/diagnostics` |
+| 是否需要登录 | 是 |
+| 状态 | 阶段 20 已实现 |
+
+请求示例：
+
+```http
+GET /api/system/diagnostics
+Authorization: Bearer <accessToken>
+```
+
+成功响应示例：
+
+```json
+{
+  "status": "OK",
+  "database": {
+    "reachable": true
+  },
+  "jobs": {
+    "activeCount": 1,
+    "failedCount": 2
+  },
+  "model": {
+    "chatFallbackConfigured": true,
+    "embeddingFallbackConfigured": false
+  },
+  "generatedAt": "2026-05-31T10:10:00Z"
+}
+```
+
+字段说明：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `status` | string | `OK` 表示数据库诊断可用；`DEGRADED` 表示至少数据库可达性检查失败。 |
+| `database.reachable` | boolean | 后端是否能访问数据库。 |
+| `jobs.activeCount` | number | 当前用户可访问知识库下 `QUEUED` / `RUNNING` 任务数量。 |
+| `jobs.failedCount` | number | 当前用户可访问知识库下失败任务数量。 |
+| `model.chatFallbackConfigured` | boolean | 后端环境兜底 Chat 模型配置是否具备最小可用条件。 |
+| `model.embeddingFallbackConfigured` | boolean | 后端环境兜底 embedding 模型配置是否具备最小可用条件。 |
+| `generatedAt` | string | 诊断生成时间。 |
+
+安全说明：
+
+- 该接口只返回安全布尔值和当前用户可见任务计数。
+- 不返回 Base URL、API Key、encryptedApiKey、model、Authorization header、JDBC URL、数据库用户名、数据库密码或完整异常堆栈。
+- 该接口用于 `/Jobs` 任务中心的轻量诊断摘要，不作为管理员级观测后台。
 
 ### 获取模型配置状态
 

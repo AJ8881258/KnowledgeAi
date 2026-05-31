@@ -9,6 +9,7 @@ import com.knowflow.backend.document.rag.EmbeddingModelClient;
 import com.knowflow.backend.document.repository.DocumentChunkRepository;
 import com.knowflow.backend.document.repository.DocumentProcessingJobRepository;
 import com.knowflow.backend.document.repository.DocumentRepository;
+import com.knowflow.backend.knowledgebase.service.KnowledgeBaseAccessService;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -16,6 +17,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 @Service
 public class DocumentProcessingJobService {
@@ -26,6 +28,8 @@ public class DocumentProcessingJobService {
     public static final String JOB_STATUS_RUNNING = "RUNNING";
     public static final String JOB_STATUS_SUCCEEDED = "SUCCEEDED";
     public static final String JOB_STATUS_FAILED = "FAILED";
+    public static final String JOB_STATUS_CANCELED = "CANCELED";
+    public static final String JOB_STATUS_ACTIVE = "ACTIVE";
 
     private static final String STATUS_PROCESSING = "PROCESSING";
     private static final String STATUS_INDEXED = "INDEXED";
@@ -38,7 +42,10 @@ public class DocumentProcessingJobService {
     private static final int CHUNK_OVERLAP = 150;
     private static final String NO_REPROCESS_SOURCE_MESSAGE =
             "Document cannot be reprocessed because no source or indexed text is available";
+    private static final Set<String> RETRYABLE_STATUSES = Set.of(JOB_STATUS_FAILED, JOB_STATUS_CANCELED);
+    private static final Set<String> ACTIVE_STATUSES = Set.of(JOB_STATUS_QUEUED, JOB_STATUS_RUNNING);
 
+    private final KnowledgeBaseAccessService accessService;
     private final DocumentRepository documentRepository;
     private final DocumentChunkRepository documentChunkRepository;
     private final DocumentProcessingJobRepository jobRepository;
@@ -47,12 +54,14 @@ public class DocumentProcessingJobService {
     private final TransactionTemplate transactionTemplate;
 
     public DocumentProcessingJobService(
+            KnowledgeBaseAccessService accessService,
             DocumentRepository documentRepository,
             DocumentChunkRepository documentChunkRepository,
             DocumentProcessingJobRepository jobRepository,
             DocumentTextExtractor documentTextExtractor,
             EmbeddingModelClient embeddingModelClient,
             TransactionTemplate transactionTemplate) {
+        this.accessService = accessService;
         this.documentRepository = documentRepository;
         this.documentChunkRepository = documentChunkRepository;
         this.jobRepository = jobRepository;
@@ -103,7 +112,12 @@ public class DocumentProcessingJobService {
      */
     public void processJob(Long jobId) {
         DocumentProcessingJob job = getJobOrThrow(jobId);
-        jobRepository.markRunning(jobId, 10, "READ_SOURCE", "准备处理文档来源");
+        int runningRows = jobRepository.markRunning(jobId, 10, "READ_SOURCE", "Preparing document source");
+        if (runningRows == 0) {
+            // Stage 20 cancellation is cooperative: if a queued job was canceled before
+            // the worker started, the guarded RUNNING update fails and no document data is touched.
+            return;
+        }
         if (!JOB_TYPE_REBUILD_SEMANTIC_INDEX.equals(job.getJobType())) {
             documentRepository.updateStatusById(job.getDocumentId(), STATUS_PROCESSING, null);
         }
@@ -122,6 +136,10 @@ public class DocumentProcessingJobService {
         } catch (DocumentTextExtractor.ExtractionFailure exception) {
             failJobAndDocument(job, exception.getUserMessage());
             throw new ResponseStatusException(exception.getStatus(), exception.getUserMessage());
+        } catch (JobCanceledException exception) {
+            // A cancel request may arrive while parsing or embedding work is in progress.
+            // The persisted job row already contains CANCELED, so the worker exits cleanly.
+            return;
         } catch (ResponseStatusException exception) {
             String safeMessage = safeReason(exception);
             failJobAndDocument(job, safeMessage);
@@ -152,10 +170,100 @@ public class DocumentProcessingJobService {
                 .toList();
     }
 
+    /**
+     * Lists recent jobs across all knowledge bases accessible to the current user.
+     *
+     * @param userId current JWT user; controls tenant/member isolation
+     * @param status optional normalized filter. ACTIVE means QUEUED or RUNNING; null means all statuses
+     * @param limit bounded max row count
+     * @return public task center rows, never including inaccessible knowledge bases
+     */
+    public List<DocumentProcessingJobResponse> findRecentAccessibleJobs(
+            Long userId,
+            String status,
+            int limit) {
+        List<DocumentProcessingJob> jobs;
+        if (status == null || status.isBlank()) {
+            jobs = jobRepository.findRecentAccessible(userId, limit);
+        } else if (JOB_STATUS_ACTIVE.equals(status)) {
+            jobs = jobRepository.findRecentAccessibleActive(userId, limit);
+        } else {
+            jobs = jobRepository.findRecentAccessibleByStatus(userId, status, limit);
+        }
+        return jobs.stream()
+                .map(DocumentProcessingJobResponse::new)
+                .toList();
+    }
+
     public DocumentProcessingJobResponse findAccessibleJob(Long jobId, Long userId) {
-        DocumentProcessingJob job = jobRepository.findAccessibleById(jobId, userId)
+        return new DocumentProcessingJobResponse(findAccessibleJobEntity(jobId, userId));
+    }
+
+    /**
+     * Creates a new processing attempt from a FAILED or CANCELED job without mutating the old attempt.
+     *
+     * @param jobId source job to retry
+     * @param userId current JWT user; must be OWNER or EDITOR on the job's knowledge base
+     * @return queued retry job. The controller starts the runner after this method returns
+     * @Desc Retrying creates a new row so the task center can show historical failures and the
+     * latest attempt separately. This differs from document status, which only shows the latest
+     * materialized search state.
+     */
+    public DocumentProcessingJob retryJob(Long jobId, Long userId) {
+        DocumentProcessingJob previousJob = findAccessibleJobEntity(jobId, userId);
+        accessService.requireEditor(previousJob.getKnowledgeBaseId(), userId);
+        if (!RETRYABLE_STATUSES.contains(previousJob.getStatus())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Only failed or canceled jobs can be retried");
+        }
+        return createJob(
+                previousJob.getDocumentId(),
+                previousJob.getKnowledgeBaseId(),
+                userId,
+                previousJob.getJobType());
+    }
+
+    /**
+     * Cancels a queued or running processing job for an OWNER/EDITOR.
+     *
+     * @param jobId active job ID
+     * @param userId current JWT user; VIEWER receives 403 and non-members receive 404
+     * @return refreshed job response after cancellation
+     * @Desc Cancellation is implemented as a guarded state transition. The worker may still be
+     * inside a parser/model call, but guarded SQL updates prevent late SUCCEEDED/FAILED writes from
+     * overwriting CANCELED.
+     */
+    public DocumentProcessingJobResponse cancelJob(Long jobId, Long userId) {
+        DocumentProcessingJob job = findAccessibleJobEntity(jobId, userId);
+        accessService.requireEditor(job.getKnowledgeBaseId(), userId);
+        if (!ACTIVE_STATUSES.contains(job.getStatus())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Only queued or running jobs can be canceled");
+        }
+
+        int updatedRows = jobRepository.markCanceled(jobId, JOB_STATUS_CANCELED, "Document processing job canceled");
+        if (updatedRows == 0) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Document processing job is already finished");
+        }
+        return findAccessibleJob(jobId, userId);
+    }
+
+    /**
+     * Counts active visible jobs for diagnostics. The same membership filter as the task center
+     * is used so diagnostics never leak private knowledge-base activity.
+     */
+    public long countAccessibleActiveJobs(Long userId) {
+        return jobRepository.countAccessibleActive(userId);
+    }
+
+    /**
+     * Counts failed visible jobs for diagnostics.
+     */
+    public long countAccessibleFailedJobs(Long userId) {
+        return jobRepository.countAccessibleFailed(userId);
+    }
+
+    private DocumentProcessingJob findAccessibleJobEntity(Long jobId, Long userId) {
+        return jobRepository.findAccessibleById(jobId, userId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Document processing job not found"));
-        return new DocumentProcessingJobResponse(job);
     }
 
     private DocumentProcessingJob createJob(Long documentId, Long knowledgeBaseId, Long requestedBy, String jobType) {
@@ -167,7 +275,7 @@ public class DocumentProcessingJobService {
         job.setStatus(JOB_STATUS_QUEUED);
         job.setProgressPercent(0);
         job.setStage("QUEUED");
-        job.setMessage("等待后台处理");
+        job.setMessage("Waiting for background processing");
         job.setErrorMessage(null);
 
         int insertedRows = jobRepository.insert(job);
@@ -190,16 +298,18 @@ public class DocumentProcessingJobService {
     private void processUploadIndex(DocumentProcessingJob job) {
         Document document = documentRepository.findAccessibleSourceById(job.getDocumentId(), job.getRequestedBy())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Document not found"));
-        jobRepository.updateProgress(job.getId(), 30, "EXTRACT_TEXT", "正在提取文档文本");
+        updateProgressOrStop(job.getId(), 30, "EXTRACT_TEXT", "Extracting document text");
         String text = documentTextExtractor.extract(document.getOriginalFilename(), document.getSourceBytes());
+        requireActiveJob(job.getId());
         writeIndexedChunks(job, document, text, false);
     }
 
     private void processReprocess(DocumentProcessingJob job) {
         Document document = documentRepository.findAccessibleSourceById(job.getDocumentId(), job.getRequestedBy())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Document not found"));
-        jobRepository.updateProgress(job.getId(), 30, "EXTRACT_TEXT", "正在重建文档文本");
+        updateProgressOrStop(job.getId(), 30, "EXTRACT_TEXT", "Rebuilding document text");
         String text = resolveReprocessText(document);
+        requireActiveJob(job.getId());
         writeIndexedChunks(job, document, text, true);
     }
 
@@ -222,11 +332,12 @@ public class DocumentProcessingJobService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Document has no indexed chunks");
         }
 
-        jobRepository.updateProgress(job.getId(), 40, "READ_CHUNKS", "Reading existing chunks for semantic rebuild");
+        updateProgressOrStop(job.getId(), 40, "READ_CHUNKS", "Reading existing chunks for semantic rebuild");
         List<String> contents = chunks.stream().map(DocumentChunk::getContent).toList();
         EmbeddingWritePlan embeddingPlan = buildEmbeddingWritePlan(job.getRequestedBy(), contents);
 
-        jobRepository.updateProgress(job.getId(), 80, "WRITE_EMBEDDINGS", "Writing refreshed semantic index");
+        updateProgressOrStop(job.getId(), 80, "WRITE_EMBEDDINGS", "Writing refreshed semantic index");
+        requireActiveJob(job.getId());
         transactionTemplate.executeWithoutResult(status -> {
             documentChunkRepository.updateEmbeddingStatusByDocumentId(document.getId(), EMBEDDING_STATUS_PROCESSING);
             applyExistingChunkEmbeddings(document.getId(), chunks, embeddingPlan);
@@ -255,10 +366,11 @@ public class DocumentProcessingJobService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Document content is blank");
         }
 
-        jobRepository.updateProgress(job.getId(), 60, "SPLIT_CHUNKS", "正在切分文档片段");
+        updateProgressOrStop(job.getId(), 60, "SPLIT_CHUNKS", "Splitting document into retrieval chunks");
         List<String> chunks = splitText(text);
         EmbeddingWritePlan embeddingPlan = buildEmbeddingWritePlan(job.getRequestedBy(), chunks);
-        jobRepository.updateProgress(job.getId(), 80, "WRITE_CHUNKS", "正在写入检索索引");
+        updateProgressOrStop(job.getId(), 80, "WRITE_CHUNKS", "Writing retrieval chunks");
+        requireActiveJob(job.getId());
 
         transactionTemplate.executeWithoutResult(status -> {
             if (replaceExistingChunks) {
@@ -406,6 +518,9 @@ public class DocumentProcessingJobService {
     }
 
     private void failJobAndDocument(DocumentProcessingJob job, String safeMessage) {
+        if (!isJobActive(job.getId())) {
+            return;
+        }
         if (JOB_TYPE_REBUILD_SEMANTIC_INDEX.equals(job.getJobType())) {
             // Semantic rebuild failure must not make an already INDEXED document disappear from
             // full-text search. Only embedding fields and the job row reflect the failure.
@@ -417,6 +532,37 @@ public class DocumentProcessingJobService {
         documentRepository.updateStatusById(job.getDocumentId(), STATUS_FAILED, safeMessage);
         documentRepository.updateEmbeddingStatusById(job.getDocumentId(), EMBEDDING_STATUS_FAILED, safeMessage);
         jobRepository.markFailed(job.getId(), "FAILED", "文档处理失败", safeMessage);
+    }
+
+    /**
+     * Writes a progress milestone only while the job is active.
+     *
+     * @param jobId durable job ID
+     * @param progressPercent coarse 0-100 progress milestone
+     * @param stage short stage code shown in task center
+     * @param message safe user-facing message
+     * @throws JobCanceledException when a cancel request already moved the job to CANCELED
+     */
+    private void updateProgressOrStop(Long jobId, int progressPercent, String stage, String message) {
+        int updatedRows = jobRepository.updateProgress(jobId, progressPercent, stage, message);
+        if (updatedRows == 0) {
+            throw new JobCanceledException();
+        }
+    }
+
+    /**
+     * Checks the current persisted job state before writing document/chunk side effects.
+     */
+    private void requireActiveJob(Long jobId) {
+        if (!isJobActive(jobId)) {
+            throw new JobCanceledException();
+        }
+    }
+
+    private boolean isJobActive(Long jobId) {
+        return jobRepository.findById(jobId)
+                .map(job -> ACTIVE_STATUSES.contains(job.getStatus()))
+                .orElse(false);
     }
 
     private String safeReason(ResponseStatusException exception) {
@@ -439,5 +585,12 @@ public class DocumentProcessingJobService {
      * @param vectors pgvector-compatible vectors in chunk order; empty when embeddings are skipped or failed
      */
     private record EmbeddingWritePlan(String status, String errorMessage, List<List<Double>> vectors) {
+    }
+
+    /**
+     * Internal signal used for cooperative cancellation. It is intentionally not returned to
+     * clients because the public task state is already stored as CANCELED in the database row.
+     */
+    private static class JobCanceledException extends RuntimeException {
     }
 }

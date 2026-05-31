@@ -37,6 +37,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 import static com.knowflow.backend.common.model.ModelProviderErrors.safeMessage;
 import static com.knowflow.backend.common.utils.AuthUtils.getCurrentUserId;
@@ -60,6 +61,13 @@ public class DocumentController {
     private static final int MAX_SUMMARY_OUTPUT_MAX_CHARS = 4_000;
     private static final int DEFAULT_JOB_LIMIT = 20;
     private static final int MAX_JOB_LIMIT = 50;
+    private static final Set<String> JOB_STATUS_FILTERS = Set.of(
+            DocumentProcessingJobService.JOB_STATUS_ACTIVE,
+            DocumentProcessingJobService.JOB_STATUS_QUEUED,
+            DocumentProcessingJobService.JOB_STATUS_RUNNING,
+            DocumentProcessingJobService.JOB_STATUS_SUCCEEDED,
+            DocumentProcessingJobService.JOB_STATUS_FAILED,
+            DocumentProcessingJobService.JOB_STATUS_CANCELED);
 
     private final KnowledgeBaseAccessService accessService;
     private final DocumentRepository documentRepository;
@@ -160,6 +168,26 @@ public class DocumentController {
     }
 
     /**
+     * Lists document processing jobs across all knowledge bases visible to the current user.
+     *
+     * @param status optional filter. ACTIVE means QUEUED/RUNNING; exact values include FAILED and CANCELED
+     * @param limit optional bounded page size, default 20 and capped at 50
+     * @param jwt current user token used for membership isolation
+     * @return task center rows; non-member knowledge bases are not included
+     */
+    @GetMapping("/document-processing-jobs")
+    public List<DocumentProcessingJobResponse> listProcessingJobs(
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) Integer limit,
+            @AuthenticationPrincipal Jwt jwt) {
+        Long userId = getCurrentUserId(jwt);
+        return documentProcessingJobService.findRecentAccessibleJobs(
+                userId,
+                normalizeJobStatusFilter(status),
+                normalizeJobLimit(limit));
+    }
+
+    /**
      * Rebuilds semantic embeddings for every indexed document that already has chunks.
      *
      * @param knowledgeBaseId target knowledge base
@@ -236,6 +264,38 @@ public class DocumentController {
     public DocumentProcessingJobResponse getProcessingJob(@PathVariable Long jobId, @AuthenticationPrincipal Jwt jwt) {
         Long userId = getCurrentUserId(jwt);
         return documentProcessingJobService.findAccessibleJob(jobId, userId);
+    }
+
+    /**
+     * Retries a failed or canceled processing job by creating a new attempt row.
+     *
+     * @param jobId source job ID to retry
+     * @param jwt current OWNER/EDITOR user; VIEWER gets 403 and non-members get 404
+     * @return the new attempt after the runner has started. Tests run synchronously, production may return active state
+     */
+    @PostMapping("/document-processing-jobs/{jobId}/retry")
+    public DocumentProcessingJobResponse retryProcessingJob(
+            @PathVariable Long jobId,
+            @AuthenticationPrincipal Jwt jwt) {
+        Long userId = getCurrentUserId(jwt);
+        DocumentProcessingJob retryJob = documentProcessingJobService.retryJob(jobId, userId);
+        documentProcessingJobRunner.start(retryJob.getId());
+        return documentProcessingJobService.findAccessibleJob(retryJob.getId(), userId);
+    }
+
+    /**
+     * Cancels a queued or running processing job.
+     *
+     * @param jobId active job ID
+     * @param jwt current OWNER/EDITOR user; retry/cancel are write operations, so VIEWER is forbidden
+     * @return refreshed job response with CANCELED status
+     */
+    @PostMapping("/document-processing-jobs/{jobId}/cancel")
+    public DocumentProcessingJobResponse cancelProcessingJob(
+            @PathVariable Long jobId,
+            @AuthenticationPrincipal Jwt jwt) {
+        Long userId = getCurrentUserId(jwt);
+        return documentProcessingJobService.cancelJob(jobId, userId);
     }
 
     /**
@@ -522,5 +582,22 @@ public class DocumentController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "limit must be >=1");
         }
         return Math.min(limit, MAX_JOB_LIMIT);
+    }
+
+    /**
+     * Normalizes the task-center status filter.
+     *
+     * @param status raw query parameter from the frontend
+     * @return uppercase status or null when no filter is requested
+     */
+    private String normalizeJobStatusFilter(String status) {
+        if (status == null || status.isBlank()) {
+            return null;
+        }
+        String normalized = status.trim().toUpperCase();
+        if (!JOB_STATUS_FILTERS.contains(normalized)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid document processing job status");
+        }
+        return normalized;
     }
 }

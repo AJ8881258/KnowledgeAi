@@ -46,6 +46,12 @@ const navList = [
     isActivity: false,
   },
   {
+    route: "/Jobs",
+    icon: "iconfont icon-file",
+    text: "Jobs",
+    isActivity: false,
+  },
+  {
     route: "/Chat",
     icon: "iconfont icon-chat",
     text: "Chat",

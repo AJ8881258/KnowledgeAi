@@ -35,6 +35,53 @@
 | 阶段 17：后台任务化与文档处理进度 | 已完成 | 新增文档处理任务表、上传/重新处理任务记录、进度查询接口和 Documents 轮询进度 UI；完整后端回归、前端构建/ESLint 和 browser-use 验收已通过。 |
 | 阶段 18：语义检索与混合召回 | 已完成 | 新增 pgvector、可选 embedding、全文+语义混合排序、检索/Chat 分数拆解和 embedding 状态展示；后端完整回归、前端构建和目标 ESLint 已通过。 |
 | 阶段 19：语义索引运维与检索策略可控 | 已完成 | 新增语义索引重建任务、RAG 检索策略和权重配置、Settings 策略 UI、文档/知识库重建入口和阶段 19 回归验证。 |
+| 阶段 20：后台任务中心与系统诊断 | 已完成 | 新增全局文档处理任务中心、任务筛选、失败/取消任务重试、活跃任务取消、协作权限隔离和安全系统诊断接口；后端 105 个测试、前端构建和目标 ESLint 已通过。 |
+
+## 阶段 20：后台任务中心与系统诊断
+
+### 目标
+
+阶段 20 在阶段 17-19 的文档处理任务基础上，把任务能力从 Documents 局部进度展示扩展为全局任务中心，并补齐最小系统诊断能力。目标是让用户能跨知识库查看自己可访问的后台任务，处理失败或取消的任务，取消仍在排队/运行的任务，同时让运维入口只展示脱敏后的健康状态。
+
+### 范围
+
+- 后端：
+  - `GET /api/document-processing-jobs` 支持全局任务列表，按当前用户可访问知识库隔离。
+  - `status=ACTIVE` 表示 `QUEUED` / `RUNNING`，也支持精确状态筛选。
+  - `POST /api/document-processing-jobs/{jobId}/retry` 为 `FAILED` / `CANCELED` 任务创建新的处理尝试，不修改旧任务。
+  - `POST /api/document-processing-jobs/{jobId}/cancel` 将 `QUEUED` / `RUNNING` 任务标记为 `CANCELED`。
+  - 任务状态更新使用 SQL 条件保护，避免取消后的异步迟到结果覆盖 `CANCELED`。
+  - `GET /api/system/diagnostics` 返回数据库可达性、当前用户可见任务计数和模型兜底配置布尔状态，不返回 Base URL、API Key、model 或 Authorization。
+- 前端：
+  - 新增 `/Jobs` 路由和侧边栏入口。
+  - 支持任务筛选、刷新、活跃任务轮询、进度/阶段/消息展示。
+  - 对失败/取消任务提供重试，对排队/运行任务提供取消。
+  - 展示轻量系统诊断状态，并对错误消息做二次脱敏。
+
+### 不做
+
+- 不引入 MQ / RabbitMQ / Kafka。
+- 不做复杂队列调度后台、租户级运维后台或管理员审计系统。
+- 不暴露模型供应商、数据库连接、API Key、Authorization header 或完整错误堆栈。
+- 不使用 mock-only 任务数据。
+
+### 已完成内容
+
+- `DocumentProcessingJobRepository` 新增全局可访问任务查询、状态筛选、活跃/失败计数和取消更新。
+- `markRunning`、`markSucceeded`、`markFailed` 增加状态条件，防止已取消任务被迟到的 worker 结果覆盖。
+- `DocumentProcessingJobService` 新增全局列表、重试、取消、诊断计数和协作权限校验。
+- `DocumentController` 新增全局任务列表、重试和取消接口。
+- 新增 `SystemDiagnosticsController`，提供脱敏系统诊断。
+- 新增阶段 20 后端测试 `Stage20DocumentTaskCenterTests`，覆盖全局列表、状态筛选、权限隔离、重试、取消防迟到更新和诊断脱敏。
+- 前端新增 `src/pages/Jobs.tsx`、`src/api/system.ts`，并扩展 `src/api/documents.ts`。
+- 前端路由和侧边栏已接入 `/Jobs`。
+
+### 验收结果
+
+- `cd backend && .\mvnw.cmd -Dtest=Stage20DocumentTaskCenterTests test` 已通过。
+- `cd backend && .\mvnw.cmd test` 已通过，105 个测试全部成功。
+- `pnpm exec eslint src\api\documents.ts src\api\system.ts src\pages\Jobs.tsx src\main.tsx src\components\slider-sidebar.tsx src\components\slider-layout.tsx` 已通过。
+- `pnpm build` 已通过，仅保留既有 Vite chunk size warning。
 
 ## 阶段 19：语义索引运维与检索策略可控
 

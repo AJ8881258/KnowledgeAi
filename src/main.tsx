@@ -14,6 +14,7 @@ import SliderLayout from "@/components/slider-layout";
 import Documents from "@/pages/Documents";
 import Chat from "@/pages/Chat";
 import Settings from "@/pages/Settings";
+import Jobs from "@/pages/Jobs";
 import { Toaster } from "@/components/ui/sonner";
 
 createRoot(document.getElementById("root")!).render(
@@ -28,6 +29,7 @@ createRoot(document.getElementById("root")!).render(
         />
         <Route path="/Documents" element={<Documents />} />
         <Route path="/Documents/:knowledgeBaseId" element={<Documents />} />
+        <Route path="/Jobs" element={<Jobs />} />
         <Route path="/Chat/:conversationId?" element={<Chat />} />
         <Route path="/Settings" element={<Settings />} />
       </Route>
