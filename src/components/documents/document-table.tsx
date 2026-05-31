@@ -1,6 +1,7 @@
 import { Check, ChevronDown, Eye, RefreshCw, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import type { DocumentProcessingJobResponse } from "@/api/documents";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -21,6 +22,7 @@ import {
 
 type DocumentTableProps = {
   documents: DocumentItem[];
+  activeJobsByDocumentId?: Map<number, DocumentProcessingJobResponse>;
   selectedDocumentId?: number | null;
   knowledgeBaseLabel: string;
   totalItems: number;
@@ -45,6 +47,7 @@ type DocumentTableProps = {
 
 export function DocumentTable({
   documents,
+  activeJobsByDocumentId,
   selectedDocumentId,
   knowledgeBaseLabel,
   totalItems,
@@ -67,6 +70,10 @@ export function DocumentTable({
   onPageSizeChange,
 }: DocumentTableProps) {
   const getReprocessDisabledReason = (doc: DocumentItem) => {
+    if (activeJobsByDocumentId?.has(doc.id)) {
+      return "后台处理中，完成后可重新处理";
+    }
+
     if (!canReprocessDocuments) {
       return reprocessDisabledReason;
     }
@@ -81,10 +88,12 @@ export function DocumentTable({
   };
 
   const canReprocessDocument = (doc: DocumentItem) =>
-    canReprocessDocuments && doc.reprocessAvailable !== false;
+    canReprocessDocuments &&
+    doc.reprocessAvailable !== false &&
+    !activeJobsByDocumentId?.has(doc.id);
 
   return (
-      <section className="overflow-hidden rounded-[6px] border border-slate-200 bg-white shadow-sm">
+    <section className="overflow-hidden rounded-[6px] border border-slate-200 bg-white shadow-sm">
         <div className="flex flex-col divide-y divide-slate-100 md:hidden">
           {documents.length > 0 ? (
             documents.map((doc) => (
@@ -114,7 +123,11 @@ export function DocumentTable({
                   <div>
                     <span className="block text-slate-400">状态</span>
                     <div className="mt-1">
-                      <StatusText status={doc.status} error={doc.errorMessage} />
+                      <StatusText
+                        status={doc.status}
+                        error={doc.errorMessage}
+                        processingJob={activeJobsByDocumentId?.get(doc.id)}
+                      />
                     </div>
                   </div>
                   <div>
@@ -240,6 +253,7 @@ export function DocumentTable({
                       <StatusText
                         status={doc.status}
                         error={doc.errorMessage}
+                        processingJob={activeJobsByDocumentId?.get(doc.id)}
                       />
                     </td>
                     <td className="px-4 py-5 text-slate-600">
@@ -424,6 +438,6 @@ export function DocumentTable({
             </DropdownMenu>
           </div>
         </footer>
-      </section>
+    </section>
   );
 }

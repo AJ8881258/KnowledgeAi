@@ -1,55 +1,95 @@
-# 前端任务书：阶段 16 文档处理可靠性与真正失败重试
+# 前端任务书：阶段 17 后台任务化与文档处理进度
 
 本文档是前端 Agent 的固定入口。前端 Agent 开始实现前必须先阅读 `AGENTS.md`、`doc/STAGE_PLAN.md`、`doc/PROJECT.md`、`doc/API.md` 和本文档。
 
 ## 当前阶段状态
 
-**阶段 16 已完成。**
+**阶段 17 前端已完成，并已通过构建、目标 ESLint 和 browser-use 端到端验收。**
 
-阶段 16 前端只做最小必要接入：识别后端返回的文档来源保存状态和可重试能力，避免把旧的无来源失败文档展示成一定可重试。本阶段未做大规模 Documents UI 重构，也未恢复知识库详情页 Chat 入口。
+阶段 17 前端聚焦 Documents 页面：接入后端持久化文档处理任务，让上传和重新处理能展示后台进度、失败原因和任务历史。阶段 17 不做大规模 UI 重构，不恢复知识库详情页 Chat 入口，不新增 mock-only 逻辑。
 
 ## API 接入
 
 继续使用 `src/api/documents.ts` axios wrapper，不新增直接 `fetch`，不新增组件级 `localStorage`。
 
-`DocumentResponse` 已新增可选字段：
+新增类型：
 
-- `sourceStored?: boolean`：后端是否保存了原始 bytes 或解析文本。
-- `reprocessAvailable?: boolean`：当前文档是否有来源可重新处理。
+```ts
+type DocumentProcessingJobType = "UPLOAD_INDEX" | "REPROCESS";
+
+type DocumentProcessingJobStatus =
+  | "QUEUED"
+  | "RUNNING"
+  | "SUCCEEDED"
+  | "FAILED"
+  | "CANCELED";
+
+type DocumentProcessingJobResponse = {
+  id: number;
+  documentId: number;
+  knowledgeBaseId: number;
+  requestedBy: number;
+  jobType: DocumentProcessingJobType;
+  status: DocumentProcessingJobStatus;
+  progressPercent: number;
+  stage: string | null;
+  message: string | null;
+  errorMessage: string | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+```
+
+新增 API wrapper：
+
+- `getKnowledgeBaseDocumentProcessingJobs(knowledgeBaseId, limit)`
+- `getDocumentProcessingJobs(documentId, limit)`
+- `getDocumentProcessingJob(jobId)`
 
 ## 已完成实现
 
-1. 类型同步
-   - `src/api/documents.ts` 补充 `sourceStored`、`reprocessAvailable`。
+1. 文档任务状态
+   - `Documents.tsx` 维护 `processingJobs`。
+   - 进入知识库时加载最近处理任务。
+   - 对 `QUEUED` / `RUNNING` 任务每 2 秒轮询单个 job。
+   - 任务全部进入终态后刷新文档列表。
 
 2. 文档列表
-   - 重新处理/失败重试按钮继续受 `OWNER` / `EDITOR` 权限控制。
-   - 当 `reprocessAvailable === false` 时按钮禁用。
-   - 无来源失败文档提示：`此文档没有保存原始来源，无法自动重试，请重新上传文件。`
-   - 非失败但缺少来源时提示：`当前文档缺少可重新处理的原始来源。`
+   - `DocumentTable` 接收 `activeJobsByDocumentId`。
+   - 有活跃任务时状态显示“后台处理中”、spinner、进度条和阶段。
+   - 活跃任务期间禁用重新处理按钮，避免重复创建任务。
 
 3. 文档详情
-   - 详情面板展示轻量状态：`重试来源：已保存 / 未保存`。
-   - 详情里的重新处理按钮同样按 `reprocessAvailable` 禁用。
+   - `DocumentDetails` 接收当前文档最近一次 `processingJob`。
+   - 显示“后台处理任务”区，包括任务类型、状态、进度、阶段、消息、错误、创建时间和更新时间。
+   - 活跃任务期间详情里的重新处理按钮禁用。
 
-4. 确认弹窗
-   - 有 `sourceStored` 时提示会重新解析原始来源并替换 chunks。
-   - 没有 `sourceStored` 但仍可重试时，提示会基于已索引文本重新处理，不会恢复原始文件中未成功解析的内容。
+4. 上传和重新处理
+   - 上传成功后同时刷新文档列表和任务列表。
+   - 重新处理成功后同时刷新文档列表和任务列表。
+   - toast 文案改为后台任务语义，不再暗示请求返回就已经最终处理完成。
 
-5. 错误处理
-   - 后端返回 `400` 时继续展示后端脱敏 message。
-   - 403/404 继续使用现有权限和无权访问提示。
+5. 权限和错误
+   - `OWNER` / `EDITOR` 保留上传、删除、重新处理能力。
+   - `VIEWER` 继续只读，无法上传、删除或重新处理。
+   - 401 继续按登录失效处理。
+   - 空任务列表或任务查询失败不阻塞文档主列表展示。
 
 ## 验证命令
 
 ```powershell
 pnpm build
-pnpm eslint src/pages/Documents.tsx src/pages/KnowledgeBases.tsx src/api/documents.ts src/components/documents src/components/knowledge-bases
+pnpm eslint src/pages/Documents.tsx src/api/documents.ts src/components/documents
 ```
 
 ## 手动验收路径
 
-- `/Documents`：检查失败文档的重试按钮是否按 `reprocessAvailable` 禁用。
-- `/Documents/{knowledgeBaseId}`：检查同样的列表行为。
-- 文档详情面板：检查“重试来源”状态、重新处理按钮和确认弹窗文案。
-- `/KnowledgeBases/{id}`：检索测试区仍只展示真实 chunks，不恢复 Chat 入口。
+- `/Documents`：选择知识库后查看文档列表。
+- `/Documents/{knowledgeBaseId}`：上传文档后应能看到处理状态变化。
+- 文档列表：处理中的文档显示进度并禁用重新处理按钮。
+- 文档详情：显示最近一次后台处理任务，失败时展示脱敏错误。
+- 点击重新处理：确认弹窗后创建任务，完成后列表和详情刷新。
+
+最终 browser-use 验收已覆盖 `/Documents` 登录、TXT 上传、后台处理任务展示、重新处理任务创建和 chunks 预览。前端 Agent 后续仍不主动启动浏览器，除非用户明确要求 browser-use、Chrome 或 Playwright 验收。

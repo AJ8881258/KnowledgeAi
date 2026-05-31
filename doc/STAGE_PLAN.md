@@ -32,6 +32,63 @@
 | 阶段 14：Docker 化与运维 + do.md 收尾修复 | 已完成 | Docker 全量启动、README 运维说明、构建/健康检查/日志/备份恢复文档完成；`do.md` 新增验收问题已完成代码和 API 文档同步。 |
 | 阶段 15：知识库质量与文档处理增强 | 已完成 | 文档质量指标、重新处理、摘要生成、前端展示和阶段 15 回归验证完成。 |
 | 阶段 16：文档处理可靠性与真正失败重试 | 已完成 | 上传时保存原始文件 bytes 和成功解析文本，重新处理优先使用原始来源，失败无 chunks 文档可真正重试，前端按可重试能力控制入口。 |
+| 阶段 17：后台任务化与文档处理进度 | 已完成 | 新增文档处理任务表、上传/重新处理任务记录、进度查询接口和 Documents 轮询进度 UI；完整后端回归、前端构建/ESLint 和 browser-use 验收已通过。 |
+
+## 阶段 17：后台任务化与文档处理进度
+
+### 目标
+
+阶段 17 把文档上传和重新处理从“只看最终文档状态”升级为“可持久化、可查询、可恢复展示的处理任务”。第一版不引入 MQ 或复杂任务中心，只用 PostgreSQL 记录任务状态和粗粒度进度，让用户在 Documents 页面看到后台处理是否排队、运行、成功或失败。
+
+### 范围
+
+- 数据库：
+  - 新增 `document_processing_jobs`。
+  - 记录 `UPLOAD_INDEX` / `REPROCESS` 两类任务。
+  - 记录 `QUEUED`、`RUNNING`、`SUCCEEDED`、`FAILED`、`CANCELED` 状态。
+  - 记录 0-100 粗粒度进度、阶段、消息、错误、开始和结束时间。
+- 后端：
+  - 上传文档时创建 `UPLOAD_INDEX` 任务。
+  - 重新处理文档时创建 `REPROCESS` 任务。
+  - 处理逻辑下沉到 `DocumentProcessingJobService`，控制器只负责权限、基础校验、任务创建和启动。
+  - 默认保持同步执行，确保旧阶段测试和 API 行为稳定；可通过 `knowflow.documents.processing.async-enabled=true` 开启后台执行。
+  - 提供知识库级、文档级、单任务级查询接口。
+- 前端：
+  - `src/api/documents.ts` 新增处理任务类型和 wrapper。
+  - Documents 页面加载最近任务，轮询活跃任务。
+  - 文档列表显示后台处理进度，活跃任务期间禁用重复重新处理。
+  - 文档详情显示最近一次任务的进度、阶段、消息和错误。
+
+### 不做
+
+- 不做 MQ / RabbitMQ / Kafka。
+- 不做复杂后台任务中心或任务管理后台。
+- 不做 OCR。
+- 不做 PPT / Excel 解析。
+- 不做 embedding / pgvector。
+- 不做 SSE/流式任务进度推送。
+- 不改变 Chat 引用来源规则；引用仍必须来自真实 chunks。
+
+### 已完成内容
+
+- 新增 Flyway 迁移 `V13__create_document_processing_jobs.sql`。
+- 新增 `DocumentProcessingJob`、`DocumentProcessingJobResponse`、`DocumentProcessingJobRepository`。
+- 新增 `DocumentProcessingJobService`，统一处理上传索引和重新处理任务的状态流转、进度更新、事务写 chunks、失败脱敏。
+- 新增 `DocumentProcessingJobRunner` 和 `DocumentProcessingAsyncWorker`，支持同步默认执行和可配置异步执行。
+- `DocumentController` 上传和重新处理路径已改为先创建任务再启动 runner。
+- 新增接口：
+  - `GET /api/knowledge-bases/{knowledgeBaseId}/document-processing-jobs`
+  - `GET /api/documents/{documentId}/processing-jobs`
+  - `GET /api/document-processing-jobs/{jobId}`
+- 前端 `Documents` 页面已接入任务列表、活跃任务轮询、任务进度展示和重复重新处理禁用。
+- 上传和重新处理成功后会刷新任务列表，异步模式下可进入轮询。
+
+### 验收结果
+
+- `cd backend && .\mvnw.cmd test` 已通过，91 个测试全部成功。
+- `pnpm build` 已通过，只有 Vite 大 chunk 警告。
+- `pnpm eslint src/pages/Documents.tsx src/api/documents.ts src/components/documents` 已通过。
+- `browser-use` 已验证 `/Documents`：登录、上传 TXT、查看 `UPLOAD_INDEX` 任务、重新处理生成 `REPROCESS` 任务、查看 chunks 预览均正常。
 
 ## 阶段 16：文档处理可靠性与真正失败重试
 

@@ -4,7 +4,7 @@
 
 KnowFlow AI 是一个智能知识库问答平台。用户上传学习资料、项目文档或产品文档后，可以基于自己的资料进行检索增强问答。
 
-项目当前已完成 **阶段 16：文档处理可靠性与真正失败重试**。当前版本已经具备从本地开发到 Docker 全量启动的完整复现路径，并补齐文档质量指标、重新处理入口、文档摘要、原始来源持久化和真正失败重试；`do.md` 作为本地任务输入文件已加入 `.gitignore`，不再作为项目文件提交。
+项目当前已完成 **阶段 17：后台任务化与文档处理进度**。当前版本已经具备从本地开发到 Docker 全量启动的完整复现路径，并补齐文档质量指标、重新处理入口、文档摘要、原始来源持久化、真正失败重试和持久化文档处理任务；`do.md` 作为本地任务输入文件已加入 `.gitignore`，不再作为项目文件提交。
 
 ## 当前能力
 
@@ -17,6 +17,7 @@ KnowFlow AI 是一个智能知识库问答平台。用户上传学习资料、�
 - 知识库 CRUD，支持 `featured` 和 `themeId`。
 - 知识库成员协作权限：`OWNER`、`EDITOR`、`VIEWER`。
 - 文档上传、解析、切片、索引状态流转。
+- 文档处理任务：上传和重新处理会创建持久化 job，记录任务类型、状态、进度、阶段、消息和脱敏错误。
 - 支持 `.txt`、`.md`、`.markdown`、文本型 `.pdf`、`.docx`、`.html`、`.htm`。
 - 文档质量指标：chunk 数、字符数、平均/最短/最长 chunk 长度和质量提示。
 - 文档重新处理：`OWNER` / `EDITOR` 可优先基于保存的原始文件 bytes 或解析文本重新处理并替换 chunks；旧文档没有来源时回退已有 chunks，完全无来源时返回明确错误。
@@ -36,7 +37,7 @@ KnowFlow AI 是一个智能知识库问答平台。用户上传学习资料、�
 - 登录、注册、找回密码入口接入真实接口。
 - Dashboard、KnowledgeBases、Documents、Chat、Settings 接入真实后端。
 - 知识库共享成员管理 UI。
-- 文档上传、文档列表、文档详情、质量提示、重新处理、摘要生成和检索测试区。
+- 文档上传、文档列表、文档详情、质量提示、重新处理、摘要生成、处理任务进度和检索测试区。
 - Chat 会话列表、消息列表、发送问题、模型选择、引用来源面板、未读会话和后台生成状态。
 - Chat 生成中禁用 RAG/模型选择，发送按钮切换为“打断”；RAG 开关提供 hover 说明。
 - Settings 用户资料、模型配置、模型测试、偏好、RAG 参数和账号删除。
@@ -44,8 +45,9 @@ KnowFlow AI 是一个智能知识库问答平台。用户上传学习资料、�
 
 ## 当前阶段状态
 
-- 阶段 0-16 已完成。
-- 阶段 16 已完成文档原始来源持久化和真正失败重试。新上传文档会保存原始 bytes，成功解析后保存规范化文本；重新处理优先使用原始来源，其次使用解析文本，最后兼容旧 chunks fallback。
+- 阶段 0-17 已完成。
+- 阶段 17 为文档上传和重新处理新增 `document_processing_jobs` 持久化任务表。前端 Documents 页面会轮询活跃任务，展示进度、阶段、消息和失败原因，并在任务活跃时禁用重复重新处理。
+- 阶段 17 已通过完整后端回归、前端构建、目标 ESLint 和 browser-use 文档处理流程验收。
 - `do.md` 修复已完成：Chat 模型选择、进入会话自动滚动、用户模型配置复用、Settings 模型测试、退出登录确认、引用来源跟随选中回答、未读角标、响应式问题、RAG tooltip、生成打断和 `.env` 本地模型兜底均已纳入阶段 14 收尾记录。
 - 本轮收尾新增 `ragEnabled` 和生成打断接口，API 契约已同步到 `doc/API.md`。
 - 完整 Chat 真实回答验收仍依赖用户在 `/Settings` 提供可用的真实模型 Base URL/API Key/Model。
@@ -98,7 +100,7 @@ Browser -> frontend Nginx container -> backend Spring Boot container -> postgres
 - `auth`：注册、登录、JWT、当前用户资料。
 - `config`：Security、JWT、跨域和环境配置。
 - `knowledgebase`：知识库 CRUD 和成员权限。
-- `document`：文档上传、解析、切片、全文检索。
+- `document`：文档上传、解析、切片、全文检索、处理任务进度。
 - `chat`：会话、消息、未读、后台生成状态、今日交谈次数。
 - `rag`：检索结果转 Prompt、模型调用适配、引用来源。
 - `settings`：用户模型配置、模型测试、偏好、RAG 参数。
@@ -110,6 +112,7 @@ Browser -> frontend Nginx container -> backend Spring Boot container -> postgres
 - `knowledge_bases`
 - `knowledge_base_members`
 - `documents`
+- `document_processing_jobs`
 - `document_chunks`
 - `chat_sessions`
 - `chat_messages`
@@ -302,7 +305,7 @@ Get-Content .\knowflow-backup.sql | docker compose exec -T postgres psql -U know
 
 ## 后续扩展
 
-- 阶段 16：已完成。后续可考虑后台任务队列、OCR、PPT/Excel 解析、向量检索或 SSE 流式输出。
+- 阶段 17：完成持久化文档处理任务和 Documents 页面进度展示后，下一步可考虑 OCR、PPT/Excel 解析、向量检索或 SSE 流式输出。
 - Embedding 和 pgvector 向量检索。
 - SSE 流式输出。
 - OCR。

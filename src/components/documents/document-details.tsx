@@ -11,6 +11,7 @@ import {
 
 import type {
   DocumentChunkResponse,
+  DocumentProcessingJobResponse,
   DocumentQualityResponse,
 } from "@/api/documents";
 import { Button } from "@/components/ui/button";
@@ -35,6 +36,7 @@ export function DocumentDetails({
   qualityError,
   isGeneratingSummary,
   summaryError,
+  processingJob,
   isReprocessing,
   canReprocess,
   reprocessDisabledReason,
@@ -54,6 +56,7 @@ export function DocumentDetails({
   qualityError: string;
   isGeneratingSummary: boolean;
   summaryError: string;
+  processingJob?: DocumentProcessingJobResponse;
   isReprocessing: boolean;
   canReprocess: boolean;
   reprocessDisabledReason?: string;
@@ -70,8 +73,16 @@ export function DocumentDetails({
   const averageChunkLength =
     quality?.averageChunkLength ?? item.averageChunkLength;
   const effectiveCanReprocess = canReprocess && item.reprocessAvailable !== false;
+  const hasActiveJob =
+    processingJob?.status === "QUEUED" || processingJob?.status === "RUNNING";
+  const progressPercent =
+    typeof processingJob?.progressPercent === "number"
+      ? Math.max(0, Math.min(100, processingJob.progressPercent))
+      : 0;
   const effectiveReprocessDisabledReason = !canReprocess
     ? reprocessDisabledReason
+    : hasActiveJob
+      ? "后台处理中，完成后可重新处理"
     : item.reprocessAvailable === false
       ? item.status === "FAILED"
         ? "此文档没有保存原始来源，无法自动重试，请重新上传文件。"
@@ -118,7 +129,7 @@ export function DocumentDetails({
               <Button
                 type="button"
                 variant="outline"
-                disabled={isReprocessing || !effectiveCanReprocess}
+                disabled={isReprocessing || hasActiveJob || !effectiveCanReprocess}
                 title={effectiveReprocessDisabledReason}
                 onClick={onReprocess}
                 className="h-10 rounded-[5px] border-slate-200 bg-white px-4 text-sm font-medium tracking-normal text-slate-500 normal-case"
@@ -177,6 +188,69 @@ export function DocumentDetails({
               )}
             </div>
           </section>
+
+          {processingJob && (
+            <section className="border-b border-slate-200 py-5">
+              <h3 className="text-base font-semibold text-slate-900">
+                后台处理任务
+              </h3>
+              <div className="mt-3 flex flex-col gap-3">
+                <div>
+                  <div className="mb-2 flex items-center justify-between gap-3 text-xs text-slate-500">
+                    <span>{processingJob.stage || processingJob.status}</span>
+                    <span>{progressPercent}%</span>
+                  </div>
+                  <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+                    <div
+                      className={cn(
+                        "h-full rounded-full transition-[width]",
+                        processingJob.status === "FAILED"
+                          ? "bg-red-500"
+                          : processingJob.status === "CANCELED"
+                            ? "bg-slate-400"
+                            : processingJob.status === "SUCCEEDED"
+                              ? "bg-emerald-500"
+                              : "bg-blue-500",
+                      )}
+                      style={{ width: `${progressPercent}%` }}
+                    />
+                  </div>
+                </div>
+                <div className="flex flex-col gap-3">
+                  <DetailRow label="任务类型" value={processingJob.jobType} />
+                  <DetailRow label="任务状态" value={processingJob.status} />
+                  <DetailRow
+                    label="创建时间"
+                    value={formatDateTime(processingJob.createdAt)}
+                  />
+                  <DetailRow
+                    label="更新时间"
+                    value={formatDateTime(processingJob.updatedAt)}
+                  />
+                  {processingJob.message && (
+                    <DetailRow
+                      label="任务消息"
+                      value={
+                        <span className="break-words">
+                          {processingJob.message}
+                        </span>
+                      }
+                    />
+                  )}
+                  {processingJob.errorMessage && (
+                    <DetailRow
+                      label="错误信息"
+                      value={
+                        <span className="break-words text-red-600">
+                          {processingJob.errorMessage}
+                        </span>
+                      }
+                    />
+                  )}
+                </div>
+              </div>
+            </section>
+          )}
 
           <section className="border-b border-slate-200 py-5">
             <div className="mb-3 flex items-center justify-between gap-3">

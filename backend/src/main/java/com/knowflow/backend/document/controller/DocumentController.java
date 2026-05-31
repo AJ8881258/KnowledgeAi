@@ -4,27 +4,29 @@ import com.knowflow.backend.chat.model.ChatModelClient;
 import com.knowflow.backend.document.dto.request.GenerateDocumentSummaryRequest;
 import com.knowflow.backend.document.dto.request.SearchDocumentRequest;
 import com.knowflow.backend.document.dto.response.DocumentChunkResponse;
+import com.knowflow.backend.document.dto.response.DocumentProcessingJobResponse;
 import com.knowflow.backend.document.dto.response.DocumentQualityResponse;
 import com.knowflow.backend.document.dto.response.DocumentResponse;
 import com.knowflow.backend.document.dto.response.DocumentSummaryResponse;
 import com.knowflow.backend.document.dto.response.SearchDocumentResponse;
 import com.knowflow.backend.document.dto.response.SearchResultResponse;
 import com.knowflow.backend.document.entity.Document;
-import com.knowflow.backend.document.entity.DocumentChunk;
+import com.knowflow.backend.document.entity.DocumentProcessingJob;
 import com.knowflow.backend.document.repository.DocumentChunkRepository;
 import com.knowflow.backend.document.repository.DocumentRepository;
-import com.knowflow.backend.document.service.DocumentTextExtractor;
+import com.knowflow.backend.document.service.DocumentProcessingJobRunner;
+import com.knowflow.backend.document.service.DocumentProcessingJobService;
 import com.knowflow.backend.knowledgebase.service.KnowledgeBaseAccessService;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
-import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
@@ -43,14 +45,9 @@ import static com.knowflow.backend.common.utils.AuthUtils.getCurrentUserId;
 public class DocumentController {
 
     private static final long MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
-    private static final int CHUNK_SIZE = 1000;
-    private static final int CHUNK_OVERLAP = 150;
     private static final int CONTENT_TYPE_MAX_LENGTH = 64;
 
     private static final String STATUS_UPLOADED = "UPLOADED";
-    private static final String STATUS_PROCESSING = "PROCESSING";
-    private static final String STATUS_INDEXED = "INDEXED";
-    private static final String STATUS_FAILED = "FAILED";
 
     private static final int DEFAULT_SEARCH_LIMIT = 5;
     private static final int MAX_SEARCH_LIMIT = 20;
@@ -60,38 +57,38 @@ public class DocumentController {
     private static final int SUMMARY_INPUT_MAX_CHARS = 12_000;
     private static final int DEFAULT_SUMMARY_OUTPUT_MAX_CHARS = 500;
     private static final int MAX_SUMMARY_OUTPUT_MAX_CHARS = 4_000;
-    private static final String NO_REPROCESS_SOURCE_MESSAGE =
-            "Document cannot be reprocessed because no source or indexed text is available";
+    private static final int DEFAULT_JOB_LIMIT = 20;
+    private static final int MAX_JOB_LIMIT = 50;
 
     private final KnowledgeBaseAccessService accessService;
     private final DocumentRepository documentRepository;
     private final DocumentChunkRepository documentChunkRepository;
-    private final DocumentTextExtractor documentTextExtractor;
+    private final DocumentProcessingJobService documentProcessingJobService;
+    private final DocumentProcessingJobRunner documentProcessingJobRunner;
     private final ChatModelClient chatModelClient;
-    private final TransactionTemplate transactionTemplate;
 
     public DocumentController(
             KnowledgeBaseAccessService accessService,
             DocumentRepository documentRepository,
             DocumentChunkRepository documentChunkRepository,
-            DocumentTextExtractor documentTextExtractor,
-            ChatModelClient chatModelClient,
-            TransactionTemplate transactionTemplate) {
+            DocumentProcessingJobService documentProcessingJobService,
+            DocumentProcessingJobRunner documentProcessingJobRunner,
+            ChatModelClient chatModelClient) {
         this.accessService = accessService;
         this.documentRepository = documentRepository;
         this.documentChunkRepository = documentChunkRepository;
-        this.documentTextExtractor = documentTextExtractor;
+        this.documentProcessingJobService = documentProcessingJobService;
+        this.documentProcessingJobRunner = documentProcessingJobRunner;
         this.chatModelClient = chatModelClient;
-        this.transactionTemplate = transactionTemplate;
     }
 
     /**
-     * Uploads and synchronously indexes a document for a knowledge base.
+     * Uploads a document source and creates a durable processing job.
      *
      * @param knowledgeBaseId target knowledge base ID
      * @param file uploaded source file
      * @param jwt current authenticated user
-     * @return saved document metadata plus chunk quality metrics
+     * @return saved document metadata; when background mode is enabled it may still be PROCESSING
      */
     @PostMapping("/knowledge-bases/{knowledgeBaseId}/documents")
     @ResponseStatus(HttpStatus.CREATED)
@@ -119,29 +116,9 @@ public class DocumentController {
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "document upload failed");
         }
 
-        documentRepository.updateStatusByIdAndCreatedBy(document.getId(), userId, STATUS_PROCESSING, null);
-
-        try {
-            String text = documentTextExtractor.extract(document.getOriginalFilename(), sourceBytes);
-            if (text.isBlank()) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Document content is blank");
-            }
-
-            documentRepository.updateSourceTextById(document.getId(), text);
-            saveChunks(document.getId(), knowledgeBaseId, splitText(text));
-            documentRepository.updateStatusByIdAndCreatedBy(document.getId(), userId, STATUS_INDEXED, null);
-            return toDocumentResponse(getAccessibleDocumentOr404(document.getId(), userId));
-        } catch (DocumentTextExtractor.ExtractionFailure exception) {
-            failDocument(document.getId(), userId, exception.getUserMessage());
-            throw new ResponseStatusException(exception.getStatus(), exception.getUserMessage());
-        } catch (ResponseStatusException exception) {
-            String safeMessage = safeReason(exception);
-            failDocument(document.getId(), userId, safeMessage);
-            throw new ResponseStatusException(resolveStatus(exception), safeMessage);
-        } catch (Exception exception) {
-            failDocument(document.getId(), userId, "Document processing failed");
-            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Process document failed");
-        }
+        DocumentProcessingJob job = documentProcessingJobService.createUploadJob(document, userId);
+        documentProcessingJobRunner.start(job.getId());
+        return toDocumentResponse(getAccessibleDocumentOr404(document.getId(), userId));
     }
 
     /**
@@ -155,6 +132,27 @@ public class DocumentController {
                 .stream()
                 .map(this::toDocumentResponse)
                 .toList();
+    }
+
+    /**
+     * Lists recent processing jobs for a knowledge base.
+     *
+     * @param knowledgeBaseId target knowledge base
+     * @param limit optional max rows; bounded to avoid loading full job history
+     * @param jwt current user; every knowledge-base member may observe processing progress
+     * @return newest jobs, with active QUEUED/RUNNING jobs ordered first
+     */
+    @GetMapping("/knowledge-bases/{knowledgeBaseId}/document-processing-jobs")
+    public List<DocumentProcessingJobResponse> listKnowledgeBaseProcessingJobs(
+            @PathVariable Long knowledgeBaseId,
+            @RequestParam(required = false) Integer limit,
+            @AuthenticationPrincipal Jwt jwt) {
+        Long userId = getCurrentUserId(jwt);
+        accessService.requireMember(knowledgeBaseId, userId);
+        return documentProcessingJobService.findRecentJobsForKnowledgeBase(
+                knowledgeBaseId,
+                userId,
+                normalizeJobLimit(limit));
     }
 
     /**
@@ -189,6 +187,33 @@ public class DocumentController {
     }
 
     /**
+     * Returns recent processing jobs for one document.
+     *
+     * @param documentId document ID
+     * @param limit optional max rows; defaults to recent 20 jobs
+     * @param jwt current user; non-members receive 404 via document access check
+     * @return durable job records for upload/reprocess attempts
+     */
+    @GetMapping("/documents/{documentId}/processing-jobs")
+    public List<DocumentProcessingJobResponse> listDocumentProcessingJobs(
+            @PathVariable Long documentId,
+            @RequestParam(required = false) Integer limit,
+            @AuthenticationPrincipal Jwt jwt) {
+        Long userId = getCurrentUserId(jwt);
+        getAccessibleDocumentOr404(documentId, userId);
+        return documentProcessingJobService.findRecentJobsForDocument(documentId, userId, normalizeJobLimit(limit));
+    }
+
+    /**
+     * Returns one processing job if the current user can access its knowledge base.
+     */
+    @GetMapping("/document-processing-jobs/{jobId}")
+    public DocumentProcessingJobResponse getProcessingJob(@PathVariable Long jobId, @AuthenticationPrincipal Jwt jwt) {
+        Long userId = getCurrentUserId(jwt);
+        return documentProcessingJobService.findAccessibleJob(jobId, userId);
+    }
+
+    /**
      * Returns chunk-based quality metrics for a document.
      *
      * @param documentId document ID
@@ -203,15 +228,14 @@ public class DocumentController {
     }
 
     /**
-     * Reprocesses an existing document from the best available source.
+     * Creates a reprocess job for an existing document from the best available source.
      *
-     * <p>Stage 16 tries saved original bytes first, then saved extracted text, and finally the Stage 15
-     * chunks fallback for old rows. This makes failed uploads with no chunks truly retryable when their
-     * original source was stored.</p>
+     * <p>Stage 17 keeps Stage 16 source priority but records the attempt in document_processing_jobs,
+     * so the frontend can poll progress and show failed retry reasons after navigation/refresh.</p>
      *
      * @param documentId document ID
      * @param jwt current user; OWNER/EDITOR allowed, VIEWER gets 403, non-members get 404
-     * @return reprocessed document details
+     * @return current document details; job progress is available through processing-job endpoints
      */
     @PostMapping("/documents/{documentId}/reprocess")
     public DocumentResponse reprocessDocument(@PathVariable Long documentId, @AuthenticationPrincipal Jwt jwt) {
@@ -219,30 +243,9 @@ public class DocumentController {
         Document document = getAccessibleSourceDocumentOr404(documentId, userId);
         accessService.requireEditor(document.getKnowledgeBaseId(), userId);
 
-        // 先把状态置为 PROCESSING，让前端能明确看到用户触发了重新处理。
-        documentRepository.updateStatusById(documentId, STATUS_PROCESSING, null);
-
-        try {
-            String rebuiltText = resolveReprocessText(document);
-            List<String> chunks = splitText(rebuiltText);
-            transactionTemplate.executeWithoutResult(status -> {
-                documentChunkRepository.deleteByDocumentId(documentId);
-                saveChunks(documentId, document.getKnowledgeBaseId(), chunks);
-                documentRepository.updateSourceTextById(documentId, rebuiltText);
-                documentRepository.updateStatusById(documentId, STATUS_INDEXED, null);
-            });
-            return toDocumentResponse(getAccessibleDocumentOr404(documentId, userId));
-        } catch (DocumentTextExtractor.ExtractionFailure exception) {
-            documentRepository.updateStatusById(documentId, STATUS_FAILED, exception.getUserMessage());
-            throw new ResponseStatusException(exception.getStatus(), exception.getUserMessage());
-        } catch (ResponseStatusException exception) {
-            String safeMessage = safeReason(exception);
-            documentRepository.updateStatusById(documentId, STATUS_FAILED, safeMessage);
-            throw new ResponseStatusException(resolveStatus(exception), safeMessage);
-        } catch (RuntimeException exception) {
-            documentRepository.updateStatusById(documentId, STATUS_FAILED, "Document processing failed");
-            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Document processing failed");
-        }
+        DocumentProcessingJob job = documentProcessingJobService.createReprocessJob(document, userId);
+        documentProcessingJobRunner.start(job.getId());
+        return toDocumentResponse(getAccessibleDocumentOr404(documentId, userId));
     }
 
     /**
@@ -326,44 +329,6 @@ public class DocumentController {
         return Math.min(limit, MAX_SEARCH_LIMIT);
     }
 
-    private List<String> splitText(String text) {
-        List<String> chunks = new ArrayList<>();
-        int start = 0;
-        int textLength = text.length();
-        while (start < textLength) {
-            int end = Math.min(start + CHUNK_SIZE, textLength);
-            String chunk = text.substring(start, end).trim();
-
-            if (!chunk.isBlank()) {
-                chunks.add(chunk);
-            }
-            if (end >= textLength) {
-                break;
-            }
-            start = end - CHUNK_OVERLAP;
-        }
-        if (chunks.isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Document content is blank");
-        }
-        return chunks;
-    }
-
-    /**
-     * Persists chunks with consistent chunk_index and char_count for upload and reprocess paths.
-     */
-    private void saveChunks(Long documentId, Long knowledgeBaseId, List<String> chunks) {
-        for (int index = 0; index < chunks.size(); index++) {
-            String content = chunks.get(index);
-            DocumentChunk chunk = new DocumentChunk();
-            chunk.setDocumentId(documentId);
-            chunk.setKnowledgeBaseId(knowledgeBaseId);
-            chunk.setChunkIndex(index);
-            chunk.setContent(content);
-            chunk.setCharCount(content.length());
-            documentChunkRepository.insert(chunk);
-        }
-    }
-
     private void validateBasicFile(MultipartFile file) {
         if (file == null || file.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "File is required");
@@ -401,22 +366,6 @@ public class DocumentController {
                 : contentType;
     }
 
-    private void failDocument(Long documentId, Long userId, String safeMessage) {
-        documentRepository.updateStatusByIdAndCreatedBy(documentId, userId, STATUS_FAILED, safeMessage);
-    }
-
-    private String safeReason(ResponseStatusException exception) {
-        if (exception.getReason() == null || exception.getReason().isBlank()) {
-            return "Document processing failed";
-        }
-        return exception.getReason();
-    }
-
-    private HttpStatus resolveStatus(ResponseStatusException exception) {
-        HttpStatus status = HttpStatus.resolve(exception.getStatusCode().value());
-        return status == null ? HttpStatus.INTERNAL_SERVER_ERROR : status;
-    }
-
     private Document getAccessibleDocumentOr404(Long documentId, Long userId) {
         return documentRepository.findAccessibleById(documentId, userId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Document not found"));
@@ -429,27 +378,6 @@ public class DocumentController {
 
     private DocumentResponse toDocumentResponse(Document document) {
         return new DocumentResponse(document, buildQuality(document));
-    }
-
-    /**
-     * Chooses the source text for document reprocessing.
-     *
-     * @param document document row containing optional original bytes, extracted text, and metadata
-     * @return normalized text that will replace current chunks
-     */
-    private String resolveReprocessText(Document document) {
-        if (document.getSourceBytes() != null && document.getSourceBytes().length > 0) {
-            return documentTextExtractor.extract(document.getOriginalFilename(), document.getSourceBytes());
-        }
-        if (document.getSourceText() != null && !document.getSourceText().isBlank()) {
-            return document.getSourceText();
-        }
-
-        String rebuiltText = documentChunkRepository.concatenateContentByDocumentId(document.getId());
-        if (rebuiltText == null || rebuiltText.isBlank()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, NO_REPROCESS_SOURCE_MESSAGE);
-        }
-        return rebuiltText;
     }
 
     /**
@@ -534,5 +462,15 @@ public class DocumentController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "maxLength must be >=1");
         }
         return Math.min(maxLength, MAX_SUMMARY_OUTPUT_MAX_CHARS);
+    }
+
+    private int normalizeJobLimit(Integer limit) {
+        if (limit == null) {
+            return DEFAULT_JOB_LIMIT;
+        }
+        if (limit < 1) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "limit must be >=1");
+        }
+        return Math.min(limit, MAX_JOB_LIMIT);
     }
 }

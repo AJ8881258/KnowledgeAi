@@ -1,7 +1,16 @@
 import type { ReactNode } from "react";
-import { ArrowRight, FileText, Loader2, RefreshCw, TriangleAlert } from "lucide-react";
+import {
+  ArrowRight,
+  FileText,
+  Loader2,
+  RefreshCw,
+  TriangleAlert,
+} from "lucide-react";
 
-import type { DocumentStatus } from "@/api/documents";
+import type {
+  DocumentProcessingJobResponse,
+  DocumentStatus,
+} from "@/api/documents";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { statusMeta, typeMeta } from "./document-data";
@@ -54,19 +63,43 @@ export function SegmentedFilter({
 export function StatusText({
   status,
   error,
+  processingJob,
 }: {
   status: DocumentStatus;
   error?: string | null;
+  processingJob?: DocumentProcessingJobResponse;
 }) {
   const meta = statusMeta[status];
+  const hasActiveJob =
+    processingJob?.status === "QUEUED" || processingJob?.status === "RUNNING";
+  const progressPercent =
+    typeof processingJob?.progressPercent === "number"
+      ? Math.max(0, Math.min(100, processingJob.progressPercent))
+      : 0;
 
   return (
     <div className="flex min-w-[120px] flex-col gap-1">
       <div className={cn("flex items-center gap-2 text-sm", meta.textClass)}>
         <span className={cn("size-2 rounded-full", meta.dotClass)} />
-        <span>{meta.label}</span>
-        {status === "PROCESSING" && <Loader2 className="size-3 animate-spin" />}
+        <span>{hasActiveJob ? "后台处理中" : meta.label}</span>
+        {(status === "PROCESSING" || hasActiveJob) && (
+          <Loader2 className="size-3 animate-spin" />
+        )}
       </div>
+      {hasActiveJob && (
+        <div className="w-[132px]">
+          <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
+            <div
+              className="h-full rounded-full bg-blue-500 transition-[width]"
+              style={{ width: `${progressPercent}%` }}
+            />
+          </div>
+          <div className="mt-1 truncate text-xs text-slate-500">
+            {progressPercent}%
+            {processingJob.stage ? ` · ${processingJob.stage}` : ""}
+          </div>
+        </div>
+      )}
       {status === "FAILED" && error && (
         <span className="w-fit max-w-[220px] truncate rounded-[5px] border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-600">
           {error}

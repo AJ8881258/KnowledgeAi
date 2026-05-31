@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
 import { isAxiosError } from "axios";
 import { useLocation, useNavigate, useParams } from "react-router";
@@ -9,11 +9,14 @@ import {
   generateDocumentSummary,
   getDocument,
   getDocumentChunks,
+  getDocumentProcessingJob,
   getDocumentQuality,
+  getKnowledgeBaseDocumentProcessingJobs,
   getKnowledgeBaseDocuments,
   reprocessDocument,
   uploadKnowledgeBaseDocument,
   type DocumentChunkResponse,
+  type DocumentProcessingJobResponse,
   type DocumentQualityResponse,
 } from "@/api/documents";
 import { getKnowledgeBases, type KnowledgeBaseResponse } from "@/api/knowledge-bases";
@@ -60,6 +63,9 @@ const Documents = () => {
     [],
   );
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
+  const [processingJobs, setProcessingJobs] = useState<
+    DocumentProcessingJobResponse[]
+  >([]);
   const [chunks, setChunks] = useState<DocumentChunkResponse[]>([]);
   const [typeTab, setTypeTab] = useState<TypeTab>("全部");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("ALL");
@@ -101,9 +107,60 @@ const Documents = () => {
   const canMutateDocuments = currentKnowledgeBaseModel
     ? canMutateKnowledgeBaseDocuments(currentKnowledgeBaseModel)
     : false;
+  const activeProcessingJobs = useMemo(
+    () =>
+      processingJobs.filter(
+        (job) => job.status === "QUEUED" || job.status === "RUNNING",
+      ),
+    [processingJobs],
+  );
+  const latestJobsByDocumentId = useMemo(
+    () =>
+      processingJobs.reduce<Map<number, DocumentProcessingJobResponse>>(
+        (jobsByDocumentId, job) => {
+          const currentJob = jobsByDocumentId.get(job.documentId);
+          const currentTime = currentJob
+            ? new Date(currentJob.updatedAt).getTime()
+            : 0;
+          const nextTime = new Date(job.updatedAt).getTime();
+
+          if (!currentJob || nextTime >= currentTime) {
+            jobsByDocumentId.set(job.documentId, job);
+          }
+
+          return jobsByDocumentId;
+        },
+        new Map(),
+      ),
+    [processingJobs],
+  );
+  const activeJobsByDocumentId = useMemo(
+    () =>
+      activeProcessingJobs.reduce<Map<number, DocumentProcessingJobResponse>>(
+        (jobsByDocumentId, job) => {
+          const currentJob = jobsByDocumentId.get(job.documentId);
+          const currentTime = currentJob
+            ? new Date(currentJob.updatedAt).getTime()
+            : 0;
+          const nextTime = new Date(job.updatedAt).getTime();
+
+          if (!currentJob || nextTime >= currentTime) {
+            jobsByDocumentId.set(job.documentId, job);
+          }
+
+          return jobsByDocumentId;
+        },
+        new Map(),
+      ),
+    [activeProcessingJobs],
+  );
   const documentMutationDisabledReason =
     "当前角色为只读，只能查看和检索文档，不能上传、删除或重新处理文档。";
   const getReprocessDisabledReason = (doc: DocumentItem) => {
+    if (activeJobsByDocumentId.has(doc.id)) {
+      return "后台处理中，完成后可重新处理";
+    }
+
     if (!canMutateDocuments) {
       return documentMutationDisabledReason;
     }
@@ -189,6 +246,28 @@ const Documents = () => {
     }
   }, [handleApiError, knowledgeBaseId]);
 
+  const loadProcessingJobs = useCallback(async () => {
+    if (!knowledgeBaseId) {
+      setProcessingJobs([]);
+      return;
+    }
+
+    try {
+      const response = await getKnowledgeBaseDocumentProcessingJobs(
+        knowledgeBaseId,
+        20,
+      );
+      setProcessingJobs(response);
+    } catch (error) {
+      if (isAxiosError(error) && error.response?.status === 401) {
+        handleApiError(error);
+        return;
+      }
+
+      setProcessingJobs([]);
+    }
+  }, [handleApiError, knowledgeBaseId]);
+
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
       void loadKnowledgeBaseOptions();
@@ -204,6 +283,55 @@ const Documents = () => {
 
     return () => window.clearTimeout(timeoutId);
   }, [loadDocuments]);
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      void loadProcessingJobs();
+    }, 0);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [loadProcessingJobs]);
+
+  useEffect(() => {
+    if (activeProcessingJobs.length === 0) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      void Promise.all(
+        activeProcessingJobs.map((job) => getDocumentProcessingJob(job.id)),
+      )
+        .then((updatedJobs) => {
+          const hadActiveJob = updatedJobs.some(
+            (job) => job.status === "QUEUED" || job.status === "RUNNING",
+          );
+
+          setProcessingJobs((currentJobs) => {
+            const jobsById = new Map(
+              currentJobs.map((job) => [job.id, job] as const),
+            );
+            updatedJobs.forEach((job) => jobsById.set(job.id, job));
+
+            return Array.from(jobsById.values()).sort(
+              (first, second) =>
+                new Date(second.updatedAt).getTime() -
+                new Date(first.updatedAt).getTime(),
+            );
+          });
+
+          if (!hadActiveJob) {
+            void loadDocuments();
+          }
+        })
+        .catch((error) => {
+          if (isAxiosError(error) && error.response?.status === 401) {
+            handleApiError(error);
+          }
+        });
+    }, 2000);
+
+    return () => window.clearInterval(intervalId);
+  }, [activeProcessingJobs, handleApiError, loadDocuments]);
 
   useEffect(() => {
     if (!knowledgeBaseId || !currentKnowledgeBase) {
@@ -453,8 +581,10 @@ const Documents = () => {
         await uploadKnowledgeBaseDocument(knowledgeBaseId, file);
       }
 
-      toast.success(`已上传 ${validFiles.length} 个文档`);
-      await loadDocuments();
+      await Promise.all([loadDocuments(), loadProcessingJobs()]);
+      toast.success(
+        `已上传 ${validFiles.length} 个文档，后台处理任务已创建`,
+      );
     } catch (error) {
       handleApiError(error);
     } finally {
@@ -561,12 +691,8 @@ const Documents = () => {
         ]);
       }
 
-      await loadDocuments();
-      toast.success(
-        nextDocument.status === "FAILED"
-          ? "重新处理已完成，但文档仍处于失败状态"
-          : "文档已重新处理",
-      );
+      await Promise.all([loadDocuments(), loadProcessingJobs()]);
+      toast.success("已创建重新处理任务，完成后会刷新文档状态");
     } catch (error) {
       handleApiError(error);
     } finally {
@@ -614,6 +740,7 @@ const Documents = () => {
         pageSize={pageSize}
         isDeleting={isDeleting}
         reprocessingDocumentId={reprocessingDocumentId}
+        activeJobsByDocumentId={activeJobsByDocumentId}
         canDeleteDocuments={canMutateDocuments}
         canReprocessDocuments={canMutateDocuments}
         deleteDisabledReason={documentMutationDisabledReason}
@@ -700,6 +827,7 @@ const Documents = () => {
             qualityError={qualityError}
             isGeneratingSummary={isGeneratingSummary}
             summaryError={summaryError}
+            processingJob={latestJobsByDocumentId.get(selectedDocument.id)}
             isReprocessing={reprocessingDocumentId === selectedDocument.id}
             canReprocess={canMutateDocuments}
             reprocessDisabledReason={getReprocessDisabledReason(selectedDocument)}

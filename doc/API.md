@@ -735,10 +735,10 @@ Authorization: Bearer <accessToken>
 - PDF 当前只支持可提取文本的 PDF；扫描图片型 PDF 暂不做 OCR，如果无法提取文本会返回 `400` 并标记为 `FAILED`。
 - 阶段 11 第一版已实现 `.docx` 文本提取，优先提取段落和表格文本；不支持旧版 `.doc`。
 - 阶段 11 第一版已实现 `.html` / `.htm` 文本提取，后端会过滤脚本、样式等非正文内容。
-- 阶段 11 不新增 PPT、Excel、OCR、异步队列或自动重试接口。
+- 阶段 11 不新增 PPT、Excel、OCR 或自动重试接口；阶段 17 新增 PostgreSQL 持久化处理任务，但不引入 MQ 或复杂任务中心。
 - 阶段 16 开始，后端会保存原始上传 bytes；如果解析成功，还会保存规范化后的原始文本。`source_bytes` 和 `source_text` 仅用于后端重新处理，不通过 API 返回。
 - 空白文本返回 `400`，文档记录保留为 `FAILED`，不保存 chunk。
-- 上传成功后，后端读取文本内容并按固定长度切片，最终 `status` 为 `INDEXED`。
+- 阶段 17 开始，上传会创建 `UPLOAD_INDEX` 处理任务。默认同步模式下成功响应通常为 `INDEXED`；如果开启后台处理，响应可能先返回 `PROCESSING`，进度以处理任务查询接口为准。
 - 如果读取或切片过程中失败，文档记录保留，`status` 更新为 `FAILED`，`errorMessage` 保存失败原因。
 
 成功响应示例：
@@ -800,7 +800,7 @@ Authorization: Bearer <accessToken>
 
 #### 重新处理文档
 
-> 状态：阶段 16 已实现真正失败重试。
+> 状态：阶段 17 已升级为持久化处理任务。阶段 16 的真正失败重试来源优先级保持不变。
 
 | 项目 | 内容 |
 |---|---|
@@ -816,6 +816,7 @@ Authorization: Bearer <accessToken>
 - 阶段 16 后，重新处理优先使用 `documents.source_bytes` 重新按原始文件类型解析；如果没有原始 bytes，则使用 `documents.source_text`；如果两者都不存在，则兼容阶段 15 旧数据，从当前已有 chunks 拼接出可重建文本。
 - 如果文档既没有原始来源，也没有可重建 chunks，返回 `400`，文档状态保持或更新为 `FAILED`，`errorMessage` 为 `Document cannot be reprocessed because no source or indexed text is available`。
 - 如果原始来源存在但文件类型仍不支持，例如旧版 `.doc`，返回对应脱敏 `400` 错误，文档保持 `FAILED`。
+- 阶段 17 开始，重新处理会创建 `REPROCESS` 处理任务。默认同步模式下成功响应通常为 `INDEXED`；如果开启后台处理，响应可能先返回 `PROCESSING`，进度以处理任务查询接口为准。
 - 重新处理成功时在事务内替换旧 chunks，文档状态更新为 `INDEXED`，后续检索和 Chat 引用使用新 chunks。
 - 如果替换 chunks 过程失败，旧 chunks 会回滚保留，随后文档状态更新为 `FAILED`，`errorMessage` 写入脱敏后的失败原因，避免出现半替换数据。
 - API 只返回 `sourceStored` 和 `reprocessAvailable`，不会返回 `source_bytes`、`source_text` 或原始正文内容。
@@ -854,6 +855,76 @@ Authorization: Bearer <accessToken>
 | `403` | 当前用户是 `VIEWER`，无权重新处理文档 |
 | `404` | 文档不存在，或当前登录用户不是该文档所属知识库成员 |
 | `500` | 重新切片或模型外部无关的后端处理失败，错误已脱敏 |
+
+#### 文档处理任务响应字段
+
+> 状态：阶段 17 已实现。
+
+`DocumentProcessingJobResponse`：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `id` | number | 处理任务 ID。 |
+| `documentId` | number | 任务所属文档 ID。 |
+| `knowledgeBaseId` | number | 任务所属知识库 ID。 |
+| `requestedBy` | number | 发起上传或重新处理的用户 ID。 |
+| `jobType` | string | 任务类型：`UPLOAD_INDEX` 或 `REPROCESS`。 |
+| `status` | string | 任务状态：`QUEUED`、`RUNNING`、`SUCCEEDED`、`FAILED`、`CANCELED`。 |
+| `progressPercent` | number | 粗粒度进度，范围 0-100。当前解析器没有可靠字节级进度，因此使用阶段里程碑。 |
+| `stage` | string \| null | 阶段码，例如 `QUEUED`、`READ_SOURCE`、`EXTRACT_TEXT`、`SPLIT_CHUNKS`、`WRITE_CHUNKS`、`COMPLETED`、`FAILED`。 |
+| `message` | string \| null | 脱敏用户可读任务消息。 |
+| `errorMessage` | string \| null | 脱敏失败原因；成功或未失败时为 `null`。 |
+| `startedAt` | string \| null | 任务进入运行状态的时间。 |
+| `finishedAt` | string \| null | 任务成功、失败或取消的时间。 |
+| `createdAt` | string | 任务创建时间。 |
+| `updatedAt` | string | 任务最后更新时间。 |
+
+说明：
+
+- `documents.status` 表示文档当前可检索材料化状态；`document_processing_jobs.status` 表示某次上传或重新处理尝试的状态。
+- 前端应优先用活跃任务显示“后台处理中”和进度，用文档状态显示最终可检索状态。
+- 任务消息和错误不得包含服务器路径、堆栈、API Key、Authorization header 或模型供应商敏感错误。
+
+#### 获取知识库处理任务列表
+
+| 项目 | 内容 |
+|---|---|
+| 请求方式 | `GET` |
+| 请求路径 | `/api/knowledge-bases/{knowledgeBaseId}/document-processing-jobs?limit=20` |
+| 是否需要登录 | 是 |
+
+说明：
+
+- 当前用户必须是知识库成员；非成员返回 `404`。
+- `limit` 可选，默认 20，最小 1，最大 50。
+- 返回最近任务，活跃的 `QUEUED` / `RUNNING` 任务优先。
+
+#### 获取文档处理任务列表
+
+| 项目 | 内容 |
+|---|---|
+| 请求方式 | `GET` |
+| 请求路径 | `/api/documents/{documentId}/processing-jobs?limit=10` |
+| 是否需要登录 | 是 |
+
+说明：
+
+- 当前用户必须是文档所属知识库成员；非成员返回 `404`。
+- `limit` 可选，默认 20，最小 1，最大 50。
+- 返回该文档最近的上传或重新处理任务。
+
+#### 获取单个处理任务
+
+| 项目 | 内容 |
+|---|---|
+| 请求方式 | `GET` |
+| 请求路径 | `/api/document-processing-jobs/{jobId}` |
+| 是否需要登录 | 是 |
+
+说明：
+
+- 当前用户必须是任务所属知识库成员；非成员返回 `404`。
+- 前端可对活跃任务按 job ID 轮询，任务进入 `SUCCEEDED`、`FAILED` 或 `CANCELED` 后停止轮询并刷新文档列表。
 
 #### 获取文档质量报告
 

@@ -2,6 +2,32 @@ import { http } from "@/api/http";
 
 export type DocumentStatus = "UPLOADED" | "PROCESSING" | "INDEXED" | "FAILED";
 
+export type DocumentProcessingJobType = "UPLOAD_INDEX" | "REPROCESS";
+
+export type DocumentProcessingJobStatus =
+  | "QUEUED"
+  | "RUNNING"
+  | "SUCCEEDED"
+  | "FAILED"
+  | "CANCELED";
+
+export type DocumentProcessingJobResponse = {
+  id: number;
+  documentId: number;
+  knowledgeBaseId: number;
+  requestedBy: number;
+  jobType: DocumentProcessingJobType;
+  status: DocumentProcessingJobStatus;
+  progressPercent: number;
+  stage: string | null;
+  message: string | null;
+  errorMessage: string | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type DocumentResponse = {
   id: number;
   knowledgeBaseId: number;
@@ -100,6 +126,38 @@ export async function uploadKnowledgeBaseDocument(
 
 export async function getDocument(documentId: number | string) {
   const response = await http.get<DocumentResponse>(`/documents/${documentId}`);
+
+  return response.data;
+}
+
+export async function getKnowledgeBaseDocumentProcessingJobs(
+  knowledgeBaseId: number | string,
+  limit = 20,
+) {
+  const response = await http.get<DocumentProcessingJobResponse[]>(
+    `/knowledge-bases/${knowledgeBaseId}/document-processing-jobs`,
+    { params: { limit } },
+  );
+
+  return response.data;
+}
+
+export async function getDocumentProcessingJobs(
+  documentId: number | string,
+  limit = 10,
+) {
+  const response = await http.get<DocumentProcessingJobResponse[]>(
+    `/documents/${documentId}/processing-jobs`,
+    { params: { limit } },
+  );
+
+  return response.data;
+}
+
+export async function getDocumentProcessingJob(jobId: number | string) {
+  const response = await http.get<DocumentProcessingJobResponse>(
+    `/document-processing-jobs/${jobId}`,
+  );
 
   return response.data;
 }
