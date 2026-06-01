@@ -4,12 +4,14 @@ import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import {
-  deleteCurrentUserAvatar,
   deleteCurrentUser,
   getCurrentUser,
+  selectCurrentUserAvatarPreset,
   updateCurrentUser,
   uploadCurrentUserAvatar,
   type CurrentUserResponse,
+  type DefaultAvatarPresetId,
+  type UpdateCurrentUserRequest,
 } from "@/api/auth";
 import {
   fetchModelList,
@@ -19,7 +21,6 @@ import {
   testModelConnection,
   updateModelSettings,
   updateRagSettings,
-  updateUserPreferences,
   type FetchModelListRequest,
   type ModelConnectionTestRequest,
   type ModelConnectionTestResponse,
@@ -61,6 +62,16 @@ function getErrorMessage(error: unknown, fallback: string) {
   }
 
   return fallback;
+}
+
+function normalizeAvatarUploadError(error: unknown) {
+  const message = getErrorMessage(error, "头像上传失败，请稍后重试。");
+
+  if (/avatar storage is not configured/i.test(message)) {
+    return "头像上传服务暂不可用，请先选择默认头像。";
+  }
+
+  return sanitizeSensitiveMessage(message);
 }
 
 function sanitizeSensitiveMessage(message: string) {
@@ -140,12 +151,11 @@ export default function Settings() {
     rag: "",
   });
   const [savingProfile, setSavingProfile] = useState(false);
+  const [savingAvatar, setSavingAvatar] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
-  const [deletingAvatar, setDeletingAvatar] = useState(false);
   const [savingModel, setSavingModel] = useState(false);
   const [fetchingModels, setFetchingModels] = useState(false);
   const [testingModel, setTestingModel] = useState(false);
-  const [savingPreferences, setSavingPreferences] = useState(false);
   const [savingRag, setSavingRag] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
   const [logoutDialogOpen, setLogoutDialogOpen] = useState(false);
@@ -226,7 +236,7 @@ export default function Settings() {
         ...current,
         preferences: getErrorMessage(
           error,
-          "语言和时区加载失败，请稍后重试。",
+          "时区加载失败，请稍后重试。",
         ),
       }));
     } finally {
@@ -264,34 +274,14 @@ export default function Settings() {
     ]);
   }, [loadModelSettings, loadPreferences, loadProfile, loadRagSettings]);
 
-  async function handleSaveProfile(
-    email: string | null,
-    nextPreferences: UserPreferenceResponse,
-    changes: { emailChanged: boolean; preferencesChanged: boolean },
-  ) {
-    if (!changes.emailChanged && !changes.preferencesChanged) {
-      return;
-    }
-
+  async function handleSaveProfile(request: UpdateCurrentUserRequest) {
     setSavingProfile(true);
-    if (changes.preferencesChanged) {
-      setSavingPreferences(true);
-    }
 
     try {
-      if (changes.emailChanged) {
-        const updatedUser = await updateCurrentUser({ email });
-        setCurrentUser(updatedUser);
-        syncCurrentUser(updatedUser);
-      }
+      const updatedUser = await updateCurrentUser(request);
 
-      if (changes.preferencesChanged) {
-        const updatedPreferences = await updateUserPreferences(nextPreferences);
-        setPreferences(updatedPreferences);
-        setChatTimezone(updatedPreferences.timezone);
-        void refreshTodayUsage(updatedPreferences.timezone);
-      }
-
+      setCurrentUser(updatedUser);
+      syncCurrentUser(updatedUser);
       toast.success("账号资料已保存");
     } catch (error) {
       if (isUnauthorized(error)) {
@@ -299,12 +289,11 @@ export default function Settings() {
         return;
       }
 
-      toast.error(getErrorMessage(error, "账号资料保存失败，请稍后重试。"));
+      throw new Error(getErrorMessage(error, "账号资料保存失败，请稍后重试。"), {
+        cause: error,
+      });
     } finally {
       setSavingProfile(false);
-      if (changes.preferencesChanged) {
-        setSavingPreferences(false);
-      }
     }
   }
 
@@ -323,7 +312,7 @@ export default function Settings() {
         return;
       }
 
-      throw new Error(getErrorMessage(error, "头像上传失败，请稍后重试。"), {
+      throw new Error(normalizeAvatarUploadError(error), {
         cause: error,
       });
     } finally {
@@ -331,26 +320,26 @@ export default function Settings() {
     }
   }
 
-  async function handleDeleteAvatar() {
-    setDeletingAvatar(true);
+  async function handleSelectAvatarPreset(presetId: DefaultAvatarPresetId) {
+    setSavingAvatar(true);
 
     try {
-      const updatedUser = await deleteCurrentUserAvatar();
+      const updatedUser = await selectCurrentUserAvatarPreset(presetId);
 
       setCurrentUser(updatedUser);
       syncCurrentUser(updatedUser);
-      toast.success("头像已删除");
+      toast.success("头像已保存");
     } catch (error) {
       if (isUnauthorized(error)) {
         handleUnauthorized();
         return;
       }
 
-      throw new Error(getErrorMessage(error, "头像删除失败，请稍后重试。"), {
+      throw new Error(getErrorMessage(error, "头像保存失败，请稍后重试。"), {
         cause: error,
       });
     } finally {
-      setDeletingAvatar(false);
+      setSavingAvatar(false);
     }
   }
 
@@ -483,22 +472,20 @@ export default function Settings() {
     <>
       <div className="flex w-full min-w-0 flex-col gap-4 p-3 text-slate-900 lg:p-4">
       <AccountProfileSection
-        key={currentUser ? `${currentUser.id}-${currentUser.email ?? ""}-${currentUser.avatarUrl ?? ""}-${currentUser.avatarConfigured}` : "empty-user"}
         user={currentUser}
         loading={loading.profile}
         error={errors.profile}
-        saving={savingProfile}
+        savingProfile={savingProfile}
+        savingAvatar={savingAvatar}
         uploadingAvatar={uploadingAvatar}
-        deletingAvatar={deletingAvatar}
         preferences={preferences}
         preferencesLoading={loading.preferences}
         preferencesError={errors.preferences}
-        savingPreferences={savingPreferences}
         browserTimezone={browserTimezoneRef.current}
         onRetry={loadProfile}
-        onSave={handleSaveProfile}
+        onSaveProfile={handleSaveProfile}
         onUploadAvatar={handleUploadAvatar}
-        onDeleteAvatar={handleDeleteAvatar}
+        onSelectAvatarPreset={handleSelectAvatarPreset}
         onRetryPreferences={loadPreferences}
         onLogout={() => setLogoutDialogOpen(true)}
       />

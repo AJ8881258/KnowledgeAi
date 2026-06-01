@@ -1,9 +1,16 @@
 import { type ChangeEvent, type FormEvent, useRef, useState } from "react";
-import { Mail, Save, Trash2, Upload, UserRound } from "lucide-react";
+import { Edit3, Mail, Phone, Save, UserRound } from "lucide-react";
 
-import type { CurrentUserResponse } from "@/api/auth";
+import type {
+  CurrentUserResponse,
+  DefaultAvatarPresetId,
+  UpdateCurrentUserRequest,
+} from "@/api/auth";
 import type { UserPreferenceResponse } from "@/api/settings";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import {
+  AvatarPresetPicker,
+  UserAvatar,
+} from "@/components/user-avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -14,48 +21,112 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import {
   ReadonlyField,
   SectionCard,
   SettingsErrorState,
   SettingsSkeleton,
+  TextField,
 } from "@/components/settings/settings-components";
-import { PreferencesFields } from "@/components/settings/preferences-section";
 
 type AccountProfileSectionProps = {
   user: CurrentUserResponse | null;
   loading: boolean;
   error: string;
-  saving: boolean;
+  savingProfile: boolean;
+  savingAvatar: boolean;
   uploadingAvatar: boolean;
-  deletingAvatar: boolean;
   preferences: UserPreferenceResponse | null;
   preferencesLoading: boolean;
   preferencesError: string;
-  savingPreferences: boolean;
   browserTimezone: string;
   onRetry: () => void;
+  onSaveProfile: (request: UpdateCurrentUserRequest) => Promise<void>;
   onUploadAvatar: (file: File) => Promise<void>;
-  onDeleteAvatar: () => Promise<void>;
-  onSave: (
-    email: string | null,
-    preferences: UserPreferenceResponse,
-    changes: { emailChanged: boolean; preferencesChanged: boolean },
-  ) => Promise<void>;
+  onSelectAvatarPreset: (presetId: DefaultAvatarPresetId) => Promise<void>;
   onRetryPreferences: () => void;
   onLogout: () => void;
 };
 
 const AVATAR_MAX_BYTES = 2 * 1024 * 1024;
 const AVATAR_ACCEPTED_TYPES = ["image/jpeg", "image/png", "image/webp"];
+const MAX_ACCOUNT_NAME_LENGTH = 100;
+const MIN_PHONE_LENGTH = 5;
+const MAX_PHONE_LENGTH = 32;
+const MIN_PHONE_DIGIT_COUNT = 5;
+const PHONE_ALLOWED_PATTERN = /^[0-9 +\-()]+$/;
+
+function getInitialPresetSelection(user: CurrentUserResponse | null) {
+  if (!user || user.avatarSource === "NONE") {
+    return "blue";
+  }
+
+  if (user.avatarSource === "PRESET") {
+    return user.avatarPresetId ?? "blue";
+  }
+
+  return null;
+}
+
+function validateUsername(username: string) {
+  const normalizedUsername = username.trim();
+
+  if (!normalizedUsername) {
+    return "请输入用户名。";
+  }
+
+  if (normalizedUsername.length > MAX_ACCOUNT_NAME_LENGTH) {
+    return `用户名不能超过 ${MAX_ACCOUNT_NAME_LENGTH} 个字符。`;
+  }
+
+  return "";
+}
 
 function validateEmail(email: string) {
-  if (!email) {
+  const normalizedEmail = email.trim();
+
+  if (!normalizedEmail) {
     return "";
   }
 
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)
     ? ""
     : "请输入有效的邮箱地址。";
+}
+
+function validatePhone(phone: string) {
+  const normalizedPhone = phone.trim();
+
+  if (!normalizedPhone) {
+    return "";
+  }
+
+  if (
+    normalizedPhone.length < MIN_PHONE_LENGTH ||
+    normalizedPhone.length > MAX_PHONE_LENGTH
+  ) {
+    return `联系方式长度需为 ${MIN_PHONE_LENGTH}-${MAX_PHONE_LENGTH} 个字符。`;
+  }
+
+  if (!PHONE_ALLOWED_PATTERN.test(normalizedPhone)) {
+    return "联系方式只能包含数字、普通空格、+、- 和英文括号。";
+  }
+
+  const digitCount = normalizedPhone.replace(/\D/g, "").length;
+
+  if (digitCount < MIN_PHONE_DIGIT_COUNT) {
+    return `联系方式至少需要包含 ${MIN_PHONE_DIGIT_COUNT} 个数字。`;
+  }
+
+  return "";
 }
 
 function validateAvatarFile(file: File) {
@@ -70,63 +141,67 @@ function validateAvatarFile(file: File) {
   return "";
 }
 
-function createPreferenceDraft(
-  preferences: UserPreferenceResponse | null,
-  browserTimezone: string,
-): UserPreferenceResponse {
-  return (
-    preferences ?? {
-      language: "zh-CN",
-      timezone: browserTimezone,
-    }
-  );
-}
-
 export function AccountProfileSection({
   user,
   loading,
   error,
-  saving,
+  savingProfile,
+  savingAvatar,
   uploadingAvatar,
-  deletingAvatar,
   preferences,
   preferencesLoading,
   preferencesError,
-  savingPreferences,
   browserTimezone,
   onRetry,
+  onSaveProfile,
   onUploadAvatar,
-  onDeleteAvatar,
-  onSave,
+  onSelectAvatarPreset,
   onRetryPreferences,
   onLogout,
 }: AccountProfileSectionProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [emailDraft, setEmailDraft] = useState(() => user?.email ?? "");
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [usernameDraft, setUsernameDraft] = useState(user?.username ?? "");
+  const [emailDraft, setEmailDraft] = useState(user?.email ?? "");
+  const [phoneDraft, setPhoneDraft] = useState(user?.phone ?? "");
+  const [usernameError, setUsernameError] = useState("");
   const [emailError, setEmailError] = useState("");
+  const [phoneError, setPhoneError] = useState("");
+  const [avatarMode, setAvatarMode] = useState<"preset" | "upload">("preset");
+  const [selectedPresetId, setSelectedPresetId] =
+    useState<DefaultAvatarPresetId | null>(() => getInitialPresetSelection(user));
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [avatarError, setAvatarError] = useState("");
-  const [preferenceDraftOverride, setPreferenceDraftOverride] =
-    useState<UserPreferenceResponse | null>(null);
-  const preferenceDraft =
-    preferenceDraftOverride ?? createPreferenceDraft(preferences, browserTimezone);
+  const isSaving = savingProfile || savingAvatar || uploadingAvatar;
+  const avatarUploadDisabled = isSaving || user?.avatarStorageConfigured === false;
 
-  const normalizedEmail = emailDraft.trim();
-  const initialEmail = user?.email ?? "";
-  const emailChanged = normalizedEmail !== initialEmail;
-  const preferencesChanged =
-    !!preferences &&
-    (preferenceDraft.language !== preferences.language ||
-      preferenceDraft.timezone !== preferences.timezone);
-  const isDirty = emailChanged || preferencesChanged;
-  const isSavingProfile = saving || savingPreferences;
-  const avatarBusy = uploadingAvatar || deletingAvatar;
-  const canDeleteAvatar = Boolean(user?.avatarConfigured || user?.avatarUrl);
+  function resetDraft() {
+    setUsernameDraft(user?.username ?? "");
+    setEmailDraft(user?.email ?? "");
+    setPhoneDraft(user?.phone ?? "");
+    setUsernameError("");
+    setEmailError("");
+    setPhoneError("");
+    setAvatarMode(user?.avatarSource === "UPLOAD" ? "upload" : "preset");
+    setSelectedPresetId(getInitialPresetSelection(user));
+    setAvatarFile(null);
+    setAvatarError("");
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  }
 
   function handleAvatarFileChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0] ?? null;
-
     setAvatarError("");
+
+    if (user?.avatarStorageConfigured === false) {
+      setAvatarFile(null);
+      setAvatarMode("preset");
+      setAvatarError("头像上传需要先配置 OSS；当前可选择默认头像");
+      event.target.value = "";
+      return;
+    }
 
     if (!file) {
       setAvatarFile(null);
@@ -142,71 +217,84 @@ export function AccountProfileSection({
       return;
     }
 
+    setAvatarMode("upload");
     setAvatarFile(file);
-  }
-
-  async function handleAvatarUpload() {
-    if (!avatarFile) {
-      setAvatarError("请先选择头像图片。");
-      return;
-    }
-
-    const nextError = validateAvatarFile(avatarFile);
-    setAvatarError(nextError);
-
-    if (nextError) {
-      return;
-    }
-
-    try {
-      await onUploadAvatar(avatarFile);
-      setAvatarFile(null);
-      setAvatarError("");
-      if (fileInputRef.current) {
-        fileInputRef.current.value = "";
-      }
-    } catch (uploadError) {
-      setAvatarError(
-        uploadError instanceof Error
-          ? uploadError.message
-          : "头像上传失败，请稍后重试。",
-      );
-    }
-  }
-
-  async function handleAvatarDelete() {
-    setAvatarError("");
-
-    try {
-      await onDeleteAvatar();
-      setAvatarFile(null);
-      if (fileInputRef.current) {
-        fileInputRef.current.value = "";
-      }
-    } catch (deleteError) {
-      setAvatarError(
-        deleteError instanceof Error
-          ? deleteError.message
-          : "头像删除失败，请稍后重试。",
-      );
-    }
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const normalizedUsername = usernameDraft.trim();
+    const normalizedEmail = emailDraft.trim();
+    const normalizedPhone = phoneDraft.trim();
+    const nextUsernameError = validateUsername(normalizedUsername);
+    const nextEmailError = validateEmail(normalizedEmail);
+    const nextPhoneError = validatePhone(normalizedPhone);
 
-    const nextError = validateEmail(normalizedEmail);
-    setEmailError(nextError);
+    setUsernameError(nextUsernameError);
+    setEmailError(nextEmailError);
+    setPhoneError(nextPhoneError);
+    setAvatarError("");
 
-    if (nextError) {
+    if (nextUsernameError || nextEmailError || nextPhoneError) {
       return;
     }
 
-    await onSave(normalizedEmail || null, preferenceDraft, {
-      emailChanged,
-      preferencesChanged,
-    });
+    try {
+      const profileRequest: UpdateCurrentUserRequest = {};
+
+      if (normalizedUsername !== user?.username) {
+        profileRequest.username = normalizedUsername;
+      }
+
+      if (normalizedEmail !== (user?.email ?? "")) {
+        profileRequest.email = normalizedEmail || null;
+      }
+
+      if (normalizedPhone !== (user?.phone ?? "")) {
+        profileRequest.phone = normalizedPhone || null;
+      }
+
+      if (Object.keys(profileRequest).length > 0) {
+        await onSaveProfile(profileRequest);
+      }
+
+      if (avatarMode === "upload") {
+        if (!avatarFile) {
+          if (user?.avatarSource !== "UPLOAD") {
+            setAvatarError("请先选择头像图片，或切换到默认头像。");
+            return;
+          }
+        } else if (user?.avatarStorageConfigured === false) {
+          setAvatarError("头像上传需要先配置 OSS；当前可选择默认头像");
+          return;
+        } else {
+          const nextAvatarError = validateAvatarFile(avatarFile);
+          if (nextAvatarError) {
+            setAvatarError(nextAvatarError);
+            return;
+          }
+
+          await onUploadAvatar(avatarFile);
+        }
+      } else if (selectedPresetId !== user?.avatarPresetId) {
+        await onSelectAvatarPreset(selectedPresetId ?? "blue");
+      }
+
+      setDialogOpen(false);
+    } catch (submitError) {
+      setAvatarError(
+        submitError instanceof Error
+          ? submitError.message
+          : "资料保存失败，请稍后重试。",
+      );
+    }
   }
+
+  const timezoneValue = preferencesLoading
+    ? "加载中..."
+    : preferencesError
+      ? "加载失败"
+      : preferences?.timezone || browserTimezone;
 
   return (
     <SectionCard>
@@ -215,7 +303,7 @@ export function AccountProfileSection({
           账号资料
         </CardTitle>
         <CardDescription>
-          从后端读取当前登录账号。邮箱会保存到当前用户资料，不包含邮箱验证流程。
+          账号资料从后端读取；可在弹窗中修改用户名、邮箱、联系方式和头像。
         </CardDescription>
         <CardAction>
           <Button type="button" variant="outline" size="sm" onClick={onLogout}>
@@ -230,126 +318,204 @@ export function AccountProfileSection({
         ) : error ? (
           <SettingsErrorState message={error} onRetry={onRetry} />
         ) : user ? (
-          <form className="flex flex-col gap-5" onSubmit={handleSubmit}>
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-              <Avatar className="size-16">
-                {user.avatarUrl ? (
-                  <AvatarImage src={user.avatarUrl} alt={`${user.username} 头像`} />
-                ) : null}
-                <AvatarFallback>
-                  {user.username.slice(0, 1).toUpperCase()}
-                </AvatarFallback>
-              </Avatar>
+          <div className="flex min-w-0 flex-col gap-5">
+            <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-center">
+              <UserAvatar
+                username={user.username}
+                avatarUrl={user.avatarUrl}
+                avatarSource={user.avatarSource}
+                avatarPresetId={user.avatarPresetId}
+                className="size-16"
+              />
               <div className="min-w-0 flex-1">
                 <div className="break-words text-base font-semibold text-slate-900">
                   {user.username}
                 </div>
-                <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-slate-500">
-                  <Mail aria-hidden="true" className="size-4" />
-                  <span>{user.email || "尚未设置邮箱"}</span>
+                <div className="mt-1 flex min-w-0 flex-wrap items-center gap-2 text-sm text-slate-500">
+                  <Mail aria-hidden="true" className="size-4 shrink-0" />
+                  <span className="min-w-0 break-words">
+                    {user.email || "尚未设置邮箱"}
+                  </span>
+                </div>
+                <div className="mt-1 flex min-w-0 flex-wrap items-center gap-2 text-sm text-slate-500">
+                  <Phone aria-hidden="true" className="size-4 shrink-0" />
+                  <span className="min-w-0 break-words">
+                    {user.phone || "尚未设置联系方式"}
+                  </span>
                 </div>
               </div>
-              <div className="mt-3 flex flex-wrap items-center gap-2 sm:ml-20">
-                <Input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp"
-                  disabled={avatarBusy}
-                  onChange={handleAvatarFileChange}
-                  className="h-8 max-w-72 cursor-pointer rounded-[6px] border-slate-200 bg-white px-2 py-1 text-xs file:mr-3 file:rounded-[5px] file:border-0 file:bg-slate-100 file:px-2 file:py-1 file:text-xs file:font-medium file:text-slate-700 hover:file:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-70"
-                />
-                <Button
-                  type="button"
-                  size="sm"
-                  disabled={!avatarFile || avatarBusy}
-                  onClick={handleAvatarUpload}
-                >
-                  <Upload data-icon="inline-start" />
-                  {uploadingAvatar ? "上传中..." : "上传头像"}
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  disabled={!canDeleteAvatar || avatarBusy}
-                  onClick={handleAvatarDelete}
-                >
-                  <Trash2 data-icon="inline-start" />
-                  {deletingAvatar ? "删除中..." : "删除头像"}
-                </Button>
-              </div>
-              {avatarFile ? (
-                <p className="mt-2 text-xs leading-4 text-slate-500 sm:ml-20">
-                  已选择：{avatarFile.name}
-                </p>
-              ) : null}
-              {avatarError ? (
-                <p className="mt-2 text-xs leading-4 text-red-600 sm:ml-20">
-                  {avatarError}
-                </p>
-              ) : null}
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-2">
-              <ReadonlyField label="用户名" value={user.username} />
-              <ReadonlyField label="角色" value={user.role || "USER"} />
-              <div className="min-w-0 rounded-[6px] border border-slate-200 bg-slate-50 px-3 py-2.5">
-                <label
-                  htmlFor="settings-email"
-                  className="text-xs font-medium text-slate-500"
-                >
-                  邮箱
-                </label>
-                <Input
-                  id="settings-email"
-                  type="email"
-                  value={emailDraft}
-                  placeholder="name@example.com"
-                  aria-invalid={Boolean(emailError)}
-                  disabled={isSavingProfile}
-                  onChange={(event) => {
-                    setEmailDraft(event.target.value);
-                    setEmailError("");
-                  }}
-                  className="mt-1 h-5 border-0 border-b-0 bg-transparent px-0 py-0 text-sm font-medium text-slate-900 placeholder:text-slate-400 focus-visible:border-0 focus-visible:border-b-0 disabled:cursor-not-allowed disabled:opacity-70"
-                />
-                {emailError ? (
-                  <p className="mt-1 text-xs leading-4 text-red-600">
-                    {emailError}
-                  </p>
-                ) : null}
-              </div>
-              <div className="min-w-0 rounded-[6px] border border-slate-200 bg-slate-50 px-3 py-2.5">
-                <div className="text-xs font-medium text-slate-500">
-                  语言和时区
-                </div>
-                <PreferencesFields
-                  key={
-                    preferences
-                      ? `${preferences.language}-${preferences.timezone}-${browserTimezone}`
-                      : `empty-preferences-${browserTimezone}`
+              <Dialog
+                open={dialogOpen}
+                onOpenChange={(open) => {
+                  setDialogOpen(open);
+                  if (open) {
+                    resetDraft();
                   }
-                  preferences={preferences}
-                  loading={preferencesLoading}
-                  error={preferencesError}
-                  saving={savingPreferences}
-                  browserTimezone={browserTimezone}
-                  onRetry={onRetryPreferences}
-                  value={preferenceDraft}
-                  onDraftChange={setPreferenceDraftOverride}
-                  compact
-                  className="mt-1"
-                />
-              </div>
+                }}
+              >
+                <DialogTrigger asChild>
+                  <Button type="button" size="sm" variant="outline">
+                    <Edit3 data-icon="inline-start" />
+                    编辑资料
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="max-h-[calc(100dvh-2rem)] w-full overflow-y-auto rounded-[8px] p-5 sm:max-w-xl">
+                  <form className="grid min-w-0 gap-5" onSubmit={handleSubmit}>
+                    <DialogHeader>
+                      <DialogTitle className="font-sans text-lg normal-case tracking-normal">
+                        编辑资料
+                      </DialogTitle>
+                      <DialogDescription>
+                        修改用户名、邮箱、联系方式或头像后保存，Header、Sidebar 会同步更新。
+                      </DialogDescription>
+                    </DialogHeader>
+
+                    <div className="grid min-w-0 gap-3 sm:grid-cols-2">
+                      <TextField
+                        id="settings-profile-username"
+                        label="用户名"
+                        value={usernameDraft}
+                        disabled={isSaving}
+                        error={usernameError}
+                        onChange={(value) => {
+                          setUsernameDraft(value);
+                          setUsernameError("");
+                        }}
+                        inputProps={{ maxLength: MAX_ACCOUNT_NAME_LENGTH }}
+                      />
+                      <TextField
+                        id="settings-profile-email"
+                        label="邮箱"
+                        type="email"
+                        value={emailDraft}
+                        placeholder="name@example.com"
+                        disabled={isSaving}
+                        error={emailError}
+                        onChange={(value) => {
+                          setEmailDraft(value);
+                          setEmailError("");
+                        }}
+                      />
+                      <TextField
+                        id="settings-profile-phone"
+                        label="联系方式"
+                        type="tel"
+                        value={phoneDraft}
+                        placeholder="+86 138 0000 0000"
+                        disabled={isSaving}
+                        error={phoneError}
+                        helpText="可留空；支持数字、普通空格、+、- 和英文括号。"
+                        onChange={(value) => {
+                          setPhoneDraft(value);
+                          setPhoneError("");
+                        }}
+                        inputProps={{ maxLength: MAX_PHONE_LENGTH }}
+                      />
+                      <ReadonlyField label="时区" value={timezoneValue} />
+                    </div>
+
+                    {preferencesError ? (
+                      <div className="flex flex-wrap items-center justify-between gap-2 rounded-[6px] border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                        <span>{preferencesError}</span>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={onRetryPreferences}
+                        >
+                          重试
+                        </Button>
+                      </div>
+                    ) : null}
+
+                    <div className="grid min-w-0 gap-3">
+                      <div className="text-sm font-medium text-slate-700">
+                        默认头像
+                      </div>
+                      <AvatarPresetPicker
+                        value={selectedPresetId}
+                        username={usernameDraft || user.username}
+                        disabled={isSaving}
+                        onChange={(presetId) => {
+                          setAvatarMode("preset");
+                          setSelectedPresetId(presetId);
+                          setAvatarFile(null);
+                          setAvatarError("");
+                          if (fileInputRef.current) {
+                            fileInputRef.current.value = "";
+                          }
+                        }}
+                      />
+                    </div>
+
+                    <div className="grid min-w-0 gap-2">
+                      <label
+                        htmlFor="settings-avatar-file"
+                        className="text-sm font-medium text-slate-700"
+                      >
+                        本地头像
+                      </label>
+                      <Input
+                        ref={fileInputRef}
+                        id="settings-avatar-file"
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        disabled={avatarUploadDisabled}
+                        onChange={handleAvatarFileChange}
+                        className="min-h-11 min-w-0 cursor-pointer rounded-[6px] border-slate-200 bg-white px-2 py-2 text-sm file:mr-3 file:rounded-[5px] file:border-0 file:bg-slate-100 file:px-2 file:py-1 file:text-xs file:font-medium file:text-slate-700 hover:file:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-70"
+                      />
+                      {user.avatarStorageConfigured === false ? (
+                        <p className="text-xs leading-5 text-amber-700">
+                          头像上传需要先配置 OSS；当前可选择默认头像
+                        </p>
+                      ) : null}
+                      {avatarFile ? (
+                        <p className="break-words text-xs leading-5 text-slate-500">
+                          已选择：{avatarFile.name}
+                        </p>
+                      ) : null}
+                      {avatarError ? (
+                        <p className="text-xs leading-5 text-red-600">
+                          {avatarError}
+                        </p>
+                      ) : null}
+                    </div>
+
+                    <DialogFooter>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        disabled={isSaving}
+                        onClick={() => setDialogOpen(false)}
+                      >
+                        取消
+                      </Button>
+                      <Button type="submit" disabled={isSaving}>
+                        {isSaving ? (
+                          "保存中..."
+                        ) : (
+                          <>
+                            <Save data-icon="inline-start" />
+                            保存资料
+                          </>
+                        )}
+                      </Button>
+                    </DialogFooter>
+                  </form>
+                </DialogContent>
+              </Dialog>
             </div>
 
-            <div className="flex justify-end">
-              <Button type="submit" size="sm" disabled={!isDirty || isSavingProfile}>
-                <Save data-icon="inline-start" />
-                {isSavingProfile ? "保存中..." : "保存资料"}
-              </Button>
+            <div className="grid min-w-0 gap-4 md:grid-cols-2">
+              <ReadonlyField label="用户名" value={user.username} />
+              <ReadonlyField label="邮箱" value={user.email || "尚未设置邮箱"} />
+              <ReadonlyField
+                label="联系方式"
+                value={user.phone || "尚未设置联系方式"}
+              />
+              <ReadonlyField label="时区" value={timezoneValue} />
             </div>
-          </form>
+          </div>
         ) : (
           <div className="rounded-[6px] border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
             暂无账号资料，请重新登录后查看。

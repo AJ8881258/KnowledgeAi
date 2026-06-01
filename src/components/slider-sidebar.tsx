@@ -14,8 +14,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 
-// Avatar
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { UserAvatar } from "@/components/user-avatar";
 
 // Button
 import { Button } from "@/components/ui/button";
@@ -71,10 +70,7 @@ export function AppSidebar() {
   const location = useLocation();
   const navigate = useNavigate();
   const session = useAuthStore((authState) => authState.session);
-  const avatarUrl = session?.avatarUrl ?? null;
-  const avatarFallback = (session?.displayName || session?.username || "K")
-    .slice(0, 1)
-    .toUpperCase();
+  const displayName = session?.displayName || session?.username || "K";
   const todayMessageCount = useChatStatusStore(
     (chatState) => chatState.todayMessageCount,
   );
@@ -107,14 +103,15 @@ export function AppSidebar() {
           <SidebarMenuItem>
             <div className="flex gap-2 flex-col itemcenters- justify-start  font-bold ">
               <div className="flex w-full h-full items-end justify-between">
-                <Avatar
+                <UserAvatar
+                  username={displayName}
+                  avatarUrl={session?.avatarUrl}
+                  avatarSource={session?.avatarSource}
+                  avatarPresetId={session?.avatarPresetId}
                   onClick={() => handleNavigate("/")}
                   className="mr-0 size-[clamp(2.25rem,3vw,3rem)] shrink-0 cursor-pointer 
                 transition-all duration-200 hover:scale-120 group-data-[collapsible=icon]:hidden"
-                >
-                  {avatarUrl ? <AvatarImage src={avatarUrl} /> : null}
-                  <AvatarFallback>{avatarFallback}</AvatarFallback>
-                </Avatar>
+                />
                 <SidebarTrigger className="" />
               </div>
               <span

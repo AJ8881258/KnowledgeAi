@@ -26,7 +26,7 @@ import {
 } from "@/components/ui/alert-dialog";
 // Button
 import { Button } from "@/components/ui/button";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { UserAvatar } from "@/components/user-avatar";
 // DropdownMenu
 import {
   DropdownMenu,
@@ -48,8 +48,6 @@ const MainHeader = ({ title, desc }: MainHeaderProps) => {
   const navigate = useNavigate();
   const session = useAuthStore((state) => state.session);
   const displayName = session?.displayName || session?.username || "User";
-  const avatarUrl = session?.avatarUrl ?? null;
-  const avatarFallback = (displayName || "U").slice(0, 1).toUpperCase();
   const unreadCount = useChatStatusStore((state) => state.unreadCount);
   const refreshUnreadCount = useChatStatusStore(
     (state) => state.refreshUnreadCount,
@@ -105,12 +103,13 @@ const MainHeader = ({ title, desc }: MainHeaderProps) => {
                 size="sm"
                 className="flex min-w-0 items-center gap-2 px-2 text-[clamp(0.875rem,1.25vw,1.25rem)]"
               >
-                <Avatar size="sm">
-                  {avatarUrl ? (
-                    <AvatarImage src={avatarUrl} alt={`${displayName} 头像`} />
-                  ) : null}
-                  <AvatarFallback>{avatarFallback}</AvatarFallback>
-                </Avatar>
+                <UserAvatar
+                  username={displayName}
+                  avatarUrl={session?.avatarUrl}
+                  avatarSource={session?.avatarSource}
+                  avatarPresetId={session?.avatarPresetId}
+                  size="sm"
+                />
                 <span className="flex min-w-0 items-center gap-1">
                   <span className="max-w-24 truncate">{displayName}</span>
                   <span className="shrink-0">Workspace</span>

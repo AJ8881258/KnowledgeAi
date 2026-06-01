@@ -2,6 +2,7 @@ package com.knowflow.backend.auth.controller;
 
 import com.knowflow.backend.auth.dto.request.RegisterRequest;
 import com.knowflow.backend.auth.dto.request.ResetPasswordRequest;
+import com.knowflow.backend.auth.dto.request.UpdateAvatarPresetRequest;
 import com.knowflow.backend.auth.dto.request.UpdateCurrentUserRequest;
 import com.knowflow.backend.auth.dto.response.LoginResponse;
 import com.knowflow.backend.auth.dto.request.LoginRequest;
@@ -42,7 +43,6 @@ public class AuthController {
         this.jwtTokenService = jwtTokenService;
         this.authService = authService;
 
-
     }
 
     /**
@@ -64,23 +64,34 @@ public class AuthController {
     @PatchMapping("/me")
     public UserResponse updateMe(
             @RequestBody(required = false) UpdateCurrentUserRequest request,
-            @AuthenticationPrincipal Jwt jwt
-    ) {
+            @AuthenticationPrincipal Jwt jwt) {
         return authService.updateCurrentUser(getCurrentId(jwt), request);
     }
 
     /**
      * @param file multipart 字段名 file，支持 jpeg/png/webp，最大 2MB
-     * @param jwt 当前登录用户
+     * @param jwt  当前登录用户
      * @return 更新后的用户资料；avatarUrl 是短期签名 URL，不是 OSS object key
      * @Desc 头像上传使用后端 OSS 配置，前端不会接触 AccessKey、bucket 或 object key。
      */
     @PostMapping("/me/avatar")
     public UserResponse uploadAvatar(
             @RequestPart("file") MultipartFile file,
-            @AuthenticationPrincipal Jwt jwt
-    ) {
+            @AuthenticationPrincipal Jwt jwt) {
         return authService.uploadAvatar(getCurrentId(jwt), file);
+    }
+
+    /**
+     * @param request avatarPresetId 必须来自后端固定预设集合
+     * @param jwt     当前登录用户
+     * @return 更新后的用户资料；预设头像不返回 avatarUrl
+     * @Desc 选择预设头像会清空上传头像 object key，并尽力删除旧 OSS 对象，避免前端持有 object key 或永久 URL。
+     */
+    @PatchMapping("/me/avatar-preset")
+    public UserResponse updateAvatarPreset(
+            @RequestBody(required = false) UpdateAvatarPresetRequest request,
+            @AuthenticationPrincipal Jwt jwt) {
+        return authService.updateAvatarPreset(getCurrentId(jwt), request);
     }
 
     /**
@@ -96,22 +107,19 @@ public class AuthController {
     /**
      * @param jwt
      * @Desc 删除当前用户账号，
-     * 包括所有关联的会话、消息、引用来源、文档和 chunks、知识库
+     *       包括所有关联的会话、消息、引用来源、文档和 chunks、知识库
      */
     @DeleteMapping("/me")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteMe(
-            @AuthenticationPrincipal Jwt jwt
-    ) {
+            @AuthenticationPrincipal Jwt jwt) {
         authService.deleteCurrentUser(getCurrentId(jwt));
     }
-
 
     @PostMapping("/login")
     public LoginResponse login(@RequestBody LoginRequest request) {
         String username = getRequiredText(request == null ? null : request.getUsername(), "username is required");
         String password = getRequiredText(request == null ? null : request.getPassword(), "password is required");
-
 
         User user = userRepository.findByUsername(username)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED,
@@ -145,7 +153,6 @@ public class AuthController {
         user.setRole("USER");
         userRepository.save(user);
 
-
         return new UserResponse(user.getId(), user.getUsername(), user.getRole(), user.getEmail());
     }
 
@@ -171,7 +178,6 @@ public class AuthController {
         }
         return new MessageResponse("密码修改成功");
     }
-
 
     /**
      * 从JWT中获取当前用户ID

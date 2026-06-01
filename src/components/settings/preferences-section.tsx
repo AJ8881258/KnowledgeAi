@@ -1,5 +1,3 @@
-import { useState } from "react";
-
 import type { UserPreferenceResponse } from "@/api/settings";
 import {
   Select,
@@ -15,11 +13,6 @@ import {
   SettingsSkeleton,
 } from "@/components/settings/settings-components";
 import { cn } from "@/lib/utils";
-
-const LANGUAGE_OPTIONS = [
-  { value: "zh-CN", label: "简体中文" },
-  { value: "en-US", label: "English" },
-];
 
 const COMMON_TIMEZONES = [
   "Asia/Shanghai",
@@ -44,20 +37,21 @@ type PreferencesSectionProps = {
   onRetry: () => void;
 };
 
+type TimezonePreferenceDraft = Pick<UserPreferenceResponse, "timezone">;
+
 type PreferencesFieldsProps = PreferencesSectionProps & {
   className?: string;
-  value?: UserPreferenceResponse | null;
-  onDraftChange?: (preferences: UserPreferenceResponse) => void;
+  value?: TimezonePreferenceDraft | null;
+  onDraftChange?: (preferences: TimezonePreferenceDraft) => void;
   compact?: boolean;
 };
 
 function createPreferenceDraft(
   preferences: UserPreferenceResponse | null,
   browserTimezone: string,
-): UserPreferenceResponse {
+): TimezonePreferenceDraft {
   return (
     preferences ?? {
-      language: "zh-CN",
       timezone: browserTimezone,
     }
   );
@@ -85,14 +79,8 @@ export function PreferencesFields({
   className,
   compact = false,
 }: PreferencesFieldsProps) {
-  const [draft, setDraft] = useState<UserPreferenceResponse>(() =>
-    createPreferenceDraft(preferences, browserTimezone),
-  );
-  const effectiveDraft = value ?? draft;
-  const updateDraft = (nextDraft: UserPreferenceResponse) => {
-    if (value === undefined) {
-      setDraft(nextDraft);
-    }
+  const effectiveDraft = value ?? createPreferenceDraft(preferences, browserTimezone);
+  const updateDraft = (nextDraft: TimezonePreferenceDraft) => {
     onDraftChange?.(nextDraft);
   };
   const timezoneOptions = getTimezoneOptions(effectiveDraft.timezone, browserTimezone);
@@ -120,32 +108,7 @@ export function PreferencesFields({
 
   if (compact) {
     return (
-      <div className={cn("grid grid-cols-1 gap-2 sm:grid-cols-2", className)}>
-        <Select
-          value={effectiveDraft.language}
-          disabled={saving}
-          onValueChange={(language) =>
-            updateDraft({ ...effectiveDraft, language })
-          }
-        >
-          <SelectTrigger
-            aria-label="语言"
-            size="sm"
-            className="h-7 w-full rounded-[5px] border border-slate-200 bg-white px-2 py-0 text-xs font-medium normal-case tracking-normal text-slate-700 focus-visible:border-blue-400 focus-visible:ring-2 focus-visible:ring-blue-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500"
-          >
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent position="popper">
-            <SelectGroup>
-              {LANGUAGE_OPTIONS.map((option) => (
-                <SelectItem key={option.value} value={option.value}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectGroup>
-          </SelectContent>
-        </Select>
-
+      <div className={cn("grid grid-cols-1 gap-2", className)}>
         <Select
           value={effectiveDraft.timezone}
           disabled={saving}
@@ -176,17 +139,7 @@ export function PreferencesFields({
 
   return (
     <div className={className ?? "flex flex-col gap-5"}>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <SettingsSelect
-          label="语言"
-          value={effectiveDraft.language}
-          options={LANGUAGE_OPTIONS.map((option) => option.value)}
-          disabled={saving}
-          onChange={(language) =>
-            updateDraft({ ...effectiveDraft, language })
-          }
-        />
-
+      <div className="grid gap-3">
         <SettingsSelect
           label="时区"
           value={effectiveDraft.timezone}

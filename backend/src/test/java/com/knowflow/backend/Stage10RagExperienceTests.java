@@ -86,7 +86,7 @@ class Stage10RagExperienceTests {
             createChatMessage(sessionId, i % 2 == 0 ? "ASSISTANT" : "USER", "stage10-current-history-0" + i);
         }
 
-        mockMvc.perform(post("/api/chat/sessions/{sessionId}/messages", sessionId)
+        MvcResult sendResult = mockMvc.perform(post("/api/chat/sessions/{sessionId}/messages", sessionId)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -96,9 +96,14 @@ class Stage10RagExperienceTests {
                                 }
                                 """))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.session.status").value("GENERATING"));
+                .andExpect(jsonPath("$.session.status").value("GENERATING"))
+                .andReturn();
 
-        String prompt = waitForAssistantContent(token, sessionId);
+        Long userMessageId = objectMapper.readTree(sendResult.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                .get("userMessage")
+                .get("id")
+                .asLong();
+        String prompt = waitForAssistantContentAfter(token, sessionId, userMessageId);
 
         assertThat(prompt)
                 .contains("stage10-current-history-03")
@@ -384,6 +389,22 @@ class Stage10RagExperienceTests {
 
     private String waitForAssistantContent(String token, Long sessionId) throws Exception {
         return waitForAssistantMessage(token, sessionId).get("content").asText();
+    }
+
+    private String waitForAssistantContentAfter(String token, Long sessionId, Long messageId) throws Exception {
+        final JsonNode[] found = new JsonNode[1];
+        waitUntil(() -> {
+            List<JsonNode> messages = readMessages(token, sessionId);
+            for (int index = messages.size() - 1; index >= 0; index--) {
+                JsonNode message = messages.get(index);
+                if ("ASSISTANT".equals(message.get("role").asText()) && message.get("id").asLong() > messageId) {
+                    found[0] = message;
+                    return true;
+                }
+            }
+            return false;
+        });
+        return found[0].get("content").asText();
     }
 
     private JsonNode waitForAssistantMessage(String token, Long sessionId) throws Exception {

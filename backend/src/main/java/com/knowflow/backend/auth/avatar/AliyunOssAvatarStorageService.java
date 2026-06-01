@@ -21,6 +21,7 @@ import static com.knowflow.backend.common.utils.Utils.hasText;
 
 @Service
 public class AliyunOssAvatarStorageService implements AvatarStorageService {
+    private static final String STORAGE_NOT_CONFIGURED_MESSAGE = "头像上传需要先配置 OSS 存储。";
     private static final long MAX_AVATAR_BYTES = 2L * 1024L * 1024L;
     private static final Set<String> ALLOWED_CONTENT_TYPES = Set.of("image/jpeg", "image/png", "image/webp");
 
@@ -107,7 +108,7 @@ public class AliyunOssAvatarStorageService implements AvatarStorageService {
 
     private void ensureConfigured() {
         if (!isConfigured()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Avatar storage is not configured");
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, STORAGE_NOT_CONFIGURED_MESSAGE);
         }
     }
 

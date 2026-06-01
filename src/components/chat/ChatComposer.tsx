@@ -9,12 +9,13 @@ import {
   Bot,
   Check,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   FileText,
   Loader2,
   Maximize2,
   Minimize2,
   Paperclip,
-  Search,
   Send,
   Upload,
   X,
@@ -37,7 +38,6 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Tooltip,
@@ -94,6 +94,13 @@ type ChatComposerProps = {
 
 const MAX_CHAT_MESSAGE_LENGTH = 4000;
 const ALLOWED_ATTACHMENT_EXTENSIONS = [".pdf", ".md", ".markdown", ".txt"];
+const MENTION_PAGE_SIZE = 6;
+
+type MentionTrigger = {
+  start: number;
+  end: number;
+  query: string;
+};
 
 function getAttachmentExtension(name: string) {
   const dotIndex = name.lastIndexOf(".");
@@ -132,6 +139,71 @@ function createAttachmentId(file: File) {
   return `${file.name}-${file.size}-${file.lastModified}-${randomId}`;
 }
 
+function getMentionTrigger(
+  value: string,
+  cursorPosition: number,
+): MentionTrigger | null {
+  const beforeCursor = value.slice(0, cursorPosition);
+  const atIndex = beforeCursor.lastIndexOf("@");
+
+  if (atIndex < 0) {
+    return null;
+  }
+
+  const previousCharacter = atIndex === 0 ? "" : value[atIndex - 1];
+
+  if (previousCharacter && !/\s/.test(previousCharacter)) {
+    return null;
+  }
+
+  const token = beforeCursor.slice(atIndex + 1);
+
+  if (/\s/.test(token)) {
+    return null;
+  }
+
+  return {
+    start: atIndex,
+    end: cursorPosition,
+    query: token,
+  };
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function hasMentionToken(value: string, documentName: string) {
+  return new RegExp(
+    `(^|\\s)@${escapeRegExp(documentName)}(?=\\s|$)`,
+    "u",
+  ).test(value);
+}
+
+function highlightMatch(name: string, query: string) {
+  const normalizedQuery = query.trim().toLowerCase();
+
+  if (!normalizedQuery) {
+    return name;
+  }
+
+  const matchIndex = name.toLowerCase().indexOf(normalizedQuery);
+
+  if (matchIndex < 0) {
+    return name;
+  }
+
+  return (
+    <>
+      {name.slice(0, matchIndex)}
+      <mark className="rounded-[3px] bg-amber-100 px-0.5 text-amber-900">
+        {name.slice(matchIndex, matchIndex + normalizedQuery.length)}
+      </mark>
+      {name.slice(matchIndex + normalizedQuery.length)}
+    </>
+  );
+}
+
 export function ChatComposer({
   placeholder,
   onSubmit,
@@ -160,8 +232,12 @@ export function ChatComposer({
   const [attachmentSheetOpen, setAttachmentSheetOpen] = useState(false);
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   const [attachmentError, setAttachmentError] = useState("");
-  const [mentionSearch, setMentionSearch] = useState("");
+  const [mentionTrigger, setMentionTrigger] = useState<MentionTrigger | null>(
+    null,
+  );
   const [mentionPickerOpen, setMentionPickerOpen] = useState(false);
+  const [mentionSelectedIndex, setMentionSelectedIndex] = useState(0);
+  const [mentionPage, setMentionPage] = useState(0);
   const [selectedMentions, setSelectedMentions] = useState<
     ChatMentionDocument[]
   >([]);
@@ -188,7 +264,7 @@ export function ChatComposer({
     ? "30vh"
     : `min(30vh, ${Math.min(168, chatLineCount * 24 + 24)}px)`;
   const filteredMentionDocuments = useMemo(() => {
-    const keyword = mentionSearch.trim().toLowerCase();
+    const keyword = mentionTrigger?.query.trim().toLowerCase() ?? "";
 
     if (!keyword) {
       return mentionDocuments;
@@ -197,7 +273,15 @@ export function ChatComposer({
     return mentionDocuments.filter((document) =>
       document.name.toLowerCase().includes(keyword),
     );
-  }, [mentionDocuments, mentionSearch]);
+  }, [mentionDocuments, mentionTrigger?.query]);
+  const mentionPageCount = Math.max(
+    1,
+    Math.ceil(filteredMentionDocuments.length / MENTION_PAGE_SIZE),
+  );
+  const visibleMentionDocuments = filteredMentionDocuments.slice(
+    mentionPage * MENTION_PAGE_SIZE,
+    mentionPage * MENTION_PAGE_SIZE + MENTION_PAGE_SIZE,
+  );
 
   const removeAttachment = (id: string) => {
     setAttachments((currentAttachments) =>
@@ -255,24 +339,30 @@ export function ChatComposer({
   const handleChatInputChange = (event: ChangeEvent<HTMLTextAreaElement>) => {
     const nextValue = event.target.value;
     const cursorPosition = event.target.selectionStart ?? nextValue.length;
+    const nextTrigger = getMentionTrigger(nextValue, cursorPosition);
 
     setChatInput(nextValue);
-    if (nextValue.slice(cursorPosition - 1, cursorPosition) === "@") {
-      setMentionPickerOpen(true);
-      setMentionSearch("");
-    }
+    setSelectedMentions((currentMentions) =>
+      currentMentions.filter((mention) =>
+        hasMentionToken(nextValue, mention.name),
+      ),
+    );
+    setMentionTrigger(nextTrigger);
+    setMentionPickerOpen(Boolean(nextTrigger));
+    setMentionSelectedIndex(0);
+    setMentionPage(0);
   };
 
   const insertMention = (document: ChatMentionDocument) => {
     const cursorPosition =
       textAreaRef.current?.selectionStart ?? chatInput.length;
-    const inputBeforeCursor = chatInput.slice(0, cursorPosition);
-    const inputAfterCursor = chatInput.slice(cursorPosition);
-    const mentionStartIndex = inputBeforeCursor.lastIndexOf("@");
+    const trigger = mentionTrigger ?? getMentionTrigger(chatInput, cursorPosition);
+    const mentionStartIndex = trigger?.start ?? -1;
+    const mentionEndIndex = trigger?.end ?? cursorPosition;
     const insertion = `@${document.name} `;
     const nextInput =
       mentionStartIndex >= 0
-        ? `${inputBeforeCursor.slice(0, mentionStartIndex)}${insertion}${inputAfterCursor}`
+        ? `${chatInput.slice(0, mentionStartIndex)}${insertion}${chatInput.slice(mentionEndIndex)}`
         : `${chatInput}${chatInput.endsWith(" ") || !chatInput ? "" : " "}${insertion}`;
     const nextCursorPosition =
       mentionStartIndex >= 0
@@ -286,7 +376,9 @@ export function ChatComposer({
         : [...currentMentions, document],
     );
     setMentionPickerOpen(false);
-    setMentionSearch("");
+    setMentionTrigger(null);
+    setMentionSelectedIndex(0);
+    setMentionPage(0);
 
     window.requestAnimationFrame(() => {
       textAreaRef.current?.focus();
@@ -298,9 +390,20 @@ export function ChatComposer({
   };
 
   const removeMention = (documentId: number) => {
+    const targetMention = selectedMentions.find(
+      (mention) => mention.id === documentId,
+    );
+
     setSelectedMentions((currentMentions) =>
       currentMentions.filter((mention) => mention.id !== documentId),
     );
+    if (targetMention) {
+      const escapedName = escapeRegExp(targetMention.name);
+      const tokenPattern = new RegExp(`(^|\\s)@${escapedName}\\s?`, "u");
+      setChatInput((currentInput) => currentInput.replace(tokenPattern, "$1"));
+    }
+    setMentionPickerOpen(false);
+    setMentionTrigger(null);
   };
 
   const handleSendMessage = async () => {
@@ -324,7 +427,9 @@ export function ChatComposer({
       }
       setSelectedMentions([]);
       setMentionPickerOpen(false);
-      setMentionSearch("");
+      setMentionTrigger(null);
+      setMentionSelectedIndex(0);
+      setMentionPage(0);
       setIsInputExpanded(false);
     } catch {
       return;
@@ -332,6 +437,67 @@ export function ChatComposer({
   };
 
   const handleChatKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (mentionPickerOpen) {
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        setMentionSelectedIndex((currentIndex) =>
+          visibleMentionDocuments.length === 0
+            ? 0
+            : Math.min(currentIndex + 1, visibleMentionDocuments.length - 1),
+        );
+        return;
+      }
+
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        setMentionSelectedIndex((currentIndex) =>
+          Math.max(currentIndex - 1, 0),
+        );
+        return;
+      }
+
+      if (event.key === "ArrowRight") {
+        event.preventDefault();
+        setMentionPage((currentPage) => {
+          const nextPage = Math.min(currentPage + 1, mentionPageCount - 1);
+          if (nextPage !== currentPage) {
+            setMentionSelectedIndex(0);
+          }
+          return nextPage;
+        });
+        return;
+      }
+
+      if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        setMentionPage((currentPage) => {
+          const nextPage = Math.max(currentPage - 1, 0);
+          if (nextPage !== currentPage) {
+            setMentionSelectedIndex(0);
+          }
+          return nextPage;
+        });
+        return;
+      }
+
+      if (event.key === "Enter" || event.key === "Tab") {
+        const selectedDocument = visibleMentionDocuments[mentionSelectedIndex];
+
+        if (selectedDocument) {
+          event.preventDefault();
+          insertMention(selectedDocument);
+          return;
+        }
+      }
+
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setMentionPickerOpen(false);
+        setMentionTrigger(null);
+        return;
+      }
+    }
+
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       handleSendMessage();
@@ -419,7 +585,11 @@ export function ChatComposer({
             onChange={handleChatInputChange}
             onKeyDown={handleChatKeyDown}
             onFocus={() => {
-              if (chatInput.endsWith("@")) {
+              const cursorPosition =
+                textAreaRef.current?.selectionStart ?? chatInput.length;
+              const nextTrigger = getMentionTrigger(chatInput, cursorPosition);
+              if (nextTrigger) {
+                setMentionTrigger(nextTrigger);
                 setMentionPickerOpen(true);
               }
             }}
@@ -430,16 +600,11 @@ export function ChatComposer({
             disabled={isBusy}
           />
             {mentionPickerOpen && !isBusy && (
-              <div className="absolute right-0 bottom-full left-0 z-20 mb-2 rounded-[8px] border border-slate-200 bg-white p-2 shadow-lg">
-                <div className="flex items-center gap-2 rounded-[6px] border border-slate-200 px-2">
-                  <Search className="size-3.5 shrink-0 text-slate-400" />
-                  <Input
-                    value={mentionSearch}
-                    onChange={(event) => setMentionSearch(event.target.value)}
-                    placeholder="搜索当前知识库文档"
-                    className="h-8 border-0 px-0 text-xs focus-visible:ring-0"
-                    autoFocus
-                  />
+              <div className="absolute right-0 bottom-full left-0 z-20 mb-2 max-h-[55vh] min-w-0 rounded-[8px] border border-slate-200 bg-white p-2 shadow-lg sm:left-auto sm:w-[28rem]">
+                <div className="px-2 py-1 text-xs text-slate-500">
+                  {mentionTrigger?.query
+                    ? `筛选：${mentionTrigger.query}`
+                    : "输入文档名继续筛选"}
                 </div>
                 <div className="mt-2 max-h-48 overflow-auto">
                   {isLoadingMentionDocuments ? (
@@ -447,21 +612,24 @@ export function ChatComposer({
                       <Loader2 className="size-3.5 animate-spin" />
                       正在加载文档...
                     </div>
-                  ) : filteredMentionDocuments.length > 0 ? (
-                    filteredMentionDocuments.map((document) => (
+                  ) : visibleMentionDocuments.length > 0 ? (
+                    visibleMentionDocuments.map((document, index) => (
                       <button
                         key={document.id}
                         type="button"
-                        className="flex w-full items-center gap-2 rounded-[6px] px-2 py-2 text-left text-xs text-slate-700 hover:bg-slate-50"
+                        className={cn(
+                          "flex min-h-10 w-full items-center gap-2 rounded-[6px] px-2 py-2 text-left text-xs text-slate-700 hover:bg-slate-50",
+                          index === mentionSelectedIndex && "bg-blue-50 text-blue-700",
+                        )}
                         title={document.name}
                         onMouseDown={(event) => {
                           event.preventDefault();
                           insertMention(document);
                         }}
-                      >
+                        >
                         <FileText className="size-3.5 shrink-0 text-slate-400" />
-                        <span className="min-w-0 flex-1 truncate">
-                          {document.name}
+                        <span className="min-w-0 flex-1 break-words">
+                          {highlightMatch(document.name, mentionTrigger?.query ?? "")}
                         </span>
                       </button>
                     ))
@@ -471,6 +639,47 @@ export function ChatComposer({
                     </div>
                   )}
                 </div>
+                {filteredMentionDocuments.length > MENTION_PAGE_SIZE ? (
+                  <div className="mt-2 flex items-center justify-between gap-2 border-t border-slate-100 pt-2 text-xs text-slate-500">
+                    <span>
+                      {mentionPage + 1} / {mentionPageCount}
+                    </span>
+                    <div className="flex items-center gap-1">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-xs"
+                        aria-label="上一页"
+                        disabled={mentionPage === 0}
+                        onMouseDown={(event) => {
+                          event.preventDefault();
+                          setMentionPage((currentPage) =>
+                            Math.max(currentPage - 1, 0),
+                          );
+                          setMentionSelectedIndex(0);
+                        }}
+                      >
+                        <ChevronLeft />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-xs"
+                        aria-label="下一页"
+                        disabled={mentionPage >= mentionPageCount - 1}
+                        onMouseDown={(event) => {
+                          event.preventDefault();
+                          setMentionPage((currentPage) =>
+                            Math.min(currentPage + 1, mentionPageCount - 1),
+                          );
+                          setMentionSelectedIndex(0);
+                        }}
+                      >
+                        <ChevronRight />
+                      </Button>
+                    </div>
+                  </div>
+                ) : null}
               </div>
             )}
           </div>

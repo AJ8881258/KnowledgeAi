@@ -271,6 +271,8 @@ class Stage21StreamingAvatarMentionTests {
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.avatarConfigured").value(true))
+                .andExpect(jsonPath("$.avatarSource").value("UPLOAD"))
+                .andExpect(jsonPath("$.avatarPresetId").doesNotExist())
                 .andExpect(jsonPath("$.avatarUrl").value(containsString("https://signed.example.test/")))
                 .andExpect(content().string(not(containsString("stage21-avatar-secret"))));
 
@@ -280,6 +282,8 @@ class Stage21StreamingAvatarMentionTests {
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.avatarConfigured").value(true))
+                .andExpect(jsonPath("$.avatarSource").value("UPLOAD"))
+                .andExpect(jsonPath("$.avatarPresetId").doesNotExist())
                 .andExpect(jsonPath("$.avatarUrl").value(containsString("https://signed.example.test/")))
                 .andExpect(content().string(not(containsString("stage21-avatar-secret"))));
 
@@ -287,6 +291,8 @@ class Stage21StreamingAvatarMentionTests {
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.avatarConfigured").value(false))
+                .andExpect(jsonPath("$.avatarSource").value("NONE"))
+                .andExpect(jsonPath("$.avatarPresetId").doesNotExist())
                 .andExpect(jsonPath("$.avatarUrl").doesNotExist());
 
         assertThat(readAvatarObjectKey("stage21_avatar_owner")).isNull();

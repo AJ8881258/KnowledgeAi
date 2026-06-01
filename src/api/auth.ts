@@ -9,10 +9,14 @@ export type LoginResponse = {
   id: number;
   username: string;
   role: string;
+  phone?: string | null;
   tokenType: string;
   accessToken: string;
   avatarUrl?: string | null;
   avatarConfigured?: boolean;
+  avatarStorageConfigured?: boolean;
+  avatarSource?: AvatarSource;
+  avatarPresetId?: DefaultAvatarPresetId | null;
 };
 
 export type RegisterRequest = {
@@ -25,8 +29,12 @@ export type RegisterResponse = {
   username: string;
   role: string;
   email?: string | null;
+  phone?: string | null;
   avatarUrl?: string | null;
   avatarConfigured?: boolean;
+  avatarStorageConfigured?: boolean;
+  avatarSource?: AvatarSource;
+  avatarPresetId?: DefaultAvatarPresetId | null;
 };
 
 export type ResetPasswordRequest = {
@@ -38,19 +46,39 @@ export type ResetPasswordResponse = {
   message: string;
 };
 
+export type AvatarSource = "UPLOAD" | "PRESET" | "NONE";
+
+export type DefaultAvatarPresetId =
+  | "blue"
+  | "green"
+  | "coral"
+  | "violet"
+  | "mint"
+  | "rose"
+  | "amber"
+  | "slate";
+
+export type AvatarPresetId = DefaultAvatarPresetId;
+
 export type UserResponse = {
   id: number;
   username: string;
   role: string;
   email: string | null;
+  phone: string | null;
   avatarUrl: string | null;
   avatarConfigured: boolean;
+  avatarStorageConfigured: boolean;
+  avatarSource: AvatarSource;
+  avatarPresetId: DefaultAvatarPresetId | null;
 };
 
 export type CurrentUserResponse = UserResponse;
 
 export type UpdateCurrentUserRequest = {
-  email: string | null;
+  username?: string;
+  email?: string | null;
+  phone?: string | null;
 };
 
 export async function login(request: LoginRequest) {
@@ -96,6 +124,17 @@ export async function uploadCurrentUserAvatar(file: File) {
 
 export async function deleteCurrentUserAvatar() {
   const response = await http.delete<CurrentUserResponse>("/auth/me/avatar");
+
+  return response.data;
+}
+
+export async function selectCurrentUserAvatarPreset(
+  avatarPresetId: DefaultAvatarPresetId,
+) {
+  const response = await http.patch<CurrentUserResponse>(
+    "/auth/me/avatar-preset",
+    { avatarPresetId },
+  );
 
   return response.data;
 }

@@ -10,33 +10,118 @@
 - 前后端任务书使用固定文件 `doc/FRONTEND_TASK.md` 和 `doc/BACKEND_TASK.md`。
 - `doc/` 下只保留核心文档：`STAGE_PLAN.md`、`PROJECT.md`、`API.md`、`FRONTEND_TASK.md`、`BACKEND_TASK.md`。
 - 文档/规划/指挥会话只同步核心文档和必要规则，不修改 `src/`、`backend/`、Docker 等业务/运行文件。
+- 项目开发推荐团队编排模式：一个主对话担任项目经理/协调者，负责阶段 kickoff、计划审核、任务拆分、Thread/worktree 或 `AGENT_TEAM` 下发、结果审核、集成验证和总结。下发给 Codex Thread 或 `AGENT_TEAM` 的实现/复核任务必须使用可用最高思考/推理等级（例如 `xhigh` / 最高级），除非用户明确要求降低成本或降低思考等级。
 
 ## 当前阶段总览
 
-| 阶段 | 状态 | 依据 |
-|---|---|---|
-| 阶段 0：前端静态原型 | 已完成 | Dashboard、KnowledgeBases、Documents、Chat、Settings 静态页面完成。 |
-| 阶段 1：后端基础设施 | 已完成 | Spring Boot、PostgreSQL、Flyway、基础表结构完成。 |
-| 阶段 2：认证闭环 | 已完成 | 注册、登录、JWT、重置密码、前端登录接入完成。 |
-| 阶段 3：知识库 CRUD | 已完成 | 后端 CRUD、用户隔离、前端真实接口接入完成。 |
-| 阶段 4：文档上传、解析、切片 | 已完成 | 文档上传、解析、切片、状态流转和前端接入完成。 |
-| 阶段 5：文档检索 MVP | 已完成 | 知识库内文档片段检索、检索测试区和接口契约完成。 |
-| 阶段 6：RAG 问答 MVP | 已完成 | 检索、Prompt、模型调用、消息保存、引用来源和会话管理闭环完成。 |
-| 阶段 7：前端体验完善 | 已完成 | 真实数据状态、页面拆分、加载/错误/空状态和代码级验证完成。 |
-| 阶段 8：Settings 功能接入与交付整理 | 已完成 | 邮箱、RAG 参数、账号删除、Settings 后端接入和交付资料整理完成。 |
-| 阶段 9：检索质量升级 | 已完成 | PostgreSQL 全文检索、相关度分数和引用排序完成。 |
-| 阶段 10：RAG 体验增强 | 已完成 | 多轮上下文、空检索降级、引用体验和模型错误脱敏完成。 |
-| 阶段 11：文档处理增强 | 已完成 | 新增 `.docx`、`.html/.htm` 文本提取，保持同步处理和 10MB 上限。 |
-| 阶段 12：权限与团队协作 | 已完成 | 单个知识库共享、`OWNER`/`EDITOR`/`VIEWER` 成员权限和前后端接入完成。 |
-| 阶段 13：用户模型配置、偏好设置与多会话协同增强 | 已完成 | 用户级模型配置、API Key 加密、未读会话、后台生成、今日交谈次数完成。 |
-| 阶段 14：Docker 化与运维 + do.md 收尾修复 | 已完成 | Docker 全量启动、README 运维说明、构建/健康检查/日志/备份恢复文档完成；`do.md` 新增验收问题已完成代码和 API 文档同步。 |
-| 阶段 15：知识库质量与文档处理增强 | 已完成 | 文档质量指标、重新处理、摘要生成、前端展示和阶段 15 回归验证完成。 |
-| 阶段 16：文档处理可靠性与真正失败重试 | 已完成 | 上传时保存原始文件 bytes 和成功解析文本，重新处理优先使用原始来源，失败无 chunks 文档可真正重试，前端按可重试能力控制入口。 |
-| 阶段 17：后台任务化与文档处理进度 | 已完成 | 新增文档处理任务表、上传/重新处理任务记录、进度查询接口和 Documents 轮询进度 UI；完整后端回归、前端构建/ESLint 和 browser-use 验收已通过。 |
-| 阶段 18：语义检索与混合召回 | 已完成 | 新增 pgvector、可选 embedding、全文+语义混合排序、检索/Chat 分数拆解和 embedding 状态展示；后端完整回归、前端构建和目标 ESLint 已通过。 |
-| 阶段 19：语义索引运维与检索策略可控 | 已完成 | 新增语义索引重建任务、RAG 检索策略和权重配置、Settings 策略 UI、文档/知识库重建入口和阶段 19 回归验证。 |
-| 阶段 20：后台任务中心与系统诊断 | 已完成 | 新增全局文档处理任务中心、任务筛选、失败/取消任务重试、活跃任务取消、协作权限隔离和安全系统诊断接口；后端 105 个测试、前端构建和目标 ESLint 已通过。 |
-| 阶段 21：Chat SSE 流式输出、头像上传与 @ 文件上下文 | 已完成 | 新增 Chat SSE 边流边保存、OSS 头像上传、`@` 文件 mention、标题感知文档匹配和对应前后端接入；后端 112 个测试、前端构建和目标 ESLint 已通过。 |
+| 阶段                                | 状态  | 依据                                                                                                                            |
+| --------------------------------- | --- | ----------------------------------------------------------------------------------------------------------------------------- |
+| 阶段 0：前端静态原型                       | 已完成 | Dashboard、KnowledgeBases、Documents、Chat、Settings 静态页面完成。                                                                      |
+| 阶段 1：后端基础设施                       | 已完成 | Spring Boot、PostgreSQL、Flyway、基础表结构完成。                                                                                        |
+| 阶段 2：认证闭环                         | 已完成 | 注册、登录、JWT、重置密码、前端登录接入完成。                                                                                                      |
+| 阶段 3：知识库 CRUD                     | 已完成 | 后端 CRUD、用户隔离、前端真实接口接入完成。                                                                                                      |
+| 阶段 4：文档上传、解析、切片                   | 已完成 | 文档上传、解析、切片、状态流转和前端接入完成。                                                                                                       |
+| 阶段 5：文档检索 MVP                     | 已完成 | 知识库内文档片段检索、检索测试区和接口契约完成。                                                                                                      |
+| 阶段 6：RAG 问答 MVP                   | 已完成 | 检索、Prompt、模型调用、消息保存、引用来源和会话管理闭环完成。                                                                                            |
+| 阶段 7：前端体验完善                       | 已完成 | 真实数据状态、页面拆分、加载/错误/空状态和代码级验证完成。                                                                                                |
+| 阶段 8：Settings 功能接入与交付整理           | 已完成 | 邮箱、RAG 参数、账号删除、Settings 后端接入和交付资料整理完成。                                                                                        |
+| 阶段 9：检索质量升级                       | 已完成 | PostgreSQL 全文检索、相关度分数和引用排序完成。                                                                                                 |
+| 阶段 10：RAG 体验增强                    | 已完成 | 多轮上下文、空检索降级、引用体验和模型错误脱敏完成。                                                                                                    |
+| 阶段 11：文档处理增强                      | 已完成 | 新增 `.docx`、`.html/.htm` 文本提取，保持同步处理和 10MB 上限。                                                                                 |
+| 阶段 12：权限与团队协作                     | 已完成 | 单个知识库共享、`OWNER`/`EDITOR`/`VIEWER` 成员权限和前后端接入完成。                                                                               |
+| 阶段 13：用户模型配置、偏好设置与多会话协同增强         | 已完成 | 用户级模型配置、API Key 加密、未读会话、后台生成、今日交谈次数完成。                                                                                        |
+| 阶段 14：Docker 化与运维 + do.md 收尾修复    | 已完成 | Docker 全量启动、README 运维说明、构建/健康检查/日志/备份恢复文档完成；`do.md` 新增验收问题已完成代码和 API 文档同步。                                                    |
+| 阶段 15：知识库质量与文档处理增强                | 已完成 | 文档质量指标、重新处理、摘要生成、前端展示和阶段 15 回归验证完成。                                                                                           |
+| 阶段 16：文档处理可靠性与真正失败重试              | 已完成 | 上传时保存原始文件 bytes 和成功解析文本，重新处理优先使用原始来源，失败无 chunks 文档可真正重试，前端按可重试能力控制入口。                                                         |
+| 阶段 17：后台任务化与文档处理进度                | 已完成 | 新增文档处理任务表、上传/重新处理任务记录、进度查询接口和 Documents 轮询进度 UI；完整后端回归、前端构建/ESLint 和 browser-use 验收已通过。                                       |
+| 阶段 18：语义检索与混合召回                   | 已完成 | 新增 pgvector、可选 embedding、全文+语义混合排序、检索/Chat 分数拆解和 embedding 状态展示；后端完整回归、前端构建和目标 ESLint 已通过。                                    |
+| 阶段 19：语义索引运维与检索策略可控               | 已完成 | 新增语义索引重建任务、RAG 检索策略和权重配置、Settings 策略 UI、文档/知识库重建入口和阶段 19 回归验证。                                                                |
+| 阶段 20：后台任务中心与系统诊断                 | 已完成 | 新增全局文档处理任务中心、任务筛选、失败/取消任务重试、活跃任务取消、协作权限隔离和安全系统诊断接口；后端 105 个测试、前端构建和目标 ESLint 已通过。                                             |
+| 阶段 21：Chat SSE 流式输出、头像上传与 @ 文件上下文 | 已完成 | 新增 Chat SSE 边流边保存、OSS 头像上传、`@` 文件 mention、标题感知文档匹配和对应前后端接入；后端 112 个测试、前端构建和目标 ESLint 已通过。                                     |
+| 阶段 22：Settings/Chat 验收修复与协作规则升级   | 已完成 | Settings 资料编辑二次验收、默认头像持久化、Chat mention CLI 策略、乱码修复、点击沟通区域标记已读、移动端约束和多 thread/worktree 协作规则已完成；后端 118 个测试、前端构建和目标 ESLint 已通过。 |
+| 阶段 23：Settings 联系方式与头像存储状态契约同步 | 进行中 | `UserResponse` / `PATCH /api/auth/me` 扩展联系方式 `phone`，补充 `avatarStorageConfigured`，统一 OSS 未配置头像上传脱敏提示，并同步 Settings 联系方式展示和文档规则。 |
+
+## 阶段 23：Settings 联系方式与头像存储状态契约同步
+
+### 目标
+
+阶段 23 聚焦 Settings 账号资料的联系方式和头像上传可用性契约同步。目标是让后端资料响应明确返回联系方式和 OSS 头像存储配置状态，前端在 Settings 展示联系方式，并在 OSS 未配置时禁止上传头像、保留默认头像选择，同时保证错误提示不泄露 OSS、模型或鉴权敏感配置。
+
+### 范围
+
+- 后端：
+  - `users` 增加可选联系方式字段 `phone`。
+  - `UserResponse` 增加 `phone` 和 `avatarStorageConfigured`。
+  - `PATCH /api/auth/me` 支持可选更新 `username` / `email` / `phone`，请求体至少包含一个字段。
+  - `phone` 允许清空；非空值 trim 后长度为 5-32，且只能包含数字、普通空格、`+`、`-` 和英文括号，并至少包含 5 个数字。
+  - OSS 未配置时，头像上传返回脱敏中文提示：“头像上传需要先配置 OSS 存储。”。
+- 前端：
+  - `src/api/auth.ts` 的 `UserResponse` 和 profile 更新请求类型同步 `phone`、`avatarStorageConfigured`。
+  - Settings 账号资料区显示联系方式；编辑资料弹窗允许修改用户名、邮箱、联系方式和头像。
+  - 当 `avatarStorageConfigured=false` 时禁用本地头像上传入口，并提示“头像上传需要先配置 OSS；当前可选择默认头像”。
+  - Header、Sidebar、Settings 继续统一使用上传头像短期签名 URL 或默认头像 preset，不持久化签名 URL。
+- 协作与验收规则：
+  - 继续使用主对话作为项目经理/协调者的团队编排模式。
+  - 复杂开发优先下发 Codex Thread/worktree 或 `AGENT_TEAM` worker，worker 思考/推理等级默认使用可用最高级（例如 `xhigh` / 最高级）。
+  - 协调者或专门验收线程/worker 可使用 `browser-use`、Browser、Chrome、Playwright、截图等浏览器工具做运行态验收；实现线程未被分配浏览器验收时仍以代码级验证为主。
+
+### 当前验收口径
+
+- 后端响应不返回密码哈希、OSS object key、AccessKey、Secret、bucket 私密配置、Authorization header 或永久 URL。
+- `avatarStorageConfigured=false` 仅表示上传头像不可用，不影响选择默认头像 preset。
+- Settings 联系方式是资料字段，不用于登录、唯一性校验、短信验证或通知发送。
+- 本轮文档复核只同步核心文档和规则，不修改 `src/` 或 `backend/` 业务代码。
+
+## 阶段 22：Settings/Chat 验收修复与协作规则升级
+
+### 目标
+
+阶段 22 处理阶段 21 人工验收后的 Settings/Chat 修复清单，并把复杂阶段优先拆分到多个 Codex 后台 thread/worktree 的协作策略固化到项目规则。目标是让 Settings 资料区回到只读展示、头像选择支持后端持久化默认 preset，Chat mention 行为更接近 CLI，修复乱码和未读标记体验，同时提升移动端布局稳定性。
+
+### 范围
+
+- 后端：
+  - 新增 `users.avatar_preset_id` 和 `PATCH /api/auth/me/avatar-preset`。
+  - `UserResponse` 新增 `avatarSource`、`avatarPresetId`。
+  - 上传头像清空 preset；选择 preset 清空上传头像 object key，并尽力删除旧 OSS 对象。
+  - 保留 `POST /api/auth/me/avatar` 和 `DELETE /api/auth/me/avatar` 兼容能力。
+  - 二次验收扩展 `PATCH /api/auth/me`，支持可选更新 `username` / `email`，要求至少一个字段，用户名 trim 非空、长度上限 100 且不能与其他用户冲突，邮箱可清空。
+- 前端：
+  - Settings 资料卡只读，新增“编辑资料”弹窗；弹窗内只允许选择默认头像或上传本地头像。
+  - 删除 Settings 普通用户入口中的“删除头像”按钮。
+  - 新增共享头像渲染组件，统一 Header、Sidebar、Settings 的上传头像和默认头像展示。
+  - Chat 流式提示改为“正在思考”。
+  - Chat mention 改为行首或空白后 `@` 才触发，使用 inline query 过滤，支持高亮、键盘选择和分页。
+  - 修复 Chat 引用来源和会话列表乱码。
+  - 点击当前会话沟通区域时，对未读会话防抖调用 `PATCH /api/chat/sessions/{id}` 标记已读。
+  - 补齐 Settings/Chat 小屏 `min-w-0`、换行、截断和触控尺寸约束。
+- 协作规则：
+  - `AGENTS.md` 明确项目开发推荐团队编排模式：主对话担任项目经理/协调者，负责审核、拆分、下发、集成和最终验证。
+  - 复杂阶段、多子系统任务或容易积累过多 WindowsContext 的任务，优先拆分到多个 Codex 后台 Thread/worktree 或 `AGENT_TEAM` 子任务，由协调者集成和验证。
+  - 协调者下发 Thread 或 `AGENT_TEAM` 任务时，worker 思考/推理等级默认使用可用最高级（例如 `xhigh` / 最高级），除非用户明确要求降低成本或降低思考等级。
+
+### 已完成内容
+
+- 新增 `V17__add_user_avatar_preset.sql`、`UpdateAvatarPresetRequest` 和 `Stage22DefaultAvatarTests`。
+- `AuthService`、`AuthController`、`UserRepository`、`UserResponse` 已支持默认头像 preset 和头像来源字段。
+- `src/api/auth.ts` 新增 `DefaultAvatarPresetId`、`AvatarSource` 和 `selectCurrentUserAvatarPreset`。
+- `src/store/auth.ts` 运行时保留短期 `avatarUrl`，持久化时剔除签名 URL。
+- 主布局挂载时重新请求 `/api/auth/me`，刷新任意已登录页面后可重新获取上传头像短期签名 URL。
+- `src/components/user-avatar.tsx` 新增 8 个默认头像 preset、`UserAvatar` 和 `AvatarPresetPicker`。
+- Settings 账号资料卡和编辑资料弹窗按二次验收恢复用户名、邮箱和头像编辑；角色、时区仍只读，语言入口移除。
+- Header、Sidebar、Settings 统一头像渲染。
+- ChatComposer mention 改为 CLI 风格触发和键盘交互，手动删改 token 后同步清理对应文档 ID。
+- `rag-chat-workspace.tsx` 修复 mojibake 文案、流式提示、未读点击防抖和移动端布局约束。
+
+### 验收结果
+
+- `cd backend && .\mvnw.cmd -Dtest=Stage22DefaultAvatarTests test` 已通过：`6 tests, 0 failures, 0 errors`，覆盖默认头像和 profile 二次验收规则。
+- `cd backend && .\mvnw.cmd test` 已通过：`118 tests, 0 failures, 0 errors`。
+- 目标 ESLint 已通过。
+- `pnpm build` 已通过，仅保留既有 Vite 大 chunk 提示。
+- `rg -n "fetch\(" src` 仅匹配 `src/api/chat-stream.ts` 的 POST SSE 例外。
+- 指定 Chat/Settings 范围 mojibake 残留检查无匹配。
+- `git diff --check` 已通过，仅有 Windows 下 LF 将转换为 CRLF 的提示。
 
 ## 阶段 21：Chat SSE 流式输出、头像上传与 @ 文件上下文
 
@@ -64,9 +149,7 @@
 ### 不做
 
 - 不做 WebSocket。
-- 不做跨知识库 `@` mention。
 - 不做多模态即时附件问答。
-- 不做 PPT / Excel 解析。
 - 不把 OSS object key、AccessKey、Secret 或永久 URL 返回前端。
 
 ### 已完成内容
@@ -92,7 +175,7 @@
 
 ### 目标
 
-阶段 20 在阶段 17-19 的文档处理任务基础上，把任务能力从 Documents 局部进度展示扩展为全局任务中心，并补齐最小系统诊断能力。目标是让用户能跨知识库查看自己可访问的后台任务，处理失败或取消的任务，取消仍在排队/运行的任务，同时让运维入口只展示脱敏后的健康状态。
+阶段 20 在阶段 17-19 的文档处理任务基础上，把任务能力从 Documents 局部进度展示扩展为全局任务中心，并补齐最小系统诊断能力。目标是让用户能查看自己可访问知识库下的后台任务，处理失败或取消的任务，取消仍在排队/运行的任务，同时让运维入口只展示脱敏后的健康状态。
 
 ### 范围
 
@@ -158,7 +241,7 @@
 
 ### 不做
 
-- 不新增 OCR、PPT、Excel 解析。
+- 不新增 OCR 或其他非文本提取能力。
 - 不做向量索引可视化后台或复杂任务中心。
 - 不改变 Chat 会话和引用来源的数据结构。
 - 不做 SSE / 流式输出。
@@ -210,7 +293,6 @@
 - 不强制要求用户配置 embedding 模型。
 - 不做向量索引后台重建任务和召回权重 UI 配置。
 - 不做 OCR。
-- 不做 PPT / Excel 解析。
 - 不做 SSE / 流式输出。
 - 不做 Agent 工作流。
 
@@ -263,7 +345,6 @@
 - 不做 MQ / RabbitMQ / Kafka。
 - 不做复杂后台任务中心或任务管理后台。
 - 不做 OCR。
-- 不做 PPT / Excel 解析。
 - 不做 embedding / pgvector。
 - 不做 SSE/流式任务进度推送。
 - 不改变 Chat 引用来源规则；引用仍必须来自真实 chunks。
@@ -318,7 +399,6 @@
 
 - 不做后台任务队列。
 - 不做 OCR。
-- 不做 PPT / Excel 解析。
 - 不做 embedding / pgvector。
 - 不做 SSE/流式输出。
 - 不改变 Chat 引用来源规则；引用仍必须来自真实 chunks。
@@ -369,7 +449,6 @@
 - 不做 SSE/流式输出。
 - 不做 embedding / pgvector。
 - 不做 OCR。
-- 不做 PPT / Excel 解析。
 - 不做后台任务队列系统。
 - 不做复杂 Prompt 编排系统。
 - 不恢复 `/KnowledgeBases/{id}` 的 Chat 入口。
@@ -518,7 +597,7 @@
 
 ### 阶段 11：文档处理增强
 
-新增 `.docx` 和 `.html/.htm` 文本提取。暂不支持 OCR、PPT、Excel 和后台队列。
+新增 `.docx` 和 `.html/.htm` 文本提取。当前仅支持可提取文本的文档内容，不处理扫描件 OCR 或后台队列。
 
 ### 阶段 12：权限与团队协作
 
@@ -528,7 +607,7 @@
 
 完成用户级 OpenAI-compatible 模型配置、API Key 加密保存、动态模型列表、语言/时区偏好、未读会话、后台生成状态、今日交谈次数和 Chat 空检索真实回答。
 
-### 阶段 21：Chat SSE 流式输出、头像上传与 @ 文件上下文
+## 阶段 21：Chat SSE 流式输出、头像上传与 @ 文件上下文
 
 新增 SSE 流式问答、边流边保存、头像上传到 OSS、短期签名头像回显、`@` 当前知识库文档上下文和标题感知文档匹配。
 
@@ -538,9 +617,8 @@
 - Spring Cloud 或微服务拆分。
 - 向量索引后台重建任务和召回权重可配置。
 - 扫描版 PDF OCR。
-- PPT / Excel 解析。
 - 消息队列和复杂后台任务中心。
 - 复杂组织权限和后台管理系统。
 - Agent 工作流。
 
-这些能力可作为后续扩展，但不阻塞当前 MVP 交付。
+这些边界不阻塞当前 MVP 交付。

@@ -191,6 +191,7 @@ class Stage15DocumentQualityTests {
         Long documentId = createDocument(ownerId, knowledgeBaseId, "summary.md", "INDEXED");
         createChunk(documentId, knowledgeBaseId, 0, "stage15 summary source text");
         modelClient.answer = "stage15 generated summary";
+        Integer sourceCountBefore = jdbcTemplate.queryForObject("select count(*) from chat_message_sources", Integer.class);
 
         mockMvc.perform(post("/api/documents/{documentId}/summary", documentId)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + ownerToken))
@@ -203,7 +204,10 @@ class Stage15DocumentQualityTests {
         assertThat(modelClient.lastPrompt).contains("stage15 summary source text");
         assertThat(jdbcTemplate.queryForObject("select summary from documents where id = ?", String.class, documentId))
                 .isEqualTo("stage15 generated summary");
-        assertThat(jdbcTemplate.queryForObject("select count(*) from chat_message_sources", Integer.class)).isZero();
+        assertThat(jdbcTemplate.queryForObject("select count(*) from chat_message_sources", Integer.class))
+                .isEqualTo(sourceCountBefore);
+        assertThat(jdbcTemplate.queryForObject("select count(*) from chat_message_sources where document_id = ?", Integer.class, documentId))
+                .isZero();
     }
 
     @Test

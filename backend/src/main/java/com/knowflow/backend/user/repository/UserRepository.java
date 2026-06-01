@@ -1,131 +1,121 @@
 package com.knowflow.backend.user.repository;
 
-import java.util.Optional;
-
 import com.knowflow.backend.user.entity.User;
-import org.apache.ibatis.annotations.*;
+import org.apache.ibatis.annotations.Delete;
+import org.apache.ibatis.annotations.Insert;
+import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Options;
+import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
+
+import java.util.Optional;
 
 @Mapper
 public interface UserRepository {
-
-    /**
-     * 根据ID查询用户
-     *
-     * @param id
-     * @return
-     */
     @Select("""
-                select id,username,password_hash,role,email,avatar_object_key,avatar_updated_at,created_at,updated_at
+                select id, username, password_hash, role, email, phone, avatar_object_key, avatar_preset_id, avatar_updated_at, created_at, updated_at
                 from users
                 where id = #{id}
             """)
     Optional<User> findById(Long id);
 
-    /**
-     * 根据用户名查询用户
-     *
-     * @param username
-     * @return
-     */
     @Select("""
-            SELECT id, username, password_hash, role,email,avatar_object_key,avatar_updated_at, created_at, updated_at
-            FROM users
-            WHERE username = #{username}
+            select id, username, password_hash, role, email, phone, avatar_object_key, avatar_preset_id, avatar_updated_at, created_at, updated_at
+            from users
+            where username = #{username}
             """)
     Optional<User> findByUsername(String username);
 
-
-    /**
-     * 根据用户名查询用户是否存在
-     *
-     * @param username
-     * @return
-     */
-    // if Exist
     @Select("""
-            SELECT EXISTS (
-                SELECT 1
-                FROM users
-                WHERE username = #{username}
+            select exists (
+                select 1
+                from users
+                where username = #{username}
             )
             """)
     boolean existsByUsername(String username);
 
-
     /**
-     * 检查邮箱是否被其他用户占用。
+     * Checks whether another account already uses the requested username. This supports
+     * profile editing without forcing the current user to re-register or re-login.
      *
-     * @param email
-     * @param userId
-     * @return
+     * @param username normalized target username
+     * @param userId current user id, excluded from the uniqueness check
+     * @return true when a different user owns the username
      */
     @Select("""
-                select  exists (select  1 from users where
-                email is not null and
-                lower(email) = lower(#{email}) and
-                id <> #{userId})
+            select exists (
+                select 1
+                from users
+                where lower(username) = lower(#{username})
+                  and id <> #{userId}
+            )
+            """)
+    boolean existsByUsernameForOtherUser(@Param("username") String username, @Param("userId") Long userId);
 
+    @Select("""
+                select exists (
+                    select 1
+                    from users
+                    where email is not null
+                      and lower(email) = lower(#{email})
+                      and id <> #{userId}
+                )
             """)
     boolean existsByEmailForOtherUser(@Param("email") String email, @Param("userId") Long userId);
 
-
-    /**
-     * 保存用户
-     *
-     * @param user
-     * @return
-     */
     @Insert("""
-            INSERT INTO users (username, password_hash, role)
-            VALUES (#{username}, #{passwordHash}, #{role})
+            insert into users (username, password_hash, role)
+            values (#{username}, #{passwordHash}, #{role})
             """)
     @Options(useGeneratedKeys = true, keyProperty = "id", keyColumn = "id")
     int save(User user);
 
-
-    /**
-     * 根据用户名更新用户密码
-     *
-     * @param username
-     * @param passwordHash
-     * @return
-     */
     @Update("""
-            update users set password_hash = #{passwordHash},
-            updated_at =now()
+            update users
+            set password_hash = #{passwordHash},
+                updated_at = now()
             where username = #{username}
             """)
     int updatePasswordByUsername(@Param("username") String username, @Param("passwordHash") String passwordHash);
 
-
     /**
-     * \
-     * 只按当前用户 id 更新 email。
+     * Updates the editable profile fields for the current user. Values are normalized
+     * and validated in AuthService; email and phone may be null to intentionally clear them.
      *
-     * @param userId
-     * @param email
-     * @return
+     * @param userId current user id
+     * @param username normalized username
+     * @param email normalized email or null
+     * @param phone normalized optional contact phone or null
+     * @return updated row count
      */
     @Update("""
                 update users
-                set email = #{email},
-                updated_at = now()
+                set username = #{username},
+                    email = #{email},
+                    phone = #{phone},
+                    updated_at = now()
                 where id = #{userId}
             """)
-    int updateEmailById(
+    int updateProfileById(
             @Param("userId") Long userId,
-            @Param("email") String email
+            @Param("username") String username,
+            @Param("email") String email,
+            @Param("phone") String phone
     );
 
     /**
-     * @param userId 当前用户 ID
-     * @param avatarObjectKey OSS object key，不是公开 URL
-     * @return 更新行数
-     * @Desc 头像只保存 object key。签名 URL 每次读取用户资料时动态生成，避免把临时 URL 当永久地址落库。
+     * @param userId current user id
+     * @param avatarObjectKey OSS object key, never a public URL
+     * @return updated row count
+     * @Desc Avatar upload stores only object key; signed URLs are generated while reading
+     * user profile so the frontend never persists permanent storage addresses.
      */
     @Update("""
                 update users
                 set avatar_object_key = #{avatarObjectKey},
+                    avatar_preset_id = null,
                     avatar_updated_at = now(),
                     updated_at = now()
                 where id = #{userId}
@@ -136,13 +126,15 @@ public interface UserRepository {
     );
 
     /**
-     * @param userId 当前用户 ID
-     * @return 更新行数
-     * @Desc 删除头像时清空 object key；OSS 对象删除由存储服务尽力执行，数据库以当前用户资料状态为准。
+     * @param userId current user id
+     * @return updated row count
+     * @Desc Clearing an avatar removes both uploaded and preset sources; OSS deletion is
+     * best-effort and database state remains the source of truth.
      */
     @Update("""
                 update users
                 set avatar_object_key = null,
+                    avatar_preset_id = null,
                     avatar_updated_at = now(),
                     updated_at = now()
                 where id = #{userId}
@@ -150,45 +142,41 @@ public interface UserRepository {
     int clearAvatarObjectKeyById(Long userId);
 
     /**
-     * 删除用户的所有聊天会话。
-     *
-     * @param userId
-     * @return
+     * @param userId current user id
+     * @param avatarPresetId server allow-listed preset id
+     * @return updated row count
+     * @Desc Preset selection clears uploaded object key so UserResponse exposes exactly one
+     * avatar source: PRESET, UPLOAD, or NONE.
      */
+    @Update("""
+                update users
+                set avatar_object_key = null,
+                    avatar_preset_id = #{avatarPresetId},
+                    avatar_updated_at = now(),
+                    updated_at = now()
+                where id = #{userId}
+            """)
+    int updateAvatarPresetById(
+            @Param("userId") Long userId,
+            @Param("avatarPresetId") String avatarPresetId
+    );
 
     @Delete("""
                 delete from chat_sessions where user_id = #{userId}
             """)
     int deleteChatSessionsByUserId(Long userId);
 
-    /**
-     * @param userId
-     * @return
-     * @Desc 删除当前用户的所有文档
-     */
     @Delete("""
             delete from documents
             where created_by = #{userId}
             """)
     int deleteDocumentsByCreatedBy(Long userId);
 
-    /**
-     * 删除用户创建的所有知识库。
-     *
-     * @param userId
-     * @return
-     */
     @Delete("""
                 delete from knowledge_bases where created_by = #{userId}
             """)
     int deleteKnowledgeBasesByCreatedBy(Long userId);
 
-    /**
-     * 删除用户。
-     *
-     * @param userId
-     * @return
-     */
     @Delete("""
                 delete from users where id = #{userId}
             """)

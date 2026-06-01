@@ -4,7 +4,7 @@
 
 KnowFlow AI 是一个智能知识库问答平台。用户上传学习资料、项目文档或产品文档后，可以基于自己的资料进行检索增强问答。
 
-项目当前已完成 **阶段 21：Chat SSE 流式输出、头像上传与 @ 文件上下文**。当前版本已经具备从本地开发到 Docker 全量启动的完整复现路径，并补齐文档质量指标、重新处理入口、文档摘要、原始来源持久化、真正失败重试、持久化文档处理任务、可选 embedding、pgvector 向量字段、全文+语义混合检索、语义索引重建、用户级检索策略配置、全局后台任务中心、安全系统诊断、Chat SSE 流式输出、OSS 头像上传和当前知识库文档 `@` mention；`do.md` 作为本地任务输入文件已加入 `.gitignore`，不再作为项目文件提交。
+项目当前已完成 **阶段 22：Settings/Chat 验收修复与协作规则升级**，阶段 23 的 Settings 联系方式与头像存储状态契约同步正在进行。当前版本已经具备从本地开发到 Docker 全量启动的完整复现路径，并补齐文档质量指标、重新处理入口、文档摘要、原始来源持久化、真正失败重试、持久化文档处理任务、可选 embedding、pgvector 向量字段、全文+语义混合检索、语义索引重建、用户级检索策略配置、全局后台任务中心、安全系统诊断、Chat SSE 流式输出、OSS 头像上传、默认头像持久化、当前知识库文档 `@` mention、Settings profile 二次验收更新和 Chat 验收交互修复；`do.md` 作为本地任务输入文件已加入 `.gitignore`，不再作为项目文件提交。
 
 ## 当前能力
 
@@ -13,7 +13,7 @@ KnowFlow AI 是一个智能知识库问答平台。用户上传学习资料、�
 - Spring Boot 单体后端。
 - PostgreSQL 数据库接入。
 - Flyway 数据库迁移。
-- 注册、登录、JWT 鉴权、重置密码、当前用户资料。
+- 注册、登录、JWT 鉴权、重置密码、当前用户资料；`PATCH /api/auth/me` 支持可选更新用户名、邮箱和联系方式，邮箱/联系方式可清空。
 - 知识库 CRUD，支持 `featured` 和 `themeId`。
 - 知识库成员协作权限：`OWNER`、`EDITOR`、`VIEWER`。
 - 文档上传、解析、切片、索引状态流转。
@@ -26,11 +26,11 @@ KnowFlow AI 是一个智能知识库问答平台。用户上传学习资料、�
 - 阶段 18 语义检索增强：配置 `KNOWFLOW_AI_EMBEDDING_MODEL` 后，文档处理会尝试写入 embedding，Search 和 Chat 通过全文分、语义分、混合分共同排序；未配置或 embedding 失败时自动降级为全文检索。
 - 阶段 19 语义索引运维：支持文档级和知识库级语义索引重建，只刷新已有 chunks 的 embedding，不重新解析来源文本，也不影响全文检索可用性。
 - 用户级 RAG 检索策略：Settings 可保存 `HYBRID` / `FULLTEXT`，并配置语义权重和全文权重。
-- 阶段 20 后台任务中心：支持跨知识库查看当前用户可访问的文档处理任务，按状态筛选，重试失败/取消任务，取消排队/运行任务，并通过权限校验区分成员可见、编辑者可操作和非成员隐藏。
+- 阶段 20 后台任务中心：支持查看当前用户可访问知识库下的文档处理任务，按状态筛选，重试失败/取消任务，取消排队/运行任务，并通过权限校验区分成员可见、编辑者可操作和非成员隐藏。
 - 阶段 20 系统诊断：提供脱敏诊断接口，只返回数据库可达性、当前用户可见任务计数和模型兜底配置布尔状态，不暴露 Base URL、API Key、model、Authorization 或 JDBC URL。
 - RAG/Chat：会话、消息、引用来源、最近 6 条以内上下文、后台生成状态、RAG 开关、生成打断和阶段 21 SSE 流式输出。
 - 阶段 21 文件上下文：Chat 支持显式 `mentionedDocumentIds`，前端通过 `@` 选择当前知识库已索引文档；没有显式 mention 时，后端会对用户问题做文件标题感知匹配，帮助用户按标题指定文档内容。
-- 阶段 21 头像：支持上传当前用户头像到阿里云 OSS，数据库只保存 object key，用户资料接口返回短期签名 `avatarUrl` 和 `avatarConfigured`。
+- 阶段 21/22/23 头像：支持上传当前用户头像到阿里云 OSS，数据库只保存 object key；支持 8 个默认头像 preset 持久化；用户资料接口返回 `avatarUrl`、`avatarConfigured`、`avatarStorageConfigured`、`avatarSource` 和 `avatarPresetId`；OSS 未配置时上传接口返回脱敏中文提示“头像上传需要先配置 OSS 存储。”。
 - 用户级模型配置：Base URL、加密 API Key、Model、timeout。
 - Settings 模型列表拉取和真实模型连接测试。
 - 用户偏好：语言、时区。
@@ -49,9 +49,9 @@ KnowFlow AI 是一个智能知识库问答平台。用户上传学习资料、�
 - `/Jobs` 全局任务中心：展示后台任务状态、进度、阶段、消息、上下文和安全诊断摘要，支持刷新、筛选、重试和取消。
 - Chat 会话列表、消息列表、SSE 流式发送、模型选择、引用来源面板、未读会话和后台生成状态。
 - Chat 生成中禁用 RAG/模型选择，发送按钮切换为“打断”；RAG 开关提供 hover 说明。
-- Chat 输入框支持 `@` 当前知识库文档 mention，弹出文档列表和搜索框，发送时传递 `mentionedDocumentIds`。
-- Settings 用户资料、模型配置、模型测试、偏好、RAG 参数和账号删除。
-- Settings 账号资料区支持头像上传和删除，Header/Sidebar 使用头像签名 URL 回显。
+- Chat 输入框支持 CLI 风格 `@` 当前知识库文档 mention：仅行首或空白后触发，支持 inline query、高亮、键盘选择和分页，发送时传递 `mentionedDocumentIds`。
+- Settings 用户资料只读展示、编辑资料弹窗、模型配置、模型测试、偏好、RAG 参数和账号删除。
+- Settings 账号资料区支持联系方式展示/编辑、默认头像选择和头像上传；当 `avatarStorageConfigured=false` 时提示“头像上传需要先配置 OSS；当前可选择默认头像”；Header/Sidebar/Settings 统一按上传头像签名 URL 或默认头像 preset 回显。
 - Header 未读角标和侧边栏今日交谈次数。
 
 ## 当前阶段状态
@@ -64,6 +64,10 @@ KnowFlow AI 是一个智能知识库问答平台。用户上传学习资料、�
 - 阶段 20 新增全局后台任务中心、任务重试/取消、安全系统诊断和 `/Jobs` 前端页面。
 - 阶段 20 已通过阶段专项后端测试、完整后端回归、前端构建和目标 ESLint。
 - 阶段 21 新增 Chat SSE 流式输出、边流边保存、`@` 文件上下文、标题感知检索和 OSS 头像上传；专项后端测试覆盖流式事件、持久化 delta、打断防旧流写入、mention 权限、标题匹配和头像校验。
+- 阶段 22 新增默认头像 preset 持久化、`UserResponse.avatarSource/avatarPresetId`、Settings profile 二次验收更新、刷新已登录页面后重新获取上传头像短期签名 URL、Chat mention CLI 策略和 token 删除同步、乱码修复、点击沟通区域标记已读防抖和移动端布局约束。
+- 阶段 22 二次验收后端复核已通过 `Stage22DefaultAvatarTests` 专项测试和后端全量回归：`118 tests, 0 failures, 0 errors`；前端目标 ESLint 和 `pnpm build` 已通过，直接 `fetch` 仍只有 `src/api/chat-stream.ts` 的 POST SSE 例外。
+- 阶段 23 正在同步 Settings 联系方式和头像存储状态契约：`UserResponse.phone`、`UserResponse.avatarStorageConfigured`、`PATCH /api/auth/me` 的 `phone` 更新、OSS 未配置头像上传中文脱敏提示，以及 Settings 联系方式展示。
+- 项目开发推荐团队编排模式：主对话担任项目经理/协调者，负责审核计划、拆分任务、下发 Codex 后台 Thread/worktree 或 `AGENT_TEAM`、集成结果和最终验证；下发 worker 的思考/推理等级默认使用可用最高级（例如 `xhigh` / 最高级）。
 - `do.md` 修复已完成：Chat 模型选择、进入会话自动滚动、用户模型配置复用、Settings 模型测试、退出登录确认、引用来源跟随选中回答、未读角标、响应式问题、RAG tooltip、生成打断和 `.env` 本地模型兜底均已纳入阶段 14 收尾记录。
 - 本轮收尾新增 `ragEnabled` 和生成打断接口，API 契约已同步到 `doc/API.md`。
 - 完整 Chat 真实回答验收仍依赖用户在 `/Settings` 提供可用的真实模型 Base URL/API Key/Model；阶段 21 不内置 mock 模型服务。
@@ -122,7 +126,7 @@ Browser -> frontend Nginx container -> backend Spring Boot container -> postgres
 - `rag`：检索结果转 Prompt、模型调用适配、引用来源。
 - `settings`：用户模型配置、模型测试、偏好、RAG 参数。
 - `system`：脱敏系统诊断，返回数据库可达性、任务计数和模型兜底配置布尔状态。
-- `user`：用户数据访问和头像 object key 元数据。
+- `user`：用户数据访问、头像 object key 和默认头像 preset 元数据。
 
 数据库核心表：
 
@@ -333,10 +337,8 @@ Get-Content .\knowflow-backup.sql | docker compose exec -T postgres psql -U know
 
 ## 后续扩展
 
-- 阶段 18/19 已完成可选 embedding、pgvector 字段、全文+语义混合检索、语义索引重建和召回权重可配置；阶段 21 已完成 Chat SSE 流式输出。
-- 向量索引后台重建和检索权重调优。
-- OCR。
-- PPT/Excel 文档解析。
+- 阶段 18/19 已完成可选 embedding、pgvector 字段、全文+语义混合检索、语义索引重建和召回权重可配置；阶段 21 已完成 Chat SSE 流式输出；阶段 22 已完成 Settings/Chat 验收修复。
+- 当前文档解析边界：支持可提取文本的既有格式；扫描件 OCR 仍不是当前交付能力。
 - 团队空间和复杂组织权限。
 - Agent 工作流。
 - 生产级观测、告警和部署流水线。

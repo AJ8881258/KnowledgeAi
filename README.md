@@ -4,11 +4,11 @@ KnowFlow AI 是一个 RAG-based 智能知识库问答平台。用户可以上传
 
 ## 当前状态
 
-项目当前已完成 **阶段 21：Chat SSE 流式输出、头像上传与 @ 文件上下文**。
+项目当前已完成 **阶段 22：Settings/Chat 验收修复与协作规则升级**，阶段 23 的 Settings 联系方式与头像存储状态契约同步正在进行。
 
 已完成的核心能力：
 
-- 用户认证：注册、登录、JWT 鉴权、重置密码、当前用户资料。
+- 用户认证：注册、登录、JWT 鉴权、重置密码、当前用户资料；`PATCH /api/auth/me` 支持可选更新用户名、邮箱和联系方式。
 - 知识库管理：创建、编辑、删除、精选标记、主题色、用户隔离。
 - 协作权限：单个知识库成员共享，支持 `OWNER` / `EDITOR` / `VIEWER` 权限。
 - 文档处理：支持 `.txt`、`.md`、`.markdown`、文本型 `.pdf`、`.docx`、`.html`、`.htm` 上传解析、切片和索引。
@@ -18,7 +18,8 @@ KnowFlow AI 是一个 RAG-based 智能知识库问答平台。用户可以上传
 - Chat 流式输出：`POST /api/chat/sessions/{sessionId}/messages/stream` 使用 SSE 边生成边保存，刷新页面可看到已生成内容。
 - 文件上下文：Chat 输入框支持 `@` 当前知识库已索引文档，发送时传 `mentionedDocumentIds`；未显式 mention 时，后端会按用户问题中的文件标题做启发式匹配。
 - 用户级模型配置：每个用户可在 Settings 保存 Base URL、API Key、模型和超时时间；API Key 后端加密保存、脱敏返回。
-- 用户头像：Settings 支持上传/删除头像到阿里云 OSS，接口只返回短期签名 `avatarUrl` 和 `avatarConfigured`，不返回 OSS object key 或密钥。
+- 用户头像：Settings 支持上传头像到阿里云 OSS 或选择默认头像 preset，接口只返回短期签名 `avatarUrl`、`avatarConfigured`、`avatarStorageConfigured`、`avatarSource` 和 `avatarPresetId`，不返回 OSS object key 或密钥；OSS 未配置时头像上传返回“头像上传需要先配置 OSS 存储。”。
+- Settings 账号资料：展示并编辑用户名、邮箱、联系方式和头像；OSS 未配置时可选择默认头像。
 - Settings 模型测试：支持用当前表单或已保存配置测试真实模型连接。
 - 多会话协同：会话创建、重命名、删除、置顶、取消置顶、未读会话、后台生成状态。
 - Chat 体验：发送时可选择模型，空检索仍可调用用户模型回答但 `sources` 保持为空；右侧引用来源跟随选中回答展示。
@@ -220,7 +221,7 @@ cd backend
 | `KNOWFLOW_AI_MODEL` | 空 | 可选 AI 兜底模型名。 |
 | `KNOWFLOW_AI_EMBEDDING_MODEL` | 空 | 可选 embedding 模型名；为空时保留全文检索，不写入语义向量。 |
 | `KNOWFLOW_AI_TIMEOUT_SECONDS` | `60` | 模型调用超时时间。 |
-| `KNOWFLOW_OSS_ENDPOINT` | 空 | 可选阿里云 OSS endpoint；为空时头像上传不可用。 |
+| `KNOWFLOW_OSS_ENDPOINT` | 空 | 可选阿里云 OSS endpoint；为空时头像上传不可用，但可选择默认头像。 |
 | `KNOWFLOW_OSS_BUCKET` | 空 | 可选 OSS bucket 名称。 |
 | `KNOWFLOW_OSS_ACCESS_KEY_ID` | 空 | 可选 OSS AccessKey ID。不要提交真实密钥。 |
 | `KNOWFLOW_OSS_ACCESS_KEY_SECRET` | 空 | 可选 OSS AccessKey Secret。不要提交真实密钥。 |
@@ -322,7 +323,9 @@ Get-Content .\knowflow-backup.sql | docker compose exec -T postgres psql -U know
 - `POST /api/auth/register`
 - `POST /api/auth/login`
 - `GET /api/auth/me`
+- `PATCH /api/auth/me`
 - `POST /api/auth/me/avatar`
+- `PATCH /api/auth/me/avatar-preset`
 - `DELETE /api/auth/me/avatar`
 - `GET /api/knowledge-bases`
 - `POST /api/knowledge-bases/{knowledgeBaseId}/documents`
@@ -345,9 +348,7 @@ Get-Content .\knowflow-backup.sql | docker compose exec -T postgres psql -U know
 
 ## 后续可扩展方向
 
-- 向量索引后台重建和混合召回权重调优。
-- 扫描版 PDF OCR。
-- PPT/Excel 文档解析。
+- 当前文档解析边界：支持可提取文本的既有格式；扫描版 PDF OCR 不是当前交付能力。
 - 团队空间和更复杂组织权限。
 - Agent 工作流。
 - 更完整的后台管理系统。

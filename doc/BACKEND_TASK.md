@@ -1,89 +1,103 @@
-# 后端任务书：阶段 21 Chat SSE 流式输出、头像上传与 @ 文件上下文
+﻿# 后端任务书：阶段 23 Settings 联系方式与头像存储状态契约同步
 
 本文档是后端 Agent 的固定入口。后端 Agent 开始实现前必须先阅读 `AGENTS.md`、`doc/STAGE_PLAN.md`、`doc/PROJECT.md`、`doc/API.md` 和本文档。
 
 ## 当前阶段状态
 
-**阶段 21 后端已完成，并已通过完整后端回归验证。**
+**阶段 22 后端默认头像持久化和二次验收 profile 修复已完成；阶段 23 正在同步联系方式、头像存储配置状态和 OSS 未配置提示契约。**
 
-阶段 21 后端目标是把 Chat 生成升级为 SSE 流式输出并边流边保存，同时新增用户头像 OSS 上传能力，以及 Chat 文件上下文解析能力：显式 `mentionedDocumentIds` 优先，未显式 mention 时按用户问题中的文件标题做启发式匹配。
+阶段 23 后端目标是让 Settings profile API 明确支持联系方式和头像上传配置状态：`UserResponse.phone`、`UserResponse.avatarStorageConfigured`、`PATCH /api/auth/me` 的 `phone` 更新，以及 OSS 未配置时头像上传返回中文脱敏提示“头像上传需要先配置 OSS 存储。”。复杂阶段和多子系统任务推荐采用团队编排模式：主对话担任项目经理/协调者，负责审核、拆分、下发、集成和最终验证；后端实现或复核任务优先拆分到 Codex 后台 Thread/worktree 或 `AGENT_TEAM`，且下发 worker 的思考/推理等级默认使用可用最高级（例如 `xhigh` / 最高级）。
 
 ## 已完成后端实现
 
 核心改动：
 
-- Chat SSE 流式输出
-  - 新增 `POST /api/chat/sessions/{sessionId}/messages/stream`，响应 `text/event-stream`。
-  - 新增 `ChatStreamingService`，复用当前用户模型配置、RAG 设置、权限校验、打断 generationId 和错误脱敏规则。
-  - 新增 `ChatModelClient.stream(...)` 和 OpenAI-compatible SSE 解析能力。
-  - 流式事件包括 `session`、`user_message`、`assistant_message`、`delta`、`sources`、`done`、`error`。
-  - 第一个 delta 到达后创建 `ASSISTANT` 消息，后续 delta 持续更新同一条助手消息，刷新页面可看到已生成内容。
-  - 打断后通过 `active_generation_id` 阻止旧流继续写入消息、sources 或覆盖会话状态。
+- 默认头像持久化
+  - 新增 Flyway 迁移 `V17__add_user_avatar_preset.sql`，为 `users` 增加 `avatar_preset_id`。
+  - `User` 和 `UserRepository` 增加 `avatarPresetId` 映射。
+  - 上传头像时清空 `avatar_preset_id`，选择默认头像时清空 `avatar_object_key`。
+  - 选择默认头像时尽力删除旧 OSS 对象；删除头像接口同时清空上传头像和 preset。
 
-- `@` 文件上下文和标题感知匹配
-  - `SendMessageRequest` 新增 `mentionedDocumentIds`。
-  - 非流式发送接口和流式接口都支持 `mentionedDocumentIds`。
-  - 新增 `ChatDocumentContextService`，先校验 mention 文档属于当前会话知识库且当前用户可访问；跨知识库或无权限文档返回隐藏式 `404`。
-  - 未显式 mention 时，服务会规范化文件名和问题文本，去除扩展名、书名号、复制编号、空白、下划线、括号和常见前缀噪声，用于匹配类似 `202502150239_邓林峰_《微服务核心组件实验》实验报告 (2).docx` 的文档标题。
-  - 有显式 mention 或标题匹配命中文档时，RAG 检索限定在这些文档的已索引 chunks 内，并把文档名写入 prompt。
-  - `ragEnabled=false` 时跳过知识库检索，即使传了 mention 也返回 `sources: []`。
+- 新增 API
+  - 新增 `PATCH /api/auth/me/avatar-preset`。
+  - 请求体：`{ "avatarPresetId": "blue" }`。
+  - 固定允许 preset：`blue`、`green`、`coral`、`violet`、`mint`、`rose`、`amber`、`slate`。
+  - 非法 preset 返回 `400`。
 
-- OSS 头像上传
-  - 新增 `V16__add_user_avatar_metadata.sql`，为 `users` 增加 `avatar_object_key`、`avatar_updated_at`。
-  - 新增 `OssProperties` 和 `knowflow.oss.*` 配置读取。
-  - 新增 `AvatarStorageService` 与 `AliyunOssAvatarStorageService`。
-  - 新增 `POST /api/auth/me/avatar` 和 `DELETE /api/auth/me/avatar`。
-  - `UserResponse` 新增 `avatarUrl`、`avatarConfigured`；后端只返回短期签名 URL，不返回 object key、AccessKey、Secret 或 bucket 私密配置。
-  - 上传校验文件大小、Content-Type 和图片魔数，支持 JPEG/PNG/WebP，大小上限 2MB。
-  - 删除头像时清空数据库引用，并尽力删除 OSS 对象。
+- `UserResponse` 扩展
+  - 新增 `avatarSource: "UPLOAD" | "PRESET" | "NONE"`。
+  - 新增 `avatarPresetId: string | null`。
+  - `avatarUrl` 仅在 `avatarSource=UPLOAD` 时返回短期签名 URL。
+  - `avatarConfigured` 在上传头像或选择 preset 时为 `true`。
+  - 阶段 23 新增 `phone: string | null` 和 `avatarStorageConfigured: boolean`。
+  - 响应仍不返回 OSS object key、AccessKey、Secret、bucket 私密配置或永久 URL。
+
+- 二次验收 profile 更新
+  - `PATCH /api/auth/me` 支持可选更新 `username`、`email` 和 `phone`。
+  - 请求体必须至少包含一个可更新字段。
+  - `username` 会 trim，trim 后不能为空，长度上限 100，且不能与其他用户冲突。
+  - `email` 省略时不修改；传入 `null` 或空字符串会清空；非空值会 trim、转小写，并校验格式、长度和唯一性。
+  - `phone` 省略时不修改；传入 `null` 或空字符串会清空；非空值会 trim，长度为 5-32，只能包含数字、普通空格、`+`、`-` 和英文括号，并至少包含 5 个数字；联系方式不做唯一性校验，也不用于登录。
+  - `UserResponse` 仍不返回密码哈希、OSS object key、密钥、Authorization header 或永久 URL。
+
+- OSS 未配置提示
+  - 头像上传接口在 OSS 配置不完整时返回 `400`。
+  - 错误提示固定为“头像上传需要先配置 OSS 存储。”。
+  - 错误响应不得泄露 OSS endpoint、bucket、AccessKey、Secret、object key、Authorization header 或模型密钥。
 
 ## 安全与注释要求
 
-- API Key、Authorization、完整 Base URL、model、OSS AccessKey、OSS Secret、bucket 私密配置、JDBC URL 和供应商敏感原始错误不得出现在 API 响应、toast 文案或日志级用户可见错误中。
-- 后端新增/修改功能代码必须保留有价值注释或 JavaDoc，重点说明：
-  - 为什么流式 delta 需要边流边保存。
-  - 为什么保存前要校验 `active_generation_id`，避免打断后的旧流写入。
-  - 为什么 `mentionedDocumentIds` 必须按当前会话知识库和当前用户权限校验。
-  - 为什么标题感知匹配只是辅助能力，显式 `@` mention 优先。
-  - 为什么头像只保存 object key，读取时生成短期签名 URL。
-  - 为什么 OSS 密钥和 API Key 不能返回给前端。
+- 默认头像 preset 是后端 allow-list，不接受任意客户端字符串落库。
+- 上传头像和默认头像互斥，避免前端同时存在 OSS URL 和 preset 两个来源。
+- 选择 preset 删除旧 OSS 对象是尽力操作，不应泄露 OSS bucket、endpoint、AccessKey 或 object key。
+- `avatarStorageConfigured` 只表示头像上传配置是否完整，不表示用户是否已设置头像；默认头像 preset 在 OSS 未配置时仍可用。
+- 联系方式是 Settings 资料字段，不用于登录、唯一性校验、短信验证或通知发送。
+- 后端新增 DTO、接口和 Service 分支必须保留有价值 JavaDoc/业务注释。
 
 ## 测试覆盖
 
 新增测试：
 
-- `Stage21StreamingAvatarMentionTests`
+- `Stage22DefaultAvatarTests`
+- `Stage23ProfileContactTests`
 
 覆盖重点：
 
-- 流式接口返回 SSE 事件，包含 `user_message`、`assistant_message`、`delta`、`done`。
-- 流式 delta 持续更新同一条 `ASSISTANT` 消息，刷新后可读取已生成内容。
-- 打断流式生成后，旧 generationId 不能继续写入消息内容或覆盖 session 状态。
-- `mentionedDocumentIds` 只允许当前会话知识库内可访问文档。
-- 用户问题包含 `《微服务核心组件实验》实验报告` 时，可匹配带前缀和复制编号的 docx 文件名。
-- `ragEnabled=false` 时不检索 mention 文档，`sources` 为空。
-- 头像上传校验类型和大小；fake storage 下返回签名 `avatarUrl` 且不泄露密钥。
+- 选择默认头像成功持久化，`UserResponse` 返回 `avatarSource=PRESET` 和 `avatarPresetId`。
+- 非法 preset 返回 `400`。
+- 上传头像会清空 preset，并返回 `avatarSource=UPLOAD` 和短期 `avatarUrl`。
+- 选择 preset 会清空上传头像 object key，并尽力删除旧 OSS 对象。
+- 删除头像后返回 `avatarSource=NONE`，且不返回 `avatarUrl` 或 `avatarPresetId`。
+- 响应不泄露 OSS object key 或密钥。
+- 修改用户名成功。
+- 修改邮箱成功。
+- 清空邮箱成功。
+- 修改联系方式成功，并在 `GET /api/auth/me` 中返回。
+- 清空联系方式成功。
+- 非法联系方式返回 `400`。
+- OSS 未配置时头像上传返回“头像上传需要先配置 OSS 存储。”且不泄露敏感配置。
+- OSS 未配置时默认头像 preset 仍可保存，并返回 `avatarStorageConfigured=false`。
+- 空请求体、空用户名、过长用户名和重复用户名拒绝。
 
 ## 验证命令
 
-专项测试已运行：
+阶段专项验证：
 
 ```powershell
 cd backend
-.\mvnw.cmd -Dtest=Stage21StreamingAvatarMentionTests test
+.\mvnw.cmd -Dtest=Stage22DefaultAvatarTests test
+.\mvnw.cmd -Dtest=Stage23ProfileContactTests test
 ```
 
-结果：
-
-- 阶段 21 专项测试通过，7 个测试全部成功。
-
-阶段收尾已运行：
+阶段收尾验证：
 
 ```powershell
 cd backend
 .\mvnw.cmd test
 ```
 
-结果：
+## 验证结果
 
-- 后端完整回归通过，112 个测试全部成功。
+- `.\mvnw.cmd -Dtest=Stage22DefaultAvatarTests test` 已通过：`6 tests, 0 failures, 0 errors`。
+- `.\mvnw.cmd test` 已通过：`118 tests, 0 failures, 0 errors`。
+- 阶段 23 专项测试由后端实现/验收 worker 运行并回填结果。

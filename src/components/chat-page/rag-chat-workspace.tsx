@@ -1,4 +1,4 @@
-﻿import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { isAxiosError } from "axios";
 import {
   Bot,
@@ -106,6 +106,7 @@ import { useChatStatusStore } from "@/store/chat-status";
 const DEFAULT_CHAT_LIMIT = 5;
 const SOURCE_PREVIEW_LENGTH = 180;
 const POLL_INTERVAL_MS = 2500;
+const AUTO_SCROLL_BOTTOM_THRESHOLD = 96;
 const DEFAULT_GENERATION_ERROR_MESSAGE =
   "AI model call failed";
 const ACTIONABLE_MODEL_ERROR_MESSAGE =
@@ -150,6 +151,16 @@ function normalizeChatSession(session: ChatSessionResponse) {
 
 function normalizeChatSessions(sessions: ChatSessionResponse[]) {
   return sortChatSessions(sessions.map(normalizeChatSession));
+}
+
+function normalizeCancelledSession(session: ChatSessionResponse) {
+  return {
+    ...normalizeChatSession(session),
+    unread: false,
+    status: "IDLE" as const,
+    lastErrorMessage: null,
+    generationError: null,
+  };
 }
 
 function formatCompactDateTime(value: string) {
@@ -340,7 +351,7 @@ function getChatErrorMessage(error: unknown) {
     }
 
     if (status && status >= 500) {
-      return "回答生成失败，模型调用或消息保存没有完成，请稍后重试。";
+      return "生成未完成，模型调用或消息保存没有完成，请稍后重试。";
     }
   }
 
@@ -382,7 +393,7 @@ function MessageBubble({
       </span>
       <article
         className={cn(
-          "min-w-0 flex-1 rounded-[8px] border bg-white p-4 text-sm leading-7 text-slate-700 shadow-sm transition-colors",
+        "min-w-0 flex-1 rounded-[8px] border bg-white p-3 text-sm leading-7 text-slate-700 shadow-sm transition-colors sm:p-4",
           selected ? "border-blue-300 ring-2 ring-blue-100" : "border-slate-200",
         )}
         onClick={() => onSelectAssistantMessage?.(message.id)}
@@ -416,13 +427,13 @@ function MessageBubble({
                 </span>
                 <span className="shrink-0">Chunk #{source.chunkIndex}</span>
                 <span className="shrink-0 text-blue-500">
-                  娣峰悎鍒?{formatScore(source.hybridScore ?? source.score)}
+                  混合分 {formatScore(source.hybridScore ?? source.score)}
                 </span>
                 <span className="shrink-0 text-blue-500">
-                  鍏ㄦ枃 {formatScore(source.fulltextScore)}
+                  全文 {formatScore(source.fulltextScore)}
                 </span>
                 <span className="shrink-0 text-blue-500">
-                  璇箟 {formatScore(source.semanticScore)}
+                  语义 {formatScore(source.semanticScore)}
                 </span>
               </span>
             ))}
@@ -496,10 +507,10 @@ function SourceCard({
     : "这个引用来源没有返回片段摘要。";
 
   return (
-    <article className="rounded-[8px] border border-slate-200 bg-white p-3 shadow-sm">
+    <article className="min-w-0 rounded-[8px] border border-slate-200 bg-white p-3 shadow-sm">
       <button
         type="button"
-        className="flex w-full cursor-pointer items-start gap-2 rounded-[6px] text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200"
+        className="flex w-full min-w-0 cursor-pointer items-start gap-2 rounded-[6px] text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200"
         onClick={onToggle}
         aria-expanded={expanded}
         aria-label={`${expanded ? "收起片段" : "展开片段"}：${source.documentName} Chunk #${source.chunkIndex}`}
@@ -514,16 +525,16 @@ function SourceCard({
               {source.documentName}
             </span>
           </div>
-          <div className="mt-1 flex flex-wrap gap-2 text-xs text-slate-500">
+          <div className="mt-1 flex min-w-0 flex-wrap gap-2 text-xs text-slate-500">
             <span>Chunk #{source.chunkIndex}</span>
             <span className="text-slate-300">/</span>
             <span>{getRetrievalModeLabel(source.retrievalMode)}</span>
             <span className="text-slate-300">/</span>
-            <span>娣峰悎鍒?{formatScore(source.hybridScore ?? source.score)}</span>
+            <span>混合分 {formatScore(source.hybridScore ?? source.score)}</span>
             <span className="text-slate-300">/</span>
-            <span>鍏ㄦ枃 {formatScore(source.fulltextScore)}</span>
+            <span>全文 {formatScore(source.fulltextScore)}</span>
             <span className="text-slate-300">/</span>
-            <span>璇箟 {formatScore(source.semanticScore)}</span>
+            <span>语义 {formatScore(source.semanticScore)}</span>
           </div>
         </div>
         <ChevronDown
@@ -543,7 +554,7 @@ function SourceCard({
       </p>
       {isLongContent && (
         <div className="mt-2 text-right text-[11px] font-medium text-blue-600">
-          {expanded ? "鏀惰捣鐗囨" : "灞曞紑鏌ョ湅瀹屾暣鐗囨"}
+          {expanded ? "收起片段" : "展开查看完整片段"}
         </div>
       )}
     </article>
@@ -577,7 +588,7 @@ function SessionListItem({
   return (
     <div
       className={cn(
-        "group relative grid min-h-[72px] grid-cols-[minmax(0,1fr)_2rem] items-stretch rounded-[6px] border transition-colors duration-200",
+        "group relative grid min-h-[72px] min-w-0 grid-cols-[minmax(0,1fr)_2rem] items-stretch rounded-[6px] border transition-colors duration-200",
         isActive
           ? "border-blue-200 bg-blue-50/80 text-slate-950 shadow-sm"
           : "border-transparent bg-white text-slate-700 hover:bg-slate-50",
@@ -607,7 +618,7 @@ function SessionListItem({
           {isUnread && (
             <span className="inline-flex shrink-0 items-center gap-1 rounded-[4px] border border-sky-200 bg-sky-50 px-1.5 py-0.5 text-[10px] font-medium text-sky-700">
               <CircleDot className="size-3" />
-              鏈
+              未读
             </span>
           )}
           {isFailed && (
@@ -766,6 +777,8 @@ export function RagChatWorkspace({
   const selectedModelIdRef = useRef("");
   const activeStreamAbortControllerRef = useRef<AbortController | null>(null);
   const streamingAssistantMessageIdRef = useRef<number | null>(null);
+  const markReadTimerRef = useRef<number | null>(null);
+  const markingReadSessionIdsRef = useRef<Set<number>>(new Set());
   const messageScrollRef = useRef<HTMLDivElement>(null);
   const latestInitialSessionIdRef = useRef(initialSessionId);
   const onSessionChangeRef = useRef(onSessionChange);
@@ -804,7 +817,7 @@ export function RagChatWorkspace({
     ? getSessionGenerationError(activeSession)
     : "";
   const activeGenerationNotice = activeGenerationError
-    ? `回答生成失败：${activeGenerationError}`
+    ? `生成异常：${activeGenerationError}`
     : generationNotice;
   const shouldShowModelSettingsLink =
     Boolean(activeGenerationError && isModelConfigurationError(activeGenerationError)) ||
@@ -850,6 +863,15 @@ export function RagChatWorkspace({
   useEffect(() => {
     isSendingRef.current = isSending;
   }, [isSending]);
+
+  useEffect(
+    () => () => {
+      if (markReadTimerRef.current !== null) {
+        window.clearTimeout(markReadTimerRef.current);
+      }
+    },
+    [],
+  );
 
   const handleRequestError = useCallback(
     (error: unknown) => {
@@ -916,15 +938,31 @@ export function RagChatWorkspace({
     return () => window.clearTimeout(timeoutId);
   }, [loadModelConfiguration]);
 
-  const scrollMessagesToBottom = useCallback(() => {
-    window.requestAnimationFrame(() => {
-      const messageScroll = messageScrollRef.current;
+  const scrollMessagesToBottom = useCallback((mode: "force" | "if-near-bottom" = "force") => {
+    const messageScroll = messageScrollRef.current;
 
-      if (!messageScroll) {
+    if (!messageScroll) {
+      return;
+    }
+
+    const isNearBottom =
+      messageScroll.scrollHeight -
+        messageScroll.scrollTop -
+        messageScroll.clientHeight <=
+      AUTO_SCROLL_BOTTOM_THRESHOLD;
+
+    if (mode === "if-near-bottom" && !isNearBottom) {
+      return;
+    }
+
+    window.requestAnimationFrame(() => {
+      const currentMessageScroll = messageScrollRef.current;
+
+      if (!currentMessageScroll) {
         return;
       }
 
-      messageScroll.scrollTop = messageScroll.scrollHeight;
+      currentMessageScroll.scrollTop = currentMessageScroll.scrollHeight;
     });
   }, []);
 
@@ -1057,11 +1095,10 @@ export function RagChatWorkspace({
         if (!options.preserveSources) {
           setExpandedSources(new Set());
         }
-        if (
-          options.scrollToBottom ||
-          (options.scrollOnNewAssistant && hasNewAssistantMessage)
-        ) {
-          scrollMessagesToBottom();
+        if (options.scrollToBottom) {
+          scrollMessagesToBottom("force");
+        } else if (options.scrollOnNewAssistant && hasNewAssistantMessage) {
+          scrollMessagesToBottom("if-near-bottom");
         }
       } catch (error) {
         const hasNewerNormalRequest =
@@ -1261,6 +1298,54 @@ export function RagChatWorkspace({
     [refreshUnreadCount],
   );
 
+  const markSessionReadSilently = useCallback(
+    async (sessionId: number, options: { applyResponse?: boolean } = {}) => {
+      try {
+        const updatedSession = await updateChatSession(sessionId, { unread: false });
+
+        if (options.applyResponse !== false) {
+          replaceSession(updatedSession);
+        }
+      } catch (error) {
+        if (isAxiosError(error) && error.response?.status === 401) {
+          onUnauthorizedRef.current();
+          return;
+        }
+
+        console.warn("Failed to mark chat session as read.", error);
+      }
+    },
+    [replaceSession],
+  );
+
+  const markActiveSessionRead = useCallback(() => {
+    const sessionId = activeSessionIdRef.current;
+
+    if (!sessionId) {
+      return;
+    }
+
+    const targetSession = sessionsRef.current.find(
+      (session) => session.id === sessionId,
+    );
+
+    if (!targetSession?.unread || markingReadSessionIdsRef.current.has(sessionId)) {
+      return;
+    }
+
+    if (markReadTimerRef.current !== null) {
+      window.clearTimeout(markReadTimerRef.current);
+    }
+
+    markReadTimerRef.current = window.setTimeout(() => {
+      markingReadSessionIdsRef.current.add(sessionId);
+      void markSessionReadSilently(sessionId)
+        .finally(() => {
+          markingReadSessionIdsRef.current.delete(sessionId);
+        });
+    }, 250);
+  }, [markSessionReadSilently]);
+
   const handleOpenSession = useCallback(
     async (sessionId: number) => {
       if (sessionId === activeSessionIdRef.current) {
@@ -1276,18 +1361,13 @@ export function RagChatWorkspace({
       await loadMessages(sessionId, { scrollToBottom: true });
 
       if (targetSession?.unread) {
-        try {
-          replaceSession(await updateChatSession(sessionId, { unread: false }));
-        } catch (error) {
-          setErrorMessage(handleRequestError(error));
-        }
+        void markSessionReadSilently(sessionId);
       }
     },
     [
-      handleRequestError,
       loadMessages,
+      markSessionReadSilently,
       replaceMessages,
-      replaceSession,
       selectSession,
     ],
   );
@@ -1477,7 +1557,7 @@ export function RagChatWorkspace({
             });
           } else if (activeSession?.status === "FAILED") {
             setGenerationNotice(
-              `回答生成失败：${getSessionGenerationError(activeSession)}`,
+              `生成异常：${getSessionGenerationError(activeSession)}`,
             );
             void loadMessages(activeSession.id, {
               preserveSources: true,
@@ -1560,7 +1640,7 @@ export function RagChatWorkspace({
             : [...currentMessages, event.data],
         );
         setSelectedAssistantMessageId(event.data.id);
-        scrollMessagesToBottom();
+        scrollMessagesToBottom("if-near-bottom");
         return;
       }
 
@@ -1597,7 +1677,7 @@ export function RagChatWorkspace({
           ];
         });
         setSelectedAssistantMessageId(messageId);
-        scrollMessagesToBottom();
+        scrollMessagesToBottom("if-near-bottom");
         return;
       }
 
@@ -1640,6 +1720,7 @@ export function RagChatWorkspace({
               : [...currentMessages, doneMessage],
           );
           setSelectedAssistantMessageId(doneMessage.id);
+          scrollMessagesToBottom("if-near-bottom");
         }
         return;
       }
@@ -1673,10 +1754,13 @@ export function RagChatWorkspace({
     setErrorMessage("");
     setGenerationNotice("");
 
+    let streamSession: ChatSessionResponse | null = null;
+
     try {
       const session =
         activeSession ??
         (await createSession(getDefaultSessionTitle(content)));
+      streamSession = session;
       const userMessage: ChatMessageResponse = {
         id: -Date.now(),
         sessionId: session.id,
@@ -1692,7 +1776,7 @@ export function RagChatWorkspace({
       activeStreamAbortControllerRef.current = abortController;
       streamingAssistantMessageIdRef.current = null;
       updateMessages((currentMessages) => [...currentMessages, userMessage]);
-      scrollMessagesToBottom();
+      scrollMessagesToBottom("force");
       setSessions((currentSessions) => {
         const nextSessions = normalizeChatSessions(
           currentSessions.map((item) =>
@@ -1726,13 +1810,25 @@ export function RagChatWorkspace({
         { signal: abortController.signal },
       );
 
-      scrollMessagesToBottom();
+      scrollMessagesToBottom("if-near-bottom");
       await refreshSessionsForPolling();
       void refreshUnreadCount();
       void refreshTodayUsage();
       setExpandedSources(new Set());
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") {
+        const currentSession = sessionsRef.current.find(
+          (item) => item.id === streamSession?.id,
+        );
+
+        if (currentSession) {
+          replaceSession(normalizeCancelledSession(currentSession));
+        }
+        setGenerationNotice("");
+        setErrorMessage("");
+        if (streamSession) {
+          void markSessionReadSilently(streamSession.id, { applyResponse: false });
+        }
         return;
       }
 
@@ -1759,16 +1855,30 @@ export function RagChatWorkspace({
 
     setIsCancellingGeneration(true);
     setGenerationNotice("");
+    setErrorMessage("");
     activeStreamAbortControllerRef.current?.abort();
+
+    const currentSession = sessionsRef.current.find(
+      (item) => item.id === sessionId,
+    );
+
+    if (currentSession) {
+      replaceSession(normalizeCancelledSession(currentSession));
+    }
+    void markSessionReadSilently(sessionId, { applyResponse: false });
 
     try {
       const response = await cancelChatSessionGeneration(sessionId);
-      replaceSession(response);
+      replaceSession(normalizeCancelledSession(response));
       isSendingRef.current = false;
       setIsSending(false);
       toast.success("已打断本次生成");
     } catch (error) {
-      setErrorMessage(handleRequestError(error));
+      if (isAxiosError(error) && error.response?.status === 401) {
+        onUnauthorizedRef.current();
+      } else {
+        console.warn("Failed to cancel chat generation.", error);
+      }
     } finally {
       setIsCancellingGeneration(false);
     }
@@ -2006,13 +2116,14 @@ export function RagChatWorkspace({
 
         <div
           ref={messageScrollRef}
-          className="min-h-0 flex-1 overflow-auto bg-white px-4 py-5 lg:px-6"
+          className="min-h-0 flex-1 overflow-auto bg-white px-3 py-4 lg:px-6 lg:py-5"
+          onClick={markActiveSessionRead}
         >
           <div className="mx-auto flex max-w-[820px] flex-col gap-5">
             {isLoadingMessages ? (
               <div className="flex flex-col gap-4">
-                <Skeleton className="ml-auto h-16 w-2/3 rounded-[8px] bg-blue-100" />
-                <Skeleton className="h-32 w-full rounded-[8px] bg-slate-100" />
+                <Skeleton className="ml-auto h-16 w-2/3 min-w-0 rounded-[8px] bg-blue-100" />
+                <Skeleton className="h-32 w-full min-w-0 rounded-[8px] bg-slate-100" />
               </div>
             ) : hasMessages ? (
               messages.map((message) => (
@@ -2033,7 +2144,7 @@ export function RagChatWorkspace({
             {showGenerationPending && (
               <div className="flex items-center gap-3 rounded-[8px] border border-blue-100 bg-blue-50/60 px-4 py-3 text-xs text-slate-600">
                 <Loader2 className="size-4 animate-spin text-blue-600" />
-                问题已发送，正在接收流式回答...
+                正在思考
               </div>
             )}
 
@@ -2045,7 +2156,7 @@ export function RagChatWorkspace({
                 <div className="flex min-w-0 items-start gap-3">
                   <TriangleAlert className="mt-0.5 size-4 shrink-0" />
                   <div className="min-w-0">
-                    <div className="font-medium">回答没有生成完成</div>
+                    <div className="font-medium">生成未完成</div>
                     <p className="mt-1 break-words text-xs leading-5">
                       {activeGenerationNotice}
                     </p>
@@ -2097,7 +2208,7 @@ export function RagChatWorkspace({
           </div>
         </div>
 
-        <footer className="shrink-0 border-t border-slate-100 px-4 py-4 lg:px-6">
+        <footer className="min-w-0 shrink-0 border-t border-slate-100 px-3 py-3 lg:px-6 lg:py-4">
           <ChatComposer
             placeholder="向当前知识库提问..."
             onSubmit={handleSubmit}

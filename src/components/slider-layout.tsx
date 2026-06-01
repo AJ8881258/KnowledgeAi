@@ -1,12 +1,15 @@
 // Sidebar
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/slider-sidebar";
+import { useEffect } from "react";
+import { isAxiosError } from "axios";
 // Router
 import { Outlet, useLocation } from "react-router";
 import { Navigate } from "react-router";
 // tool
+import { getCurrentUser } from "@/api/auth";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { getMockAuthSession } from "@/lib/mock-auth";
+import { useAuthStore } from "@/store/auth";
 
 // components
 import MainHeader from "@/components/MainHeader";
@@ -48,7 +51,23 @@ export default function Layout() {
   // state manager
   const isMobile = useIsMobile();
   const location = useLocation();
-  const authSession = getMockAuthSession();
+  const authSession = useAuthStore((state) => state.session);
+  const syncCurrentUser = useAuthStore((state) => state.syncCurrentUser);
+  const clearSession = useAuthStore((state) => state.clearSession);
+
+  useEffect(() => {
+    if (!authSession?.accessToken) {
+      return;
+    }
+
+    void getCurrentUser()
+      .then(syncCurrentUser)
+      .catch((error: unknown) => {
+        if (isAxiosError(error) && error.response?.status === 401) {
+          clearSession();
+        }
+      });
+  }, [authSession?.accessToken, clearSession, syncCurrentUser]);
 
   if (!authSession) {
     return <Navigate to="/login" replace state={{ from: location.pathname }} />;
