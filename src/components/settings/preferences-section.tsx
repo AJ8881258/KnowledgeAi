@@ -12,21 +12,8 @@ import {
   SettingsErrorState,
   SettingsSkeleton,
 } from "@/components/settings/settings-components";
+import { getTimezoneOptions } from "@/components/settings/timezone-options";
 import { cn } from "@/lib/utils";
-
-const COMMON_TIMEZONES = [
-  "Asia/Shanghai",
-  "Asia/Hong_Kong",
-  "Asia/Tokyo",
-  "Asia/Singapore",
-  "Europe/London",
-  "Europe/Berlin",
-  "America/New_York",
-  "America/Chicago",
-  "America/Denver",
-  "America/Los_Angeles",
-  "UTC",
-];
 
 type PreferencesSectionProps = {
   preferences: UserPreferenceResponse | null;
@@ -54,16 +41,6 @@ function createPreferenceDraft(
     preferences ?? {
       timezone: browserTimezone,
     }
-  );
-}
-
-function getTimezoneOptions(timezone: string, browserTimezone: string) {
-  return Array.from(
-    new Set(
-      [timezone, browserTimezone, ...COMMON_TIMEZONES].filter((item) =>
-        item.trim(),
-      ),
-    ),
   );
 }
 
@@ -119,15 +96,15 @@ export function PreferencesFields({
           <SelectTrigger
             aria-label="时区"
             size="sm"
-            className="h-7 w-full rounded-[5px] border border-slate-200 bg-white px-2 py-0 text-xs font-medium normal-case tracking-normal text-slate-700 focus-visible:border-blue-400 focus-visible:ring-2 focus-visible:ring-blue-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500"
+            className="h-8 min-w-0 w-full overflow-hidden rounded-[5px] border border-slate-200 bg-white px-2 py-0 text-xs font-medium normal-case tracking-normal text-slate-700 focus-visible:border-blue-400 focus-visible:ring-2 focus-visible:ring-blue-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500 [&_[data-slot=select-value]]:min-w-0 [&_[data-slot=select-value]]:truncate"
           >
             <SelectValue />
           </SelectTrigger>
-          <SelectContent position="popper">
+          <SelectContent className="max-w-[calc(100vw-2rem)]" position="popper">
             <SelectGroup>
               {timezoneOptions.map((option) => (
                 <SelectItem key={option} value={option}>
-                  {option}
+                  <span className="min-w-0 truncate">{option}</span>
                 </SelectItem>
               ))}
             </SelectGroup>

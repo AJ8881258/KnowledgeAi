@@ -33,9 +33,11 @@ import {
   ReadonlyField,
   SectionCard,
   SettingsErrorState,
+  SettingsSelect,
   SettingsSkeleton,
   TextField,
 } from "@/components/settings/settings-components";
+import { getTimezoneOptions } from "@/components/settings/timezone-options";
 
 type AccountProfileSectionProps = {
   user: CurrentUserResponse | null;
@@ -44,12 +46,14 @@ type AccountProfileSectionProps = {
   savingProfile: boolean;
   savingAvatar: boolean;
   uploadingAvatar: boolean;
+  savingPreferences: boolean;
   preferences: UserPreferenceResponse | null;
   preferencesLoading: boolean;
   preferencesError: string;
   browserTimezone: string;
   onRetry: () => void;
   onSaveProfile: (request: UpdateCurrentUserRequest) => Promise<void>;
+  onSaveTimezone: (timezone: string) => Promise<void>;
   onUploadAvatar: (file: File) => Promise<void>;
   onSelectAvatarPreset: (presetId: DefaultAvatarPresetId) => Promise<void>;
   onRetryPreferences: () => void;
@@ -129,6 +133,10 @@ function validatePhone(phone: string) {
   return "";
 }
 
+function normalizePhoneInput(phone: string) {
+  return phone.slice(0, MAX_PHONE_LENGTH);
+}
+
 function validateAvatarFile(file: File) {
   if (!AVATAR_ACCEPTED_TYPES.includes(file.type)) {
     return "请选择 JPEG、PNG 或 WebP 图片。";
@@ -148,12 +156,14 @@ export function AccountProfileSection({
   savingProfile,
   savingAvatar,
   uploadingAvatar,
+  savingPreferences,
   preferences,
   preferencesLoading,
   preferencesError,
   browserTimezone,
   onRetry,
   onSaveProfile,
+  onSaveTimezone,
   onUploadAvatar,
   onSelectAvatarPreset,
   onRetryPreferences,
@@ -164,24 +174,43 @@ export function AccountProfileSection({
   const [usernameDraft, setUsernameDraft] = useState(user?.username ?? "");
   const [emailDraft, setEmailDraft] = useState(user?.email ?? "");
   const [phoneDraft, setPhoneDraft] = useState(user?.phone ?? "");
+  const [timezoneDraft, setTimezoneDraft] = useState(
+    preferences?.timezone || browserTimezone,
+  );
   const [usernameError, setUsernameError] = useState("");
   const [emailError, setEmailError] = useState("");
   const [phoneError, setPhoneError] = useState("");
+  const [timezoneError, setTimezoneError] = useState("");
+  const [profileError, setProfileError] = useState("");
   const [avatarMode, setAvatarMode] = useState<"preset" | "upload">("preset");
   const [selectedPresetId, setSelectedPresetId] =
     useState<DefaultAvatarPresetId | null>(() => getInitialPresetSelection(user));
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [avatarError, setAvatarError] = useState("");
-  const isSaving = savingProfile || savingAvatar || uploadingAvatar;
+  const isSaving =
+    savingProfile || savingAvatar || uploadingAvatar || savingPreferences;
   const avatarUploadDisabled = isSaving || user?.avatarStorageConfigured === false;
+  const currentTimezone = preferences?.timezone || browserTimezone;
+  const timezoneSelectValue = timezoneDraft || currentTimezone;
+  const timezoneOptions = Array.from(
+    new Set(
+      [
+        currentTimezone,
+        ...getTimezoneOptions(timezoneSelectValue, browserTimezone),
+      ].filter((timezone) => timezone.trim()),
+    ),
+  );
 
   function resetDraft() {
     setUsernameDraft(user?.username ?? "");
     setEmailDraft(user?.email ?? "");
     setPhoneDraft(user?.phone ?? "");
+    setTimezoneDraft(currentTimezone);
     setUsernameError("");
     setEmailError("");
     setPhoneError("");
+    setTimezoneError("");
+    setProfileError("");
     setAvatarMode(user?.avatarSource === "UPLOAD" ? "upload" : "preset");
     setSelectedPresetId(getInitialPresetSelection(user));
     setAvatarFile(null);
@@ -221,43 +250,82 @@ export function AccountProfileSection({
     setAvatarFile(file);
   }
 
+  function getSubmitErrorMessage(error: unknown, fallback: string) {
+    return error instanceof Error && error.message.trim()
+      ? error.message
+      : fallback;
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const normalizedUsername = usernameDraft.trim();
     const normalizedEmail = emailDraft.trim();
     const normalizedPhone = phoneDraft.trim();
+    const normalizedTimezone = timezoneSelectValue.trim();
     const nextUsernameError = validateUsername(normalizedUsername);
     const nextEmailError = validateEmail(normalizedEmail);
     const nextPhoneError = validatePhone(normalizedPhone);
+    const nextTimezoneError = normalizedTimezone ? "" : "请选择时区。";
 
     setUsernameError(nextUsernameError);
     setEmailError(nextEmailError);
     setPhoneError(nextPhoneError);
+    setTimezoneError(nextTimezoneError);
+    setProfileError("");
     setAvatarError("");
 
-    if (nextUsernameError || nextEmailError || nextPhoneError) {
+    if (
+      nextUsernameError ||
+      nextEmailError ||
+      nextPhoneError ||
+      nextTimezoneError
+    ) {
+      return;
+    }
+
+    const profileRequest: UpdateCurrentUserRequest = {};
+
+    if (normalizedUsername !== user?.username) {
+      profileRequest.username = normalizedUsername;
+    }
+
+    if (normalizedEmail !== (user?.email ?? "")) {
+      profileRequest.email = normalizedEmail || null;
+    }
+
+    if (normalizedPhone !== (user?.phone ?? "")) {
+      profileRequest.phone = normalizedPhone || null;
+    }
+
+    try {
+      if (Object.keys(profileRequest).length > 0) {
+        await onSaveProfile(profileRequest);
+      }
+    } catch (submitError) {
+      setProfileError(
+        getSubmitErrorMessage(
+          submitError,
+          "账号资料保存失败，请稍后重试。",
+        ),
+      );
       return;
     }
 
     try {
-      const profileRequest: UpdateCurrentUserRequest = {};
-
-      if (normalizedUsername !== user?.username) {
-        profileRequest.username = normalizedUsername;
+      if (normalizedTimezone !== currentTimezone) {
+        await onSaveTimezone(normalizedTimezone);
       }
+    } catch (submitError) {
+      setTimezoneError(
+        getSubmitErrorMessage(
+          submitError,
+          "时区保存失败，请稍后重试。",
+        ),
+      );
+      return;
+    }
 
-      if (normalizedEmail !== (user?.email ?? "")) {
-        profileRequest.email = normalizedEmail || null;
-      }
-
-      if (normalizedPhone !== (user?.phone ?? "")) {
-        profileRequest.phone = normalizedPhone || null;
-      }
-
-      if (Object.keys(profileRequest).length > 0) {
-        await onSaveProfile(profileRequest);
-      }
-
+    try {
       if (avatarMode === "upload") {
         if (!avatarFile) {
           if (user?.avatarSource !== "UPLOAD") {
@@ -283,9 +351,10 @@ export function AccountProfileSection({
       setDialogOpen(false);
     } catch (submitError) {
       setAvatarError(
-        submitError instanceof Error
-          ? submitError.message
-          : "资料保存失败，请稍后重试。",
+        getSubmitErrorMessage(
+          submitError,
+          "头像保存失败，请稍后重试。",
+        ),
       );
     }
   }
@@ -380,6 +449,7 @@ export function AccountProfileSection({
                         onChange={(value) => {
                           setUsernameDraft(value);
                           setUsernameError("");
+                          setProfileError("");
                         }}
                         inputProps={{ maxLength: MAX_ACCOUNT_NAME_LENGTH }}
                       />
@@ -394,6 +464,7 @@ export function AccountProfileSection({
                         onChange={(value) => {
                           setEmailDraft(value);
                           setEmailError("");
+                          setProfileError("");
                         }}
                       />
                       <TextField
@@ -406,13 +477,36 @@ export function AccountProfileSection({
                         error={phoneError}
                         helpText="可留空；支持数字、普通空格、+、- 和英文括号。"
                         onChange={(value) => {
-                          setPhoneDraft(value);
+                          setPhoneDraft(normalizePhoneInput(value));
                           setPhoneError("");
+                          setProfileError("");
                         }}
                         inputProps={{ maxLength: MAX_PHONE_LENGTH }}
                       />
-                      <ReadonlyField label="时区" value={timezoneValue} />
+                      <div className="min-w-0">
+                        <SettingsSelect
+                          label="时区"
+                          value={timezoneSelectValue}
+                          options={timezoneOptions}
+                          disabled={isSaving || preferencesLoading}
+                          onChange={(timezone) => {
+                            setTimezoneDraft(timezone);
+                            setTimezoneError("");
+                          }}
+                        />
+                        {timezoneError ? (
+                          <p className="mt-2 text-xs leading-5 text-red-600">
+                            {timezoneError}
+                          </p>
+                        ) : null}
+                      </div>
                     </div>
+
+                    {profileError ? (
+                      <div className="rounded-[6px] border border-red-200 bg-red-50 px-3 py-2 text-xs leading-5 text-red-700">
+                        {profileError}
+                      </div>
+                    ) : null}
 
                     {preferencesError ? (
                       <div className="flex flex-wrap items-center justify-between gap-2 rounded-[6px] border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">

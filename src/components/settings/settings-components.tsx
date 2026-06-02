@@ -85,19 +85,19 @@ export function SettingsSelect({
   onChange: (value: string) => void;
 }) {
   return (
-    <Field className="gap-2">
+    <Field className="min-w-0 gap-2">
       <FieldLabel className="text-sm font-normal normal-case tracking-normal text-slate-700">
         {label}
       </FieldLabel>
       <Select value={value} disabled={disabled} onValueChange={onChange}>
-        <SelectTrigger className="h-10 w-full rounded-[5px] border border-slate-200 bg-white px-3 text-sm normal-case tracking-normal text-slate-700 focus-visible:border-blue-400 focus-visible:ring-2 focus-visible:ring-blue-100 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500">
+        <SelectTrigger className="h-10 min-w-0 w-full overflow-hidden rounded-[5px] border border-slate-200 bg-white px-3 text-sm normal-case tracking-normal text-slate-700 focus-visible:border-blue-400 focus-visible:ring-2 focus-visible:ring-blue-100 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500 [&_[data-slot=select-value]]:min-w-0 [&_[data-slot=select-value]]:truncate">
           <SelectValue />
         </SelectTrigger>
-        <SelectContent position="popper">
+        <SelectContent className="max-w-[calc(100vw-2rem)]" position="popper">
           <SelectGroup>
             {options.map((option) => (
               <SelectItem key={option} value={option}>
-                {option}
+                <span className="min-w-0 truncate">{option}</span>
               </SelectItem>
             ))}
           </SelectGroup>
@@ -184,11 +184,17 @@ export function ReadonlyField({
   value: ReactNode;
   emptyText?: string;
 }) {
+  const displayValue = value || emptyText;
+  const title = typeof displayValue === "string" ? displayValue : undefined;
+
   return (
     <div className="min-w-0 rounded-[6px] border border-slate-200 bg-slate-50 px-3 py-2.5">
       <div className="text-xs font-medium text-slate-500">{label}</div>
-      <div className="mt-1 break-words text-sm font-medium text-slate-900">
-        {value || emptyText}
+      <div
+        className="mt-1 min-w-0 truncate text-sm font-medium text-slate-900"
+        title={title}
+      >
+        {displayValue}
       </div>
     </div>
   );

@@ -17,25 +17,7 @@ import { KnowledgeBaseMemberDialog } from "./knowledge-base-member-dialog";
 import { canManageKnowledgeBaseMembers, canMutateKnowledgeBaseDocuments } from "./knowledge-base-permissions";
 import { KnowledgeBaseSearchPanel } from "./knowledge-base-search-panel";
 import type { DetailDocument, DetailDocumentTab, KnowledgeBase } from "./knowledge-base-types";
-import { formatCompactDateTime, formatCount, formatFileSize, formatQualityWarning, getDocumentCountByTab, getFilteredDocuments, mapDetailDocument } from "./knowledge-base-utils";
-
-function formatEmbeddingStatus(status?: string | null) {
-  if (!status) {
-    return "未返回";
-  }
-
-  const statusLabels: Record<string, string> = {
-    PENDING: "待向量化",
-    PROCESSING: "向量化中",
-    INDEXED: "已向量化",
-    COMPLETED: "已向量化",
-    FAILED: "向量失败",
-    SKIPPED: "未启用",
-  };
-  const normalizedStatus = status.trim().toUpperCase();
-
-  return statusLabels[normalizedStatus] ?? status;
-}
+import { formatFileSize, formatQualityWarning, getDocumentCountByTab, getFilteredDocuments, mapDetailDocument } from "./knowledge-base-utils";
 
 function KnowledgeBaseSwitcher({
   current,
@@ -335,25 +317,15 @@ export function KnowledgeBaseDetailView({
                           <div className="truncate text-xs font-medium text-slate-800">
                             {doc.originalFilename}
                           </div>
-                          <div className="mt-1 text-xs text-slate-500">
+                          <div className="mt-1 min-w-0 truncate text-xs text-slate-500">
                             {formatFileSize(doc.sizeBytes)} ·{" "}
                             {doc.chunkCount} chunks
-                          </div>
-                          <div className="mt-1 truncate text-xs text-slate-500">
-                            {formatCount(doc.charCount)} 字符 · 平均{" "}
-                            {formatCount(doc.averageChunkLength)}
-                          </div>
-                          <div className="mt-1 truncate text-xs text-slate-500">
-                            Embedding {formatEmbeddingStatus(doc.embeddingStatus)}
                           </div>
                           {doc.qualityWarnings?.length ? (
                             <div className="mt-1 truncate text-xs text-amber-700">
                               {formatQualityWarning(doc.qualityWarnings[0])}
                             </div>
                           ) : null}
-                          <div className="mt-1 text-xs text-slate-500">
-                            上传于 {formatCompactDateTime(doc.createdAt)}
-                          </div>
                           {doc.errorMessage && (
                             <div className="mt-1 truncate text-xs text-orange-600">
                               {doc.errorMessage}
@@ -486,17 +458,9 @@ export function KnowledgeBaseDetailView({
                         <div className="truncate text-xs font-medium text-slate-800">
                           {document.originalFilename}
                         </div>
-                        <div className="mt-1 text-xs text-slate-500">
+                        <div className="mt-1 min-w-0 truncate text-xs text-slate-500">
                           {document.chunkCount} chunks ·{" "}
                           {formatFileSize(document.sizeBytes)}
-                        </div>
-                        <div className="mt-1 truncate text-xs text-slate-500">
-                          {formatCount(document.charCount)} 字符 · 平均{" "}
-                          {formatCount(document.averageChunkLength)}
-                        </div>
-                        <div className="mt-1 truncate text-xs text-slate-500">
-                          Embedding{" "}
-                          {formatEmbeddingStatus(document.embeddingStatus)}
                         </div>
                         {document.qualityWarnings?.length ? (
                           <div className="mt-1 truncate text-xs text-amber-700">

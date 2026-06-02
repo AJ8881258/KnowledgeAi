@@ -21,6 +21,7 @@ import {
   testModelConnection,
   updateModelSettings,
   updateRagSettings,
+  updateUserTimezone,
   type FetchModelListRequest,
   type ModelConnectionTestRequest,
   type ModelConnectionTestResponse,
@@ -153,6 +154,7 @@ export default function Settings() {
   const [savingProfile, setSavingProfile] = useState(false);
   const [savingAvatar, setSavingAvatar] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [savingPreferences, setSavingPreferences] = useState(false);
   const [savingModel, setSavingModel] = useState(false);
   const [fetchingModels, setFetchingModels] = useState(false);
   const [testingModel, setTestingModel] = useState(false);
@@ -286,7 +288,7 @@ export default function Settings() {
     } catch (error) {
       if (isUnauthorized(error)) {
         handleUnauthorized();
-        return;
+        throw new Error("登录状态已失效，请重新登录", { cause: error });
       }
 
       throw new Error(getErrorMessage(error, "账号资料保存失败，请稍后重试。"), {
@@ -309,7 +311,7 @@ export default function Settings() {
     } catch (error) {
       if (isUnauthorized(error)) {
         handleUnauthorized();
-        return;
+        throw new Error("登录状态已失效，请重新登录", { cause: error });
       }
 
       throw new Error(normalizeAvatarUploadError(error), {
@@ -332,7 +334,7 @@ export default function Settings() {
     } catch (error) {
       if (isUnauthorized(error)) {
         handleUnauthorized();
-        return;
+        throw new Error("登录状态已失效，请重新登录", { cause: error });
       }
 
       throw new Error(getErrorMessage(error, "头像保存失败，请稍后重试。"), {
@@ -340,6 +342,30 @@ export default function Settings() {
       });
     } finally {
       setSavingAvatar(false);
+    }
+  }
+
+  async function handleSaveTimezone(timezone: string) {
+    setSavingPreferences(true);
+
+    try {
+      const updatedPreferences = await updateUserTimezone(timezone, preferences);
+
+      setPreferences(updatedPreferences);
+      setChatTimezone(updatedPreferences.timezone);
+      await refreshTodayUsage(updatedPreferences.timezone);
+      toast.success("时区偏好已保存");
+    } catch (error) {
+      if (isUnauthorized(error)) {
+        handleUnauthorized();
+        throw new Error("登录状态已失效，请重新登录", { cause: error });
+      }
+
+      throw new Error(getErrorMessage(error, "时区保存失败，请稍后重试。"), {
+        cause: error,
+      });
+    } finally {
+      setSavingPreferences(false);
     }
   }
 
@@ -478,12 +504,14 @@ export default function Settings() {
         savingProfile={savingProfile}
         savingAvatar={savingAvatar}
         uploadingAvatar={uploadingAvatar}
+        savingPreferences={savingPreferences}
         preferences={preferences}
         preferencesLoading={loading.preferences}
         preferencesError={errors.preferences}
         browserTimezone={browserTimezoneRef.current}
         onRetry={loadProfile}
         onSaveProfile={handleSaveProfile}
+        onSaveTimezone={handleSaveTimezone}
         onUploadAvatar={handleUploadAvatar}
         onSelectAvatarPreset={handleSelectAvatarPreset}
         onRetryPreferences={loadPreferences}

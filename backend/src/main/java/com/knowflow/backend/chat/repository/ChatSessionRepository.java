@@ -161,6 +161,47 @@ public interface ChatSessionRepository {
     int cancelGeneration(@Param("id") Long id, @Param("userId") Long userId);
 
     /**
+     * @param id     会话 ID。
+     * @param userId 当前 JWT 用户 ID。
+     * @return 当前仍在生成中的 active_generation_id；没有正在生成时返回 null。
+     * @Desc 手动打断需要先锁定会话行并读取当前 generationId，再删除同一 generation 的流式 ASSISTANT partial。
+     * 行锁避免 cancel 与 late delta/finish 并发时读到旧状态后又被其他事务改写。
+     */
+    @Select("""
+                select active_generation_id
+                from chat_sessions
+                where id = #{id}
+                  and user_id = #{userId}
+                  and status = 'GENERATING'
+                for update
+            """)
+    String lockActiveGenerationId(@Param("id") Long id, @Param("userId") Long userId);
+
+    /**
+     * @param id                 会话 ID。
+     * @param userId             当前 JWT 用户 ID。
+     * @param activeGenerationId 调用方已确认要清理的当前生成 ID。
+     * @return 更新行数。
+     * @Desc 连接关闭、超时或手动打断都会清理当前 generation 状态，但是否删除 partial 由上层语义决定。
+     * 该方法带 generationId 条件，避免旧连接回调清掉后续新一轮生成。
+     */
+    @Update("""
+                update chat_sessions
+                set status = 'IDLE',
+                    last_error_message = null,
+                    active_generation_id = null,
+                    updated_at = now()
+                where id = #{id}
+                  and user_id = #{userId}
+                  and status = 'GENERATING'
+                  and active_generation_id = #{activeGenerationId}
+            """)
+    int clearGenerationIfActive(
+            @Param("id") Long id,
+            @Param("userId") Long userId,
+            @Param("activeGenerationId") String activeGenerationId);
+
+    /**
      * @param id                 会话 ID
      * @param userId             当前用户 ID
      * @param activeGenerationId 异步任务启动时拿到的生成 ID

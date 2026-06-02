@@ -1,6 +1,7 @@
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { isAxiosError } from "axios";
 import {
+  ArrowDownToLine,
   Bot,
   CheckCircle2,
   ChevronDown,
@@ -98,6 +99,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import type { KnowledgeBase } from "@/components/knowledge-bases/knowledge-base-types";
 import { KnowledgeBaseRoleBadge } from "@/components/knowledge-bases/knowledge-base-common";
@@ -107,6 +114,9 @@ const DEFAULT_CHAT_LIMIT = 5;
 const SOURCE_PREVIEW_LENGTH = 180;
 const POLL_INTERVAL_MS = 2500;
 const AUTO_SCROLL_BOTTOM_THRESHOLD = 96;
+const SCROLL_TO_BOTTOM_BUTTON_PAGE_DISTANCE = 3;
+const SCROLL_TO_BOTTOM_ANIMATION_MS = 420;
+type MessageScrollMode = "force" | "if-near-bottom";
 const DEFAULT_GENERATION_ERROR_MESSAGE =
   "AI model call failed";
 const ACTIONABLE_MODEL_ERROR_MESSAGE =
@@ -161,6 +171,32 @@ function normalizeCancelledSession(session: ChatSessionResponse) {
     lastErrorMessage: null,
     generationError: null,
   };
+}
+
+function isMessageScrollNearBottom(messageScroll: HTMLDivElement) {
+  return getMessageScrollDistanceToBottom(messageScroll) <= AUTO_SCROLL_BOTTOM_THRESHOLD;
+}
+
+function getMessageScrollDistanceToBottom(messageScroll: HTMLDivElement) {
+  return Math.max(
+    0,
+    messageScroll.scrollHeight - messageScroll.scrollTop - messageScroll.clientHeight,
+  );
+}
+
+function shouldShowMessageScrollToBottomButton(messageScroll: HTMLDivElement) {
+  if (messageScroll.clientHeight <= 0) {
+    return false;
+  }
+
+  return (
+    getMessageScrollDistanceToBottom(messageScroll) >
+    messageScroll.clientHeight * SCROLL_TO_BOTTOM_BUTTON_PAGE_DISTANCE
+  );
+}
+
+function easeOutCubic(progress: number) {
+  return 1 - Math.pow(1 - progress, 3);
 }
 
 function formatCompactDateTime(value: string) {
@@ -351,7 +387,7 @@ function getChatErrorMessage(error: unknown) {
     }
 
     if (status && status >= 500) {
-      return "生成未完成，模型调用或消息保存没有完成，请稍后重试。";
+      return "模型调用或消息保存没有完成，请稍后重试。";
     }
   }
 
@@ -738,6 +774,8 @@ export function RagChatWorkspace({
   const [isCreatingSession, setIsCreatingSession] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [isCancellingGeneration, setIsCancellingGeneration] = useState(false);
+  const [showScrollToBottomButton, setShowScrollToBottomButton] =
+    useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [generationNotice, setGenerationNotice] = useState("");
   const [editingSession, setEditingSession] =
@@ -777,9 +815,15 @@ export function RagChatWorkspace({
   const selectedModelIdRef = useRef("");
   const activeStreamAbortControllerRef = useRef<AbortController | null>(null);
   const streamingAssistantMessageIdRef = useRef<number | null>(null);
+  const cancellingStreamSessionIdRef = useRef<number | null>(null);
   const markReadTimerRef = useRef<number | null>(null);
   const markingReadSessionIdsRef = useRef<Set<number>>(new Set());
   const messageScrollRef = useRef<HTMLDivElement>(null);
+  const autoFollowEnabledRef = useRef(true);
+  const lastScrollTopRef = useRef(0);
+  const programmaticScrollRef = useRef(false);
+  const programmaticScrollFrameRef = useRef<number | null>(null);
+  const scrollToBottomAnimationRef = useRef<number | null>(null);
   const latestInitialSessionIdRef = useRef(initialSessionId);
   const onSessionChangeRef = useRef(onSessionChange);
   const onSessionClearedRef = useRef(onSessionCleared);
@@ -805,6 +849,7 @@ export function RagChatWorkspace({
     () => getMessageSources(selectedAssistantMessage),
     [selectedAssistantMessage],
   );
+
   const latestSources = selectedSources;
   const hasLatestSources = latestSources.length > 0;
   const composerModelOptions = useMemo(
@@ -938,20 +983,67 @@ export function RagChatWorkspace({
     return () => window.clearTimeout(timeoutId);
   }, [loadModelConfiguration]);
 
-  const scrollMessagesToBottom = useCallback((mode: "force" | "if-near-bottom" = "force") => {
+  useEffect(() => {
+    return () => {
+      if (programmaticScrollFrameRef.current !== null) {
+        window.cancelAnimationFrame(programmaticScrollFrameRef.current);
+      }
+      if (scrollToBottomAnimationRef.current !== null) {
+        window.cancelAnimationFrame(scrollToBottomAnimationRef.current);
+      }
+    };
+  }, []);
+
+  const syncMessageScrollState = useCallback(
+    (messageScroll: HTMLDivElement, options?: { forceAutoFollow?: boolean }) => {
+      if (options?.forceAutoFollow || isMessageScrollNearBottom(messageScroll)) {
+        autoFollowEnabledRef.current = true;
+      }
+
+      setShowScrollToBottomButton(
+        shouldShowMessageScrollToBottomButton(messageScroll),
+      );
+      lastScrollTopRef.current = messageScroll.scrollTop;
+    },
+    [],
+  );
+
+  const finishProgrammaticScroll = useCallback(() => {
+    const messageScroll = messageScrollRef.current;
+
+    if (messageScroll) {
+      syncMessageScrollState(messageScroll, {
+        forceAutoFollow: isMessageScrollNearBottom(messageScroll),
+      });
+    }
+
+    programmaticScrollRef.current = false;
+    programmaticScrollFrameRef.current = null;
+  }, [syncMessageScrollState]);
+
+  const clearScrollToBottomAnimation = useCallback(() => {
+    if (scrollToBottomAnimationRef.current !== null) {
+      window.cancelAnimationFrame(scrollToBottomAnimationRef.current);
+      scrollToBottomAnimationRef.current = null;
+    }
+  }, []);
+
+  const scrollMessagesToBottom = useCallback((mode: MessageScrollMode = "force") => {
     const messageScroll = messageScrollRef.current;
 
     if (!messageScroll) {
       return;
     }
 
-    const isNearBottom =
-      messageScroll.scrollHeight -
-        messageScroll.scrollTop -
-        messageScroll.clientHeight <=
-      AUTO_SCROLL_BOTTOM_THRESHOLD;
+    if (mode === "force") {
+      autoFollowEnabledRef.current = true;
+    }
 
-    if (mode === "if-near-bottom" && !isNearBottom) {
+    if (
+      mode === "if-near-bottom" &&
+      (!autoFollowEnabledRef.current || !isMessageScrollNearBottom(messageScroll))
+    ) {
+      syncMessageScrollState(messageScroll);
       return;
     }
 
@@ -962,9 +1054,103 @@ export function RagChatWorkspace({
         return;
       }
 
+      if (mode === "if-near-bottom" && !autoFollowEnabledRef.current) {
+        syncMessageScrollState(currentMessageScroll);
+        return;
+      }
+
+      programmaticScrollRef.current = true;
       currentMessageScroll.scrollTop = currentMessageScroll.scrollHeight;
+      syncMessageScrollState(currentMessageScroll, { forceAutoFollow: true });
+
+      if (programmaticScrollFrameRef.current !== null) {
+        window.cancelAnimationFrame(programmaticScrollFrameRef.current);
+      }
+      programmaticScrollFrameRef.current =
+        window.requestAnimationFrame(finishProgrammaticScroll);
     });
-  }, []);
+  }, [finishProgrammaticScroll, syncMessageScrollState]);
+
+  const handleMessageScroll = useCallback(() => {
+    const messageScroll = messageScrollRef.current;
+
+    if (!messageScroll) {
+      return;
+    }
+
+    const currentScrollTop = messageScroll.scrollTop;
+
+    if (programmaticScrollRef.current) {
+      syncMessageScrollState(messageScroll, {
+        forceAutoFollow: isMessageScrollNearBottom(messageScroll),
+      });
+      return;
+    }
+
+    if (currentScrollTop < lastScrollTopRef.current) {
+      autoFollowEnabledRef.current = false;
+    } else if (isMessageScrollNearBottom(messageScroll)) {
+      autoFollowEnabledRef.current = true;
+    }
+
+    syncMessageScrollState(messageScroll);
+  }, [syncMessageScrollState]);
+
+  const animateMessagesToBottom = useCallback(() => {
+    const messageScroll = messageScrollRef.current;
+
+    if (!messageScroll) {
+      return;
+    }
+
+    clearScrollToBottomAnimation();
+    programmaticScrollRef.current = true;
+    autoFollowEnabledRef.current = true;
+
+    const startTop = messageScroll.scrollTop;
+    const targetTop = messageScroll.scrollHeight - messageScroll.clientHeight;
+    const distance = targetTop - startTop;
+    const startTime = performance.now();
+
+    if (distance <= 0) {
+      messageScroll.scrollTop = messageScroll.scrollHeight;
+      syncMessageScrollState(messageScroll, { forceAutoFollow: true });
+      programmaticScrollRef.current = false;
+      return;
+    }
+
+    const step = (now: number) => {
+      const latestMessageScroll = messageScrollRef.current;
+
+      if (!latestMessageScroll) {
+        programmaticScrollRef.current = false;
+        scrollToBottomAnimationRef.current = null;
+        return;
+      }
+
+      const progress = Math.min(
+        1,
+        (now - startTime) / SCROLL_TO_BOTTOM_ANIMATION_MS,
+      );
+      latestMessageScroll.scrollTop =
+        startTop + distance * easeOutCubic(progress);
+      syncMessageScrollState(latestMessageScroll, {
+        forceAutoFollow: progress >= 1,
+      });
+
+      if (progress < 1) {
+        scrollToBottomAnimationRef.current = window.requestAnimationFrame(step);
+        return;
+      }
+
+      latestMessageScroll.scrollTop = latestMessageScroll.scrollHeight;
+      syncMessageScrollState(latestMessageScroll, { forceAutoFollow: true });
+      programmaticScrollRef.current = false;
+      scrollToBottomAnimationRef.current = null;
+    };
+
+    scrollToBottomAnimationRef.current = window.requestAnimationFrame(step);
+  }, [clearScrollToBottomAnimation, syncMessageScrollState]);
 
   const replaceMessages = useCallback((nextMessages: ChatMessageResponse[]) => {
     messagesRef.current = nextMessages;
@@ -1002,6 +1188,30 @@ export function RagChatWorkspace({
     },
     [],
   );
+
+  const removeStreamingAssistantMessage = useCallback((sessionId: number) => {
+    const streamingAssistantMessageId = streamingAssistantMessageIdRef.current;
+
+    if (streamingAssistantMessageId === null) {
+      return;
+    }
+
+    updateMessages((currentMessages) =>
+      currentMessages.filter((message) => {
+        if (message.sessionId !== sessionId || message.role !== "ASSISTANT") {
+          return true;
+        }
+
+        return message.id !== streamingAssistantMessageId;
+      }),
+    );
+    setSelectedAssistantMessageId((currentId) =>
+      currentId !== null && currentId === streamingAssistantMessageId
+        ? null
+        : currentId,
+    );
+    streamingAssistantMessageIdRef.current = null;
+  }, [updateMessages]);
 
   const applySessions = useCallback(
     (nextSessions: ChatSessionResponse[]) => {
@@ -1615,6 +1825,10 @@ export function RagChatWorkspace({
       fallbackSession: ChatSessionResponse,
       optimisticUserMessageId: number,
     ) => {
+      if (cancellingStreamSessionIdRef.current === fallbackSession.id) {
+        return;
+      }
+
       if (event.type === "session" && event.data) {
         replaceSession(event.data);
         return;
@@ -1701,6 +1915,7 @@ export function RagChatWorkspace({
               : message,
           ),
         );
+        scrollMessagesToBottom("if-near-bottom");
         return;
       }
 
@@ -1774,6 +1989,7 @@ export function RagChatWorkspace({
       const abortController = new AbortController();
 
       activeStreamAbortControllerRef.current = abortController;
+      cancellingStreamSessionIdRef.current = null;
       streamingAssistantMessageIdRef.current = null;
       updateMessages((currentMessages) => [...currentMessages, userMessage]);
       scrollMessagesToBottom("force");
@@ -1841,6 +2057,9 @@ export function RagChatWorkspace({
       await refreshTodayUsage();
       activeStreamAbortControllerRef.current = null;
       streamingAssistantMessageIdRef.current = null;
+      if (cancellingStreamSessionIdRef.current === streamSession?.id) {
+        cancellingStreamSessionIdRef.current = null;
+      }
       isSendingRef.current = false;
       setIsSending(false);
     }
@@ -1856,7 +2075,8 @@ export function RagChatWorkspace({
     setIsCancellingGeneration(true);
     setGenerationNotice("");
     setErrorMessage("");
-    activeStreamAbortControllerRef.current?.abort();
+    cancellingStreamSessionIdRef.current = sessionId;
+    removeStreamingAssistantMessage(sessionId);
 
     const currentSession = sessionsRef.current.find(
       (item) => item.id === sessionId,
@@ -1870,8 +2090,6 @@ export function RagChatWorkspace({
     try {
       const response = await cancelChatSessionGeneration(sessionId);
       replaceSession(normalizeCancelledSession(response));
-      isSendingRef.current = false;
-      setIsSending(false);
       toast.success("已打断本次生成");
     } catch (error) {
       if (isAxiosError(error) && error.response?.status === 401) {
@@ -1880,6 +2098,11 @@ export function RagChatWorkspace({
         console.warn("Failed to cancel chat generation.", error);
       }
     } finally {
+      activeStreamAbortControllerRef.current?.abort();
+      isSendingRef.current = false;
+      setIsSending(false);
+      setGenerationNotice("");
+      setErrorMessage("");
       setIsCancellingGeneration(false);
     }
   };
@@ -2114,12 +2337,14 @@ export function RagChatWorkspace({
           </div>
         )}
 
-        <div
-          ref={messageScrollRef}
-          className="min-h-0 flex-1 overflow-auto bg-white px-3 py-4 lg:px-6 lg:py-5"
-          onClick={markActiveSessionRead}
-        >
-          <div className="mx-auto flex max-w-[820px] flex-col gap-5">
+        <div className="relative min-h-0 flex-1 bg-white">
+          <div
+            ref={messageScrollRef}
+            className="h-full overflow-auto px-3 py-4 lg:px-6 lg:py-5"
+            onScroll={handleMessageScroll}
+            onClick={markActiveSessionRead}
+          >
+            <div className="mx-auto flex max-w-[820px] flex-col gap-5">
             {isLoadingMessages ? (
               <div className="flex flex-col gap-4">
                 <Skeleton className="ml-auto h-16 w-2/3 min-w-0 rounded-[8px] bg-blue-100" />
@@ -2155,12 +2380,9 @@ export function RagChatWorkspace({
               >
                 <div className="flex min-w-0 items-start gap-3">
                   <TriangleAlert className="mt-0.5 size-4 shrink-0" />
-                  <div className="min-w-0">
-                    <div className="font-medium">生成未完成</div>
-                    <p className="mt-1 break-words text-xs leading-5">
-                      {activeGenerationNotice}
-                    </p>
-                  </div>
+                  <p className="min-w-0 break-words text-xs leading-5">
+                    {activeGenerationNotice}
+                  </p>
                 </div>
                 {shouldShowModelSettingsLink && (
                   <Button
@@ -2205,7 +2427,33 @@ export function RagChatWorkspace({
                 </div>
               </div>
             )}
+            </div>
           </div>
+
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  size="icon-sm"
+                  aria-label={"\u6eda\u52a8\u5230\u5e95\u90e8"}
+                  className={cn(
+                    "absolute bottom-4 left-1/2 z-10 size-10 -translate-x-1/2 cursor-pointer rounded-full bg-slate-900 text-white shadow-lg shadow-slate-900/15 transition-all duration-200 ease-out hover:bg-slate-800 sm:bottom-5",
+                    showScrollToBottomButton
+                      ? "scale-100 opacity-100"
+                      : "pointer-events-none scale-95 opacity-0",
+                  )}
+                  tabIndex={showScrollToBottomButton ? 0 : -1}
+                  onClick={animateMessagesToBottom}
+                >
+                  <ArrowDownToLine className="size-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="left" sideOffset={8}>
+                {"\u6eda\u52a8\u5230\u5e95\u90e8"}
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         </div>
 
         <footer className="min-w-0 shrink-0 border-t border-slate-100 px-3 py-3 lg:px-6 lg:py-4">

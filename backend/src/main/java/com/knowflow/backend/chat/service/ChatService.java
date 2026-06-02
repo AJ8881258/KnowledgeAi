@@ -272,7 +272,13 @@ public class ChatService {
     public ChatSessionResponse cancelGeneration(Long sessionId, Long userId) {
         ChatSession session = getSessionOr404(sessionId, userId);
         accessService.requireMember(session.getKnowledgeBaseId(), userId);
-        chatSessionRepository.cancelGeneration(sessionId, userId);
+        String activeGenerationId = chatSessionRepository.lockActiveGenerationId(sessionId, userId);
+        if (activeGenerationId != null) {
+            // 用户显式点击“打断”时，保留本次 USER 提问，只删除同一 generation 的未完成 ASSISTANT partial。
+            // chat_message_sources 通过外键 ON DELETE CASCADE 自动清理，避免残留引用来源。
+            chatMessageRepository.deleteStreamingAssistantByGeneration(sessionId, userId, activeGenerationId);
+            chatSessionRepository.clearGenerationIfActive(sessionId, userId, activeGenerationId);
+        }
         return new ChatSessionResponse(getSessionOr404(sessionId, userId));
     }
 

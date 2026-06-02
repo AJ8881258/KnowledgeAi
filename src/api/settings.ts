@@ -115,6 +115,19 @@ export async function updateUserPreferences(
   return response.data;
 }
 
+export async function updateUserTimezone(
+  timezone: string,
+  currentPreferences?: UserPreferenceResponse | null,
+) {
+  return updateUserPreferences({
+    language: currentPreferences?.language ?? "zh-CN",
+    timezone:
+      timezone.trim() ||
+      currentPreferences?.timezone ||
+      "Asia/Shanghai",
+  });
+}
+
 export async function getRagSettings() {
   const response = await http.get<RagSettingsResponse>("/settings/rag");
 

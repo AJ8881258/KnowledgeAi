@@ -212,7 +212,9 @@ public class ChatStreamingService {
             message.setSessionId(sessionId);
             message.setRole("ASSISTANT");
             message.setContent("");
-            chatMessageRepository.insert(message);
+            message.setGenerationId(generationId);
+            // 流式 partial 绑定当前 generationId，用户主动打断时只删除本次未完成助手回答，不影响历史回答。
+            chatMessageRepository.insertStreamingAssistant(message);
             assistantMessage = message;
             send(emitter, "assistant_message", new ChatMessageResponse(message, List.of()));
             return message;
@@ -244,7 +246,9 @@ public class ChatStreamingService {
 
     private void cancelIfStillGenerating(Long sessionId, Long userId, String generationId) {
         if (chatSessionRepository.isActiveGeneration(sessionId, userId, generationId)) {
-            chatSessionRepository.cancelGeneration(sessionId, userId);
+            // 连接异常/刷新/超时只释放生成状态，不删除 partial。
+            // 这样页面刷新后仍可恢复已生成内容；只有用户显式调用 cancel 接口才清理本次 ASSISTANT partial。
+            chatSessionRepository.clearGenerationIfActive(sessionId, userId, generationId);
         }
     }
 

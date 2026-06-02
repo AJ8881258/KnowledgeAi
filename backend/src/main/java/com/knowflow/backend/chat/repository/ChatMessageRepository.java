@@ -25,6 +25,20 @@ public interface ChatMessageRepository {
     int insert(ChatMessage message);
 
     /**
+     * @param message 流式生成中的助手消息，必须携带当前 generationId。
+     * @return 插入行数。
+     * @Desc 只有 SSE 流式 ASSISTANT partial 会写入 generation_id。普通 USER 消息和非流式已完成回答不写该字段，
+     * 这样手动打断时可以只删除“本次未完成 partial”，不会影响历史已完成回答。
+     */
+    @Insert("""
+                insert into chat_messages (
+                session_id,role,content,generation_id)
+                values (#{sessionId},#{role},#{content},#{generationId})
+            """)
+    @Options(useGeneratedKeys = true, keyProperty = "id", keyColumn = "id")
+    int insertStreamingAssistant(ChatMessage message);
+
+    /**
      * @param id 助手消息 ID
      * @param sessionId 当前会话 ID，用于避免跨会话误更新
      * @param content 后端已经保存的完整流式内容
@@ -45,6 +59,28 @@ public interface ChatMessageRepository {
             @Param("content") String content);
 
     /**
+     * @param sessionId    当前会话 ID。
+     * @param userId       当前 JWT 用户 ID，用于确保只能清理自己的会话消息。
+     * @param generationId 手动打断前读取到的 active_generation_id。
+     * @return 删除的 ASSISTANT partial 条数。
+     * @Desc 用户主动打断流式回答时，只删除当前 generationId 对应的未完成 ASSISTANT 消息。
+     * USER 提问会保留；历史已完成回答没有该 generationId，不会被误删。sources 依赖 FK ON DELETE CASCADE 自动清理。
+     */
+    @Delete("""
+            delete from chat_messages m
+            using chat_sessions s
+            where m.session_id = s.id
+              and m.session_id = #{sessionId}
+              and s.user_id = #{userId}
+              and m.generation_id = #{generationId}
+              and m.role = 'ASSISTANT'
+            """)
+    int deleteStreamingAssistantByGeneration(
+            @Param("sessionId") Long sessionId,
+            @Param("userId") Long userId,
+            @Param("generationId") String generationId);
+
+    /**
      * 根据会话ID和用户ID查询聊天消息
      *
      * @param sessionId 会话ID
@@ -53,7 +89,7 @@ public interface ChatMessageRepository {
      */
 
     @Select("""
-            select m.id, m.session_id, m.role, m.content, m.created_at
+            select m.id, m.session_id, m.role, m.content, m.generation_id, m.created_at
             from chat_messages m 
             join chat_sessions s on s.id = m.session_id
             where m.session_id  = #{sessionId} and
@@ -72,9 +108,9 @@ public interface ChatMessageRepository {
      * @return
      */
     @Select("""
-            select id, session_id, role, content, created_at
+            select id, session_id, role, content, generation_id, created_at
             from (
-                select m.id, m.session_id, m.role, m.content, m.created_at
+                select m.id, m.session_id, m.role, m.content, m.generation_id, m.created_at
                 from chat_messages m
                 join chat_sessions s on s.id = m.session_id
                 where m.session_id = #{sessionId}
