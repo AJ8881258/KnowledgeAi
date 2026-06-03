@@ -24,7 +24,7 @@ KnowFlow AI 是一个 RAG-based 智能知识库问答平台。用户可以上传
 - 多会话协同：会话创建、重命名、删除、置顶、取消置顶、未读会话、后台生成状态。
 - Chat 体验：发送时可选择模型，空检索仍可调用用户模型回答但 `sources` 保持为空；右侧引用来源跟随选中回答展示。
 - 使用统计：侧边栏展示今日交谈次数，按当前用户和时区统计。
-- Docker 化：根目录 `compose.yaml` 可启动 PostgreSQL、Spring Boot 后端和前端 Nginx 容器。
+- Docker：根目录 `compose.yaml` 只管理本地 PostgreSQL；后端在 `backend/` 用 Maven 启动，前端在 `frontend/` 用 Vite 启动。
 
 完整 Chat 真实回答验收依赖用户提供可用的真实模型配置。没有真实 Base URL/API Key/Model 时，只能验证应用启动、接口健康、页面流程和脱敏错误；没有配置 `KNOWFLOW_AI_EMBEDDING_MODEL` 时，系统仍会使用全文检索。
 
@@ -58,35 +58,15 @@ KnowFlow AI 是一个 RAG-based 智能知识库问答平台。用户可以上传
 ## 项目结构
 
 ```text
-.
-├── src/                         # 前端源码
-│   ├── api/                     # axios API wrapper
-│   ├── components/              # 共享和页面拆分组件
-│   ├── hooks/                   # React hooks
-│   ├── lib/                     # 工具函数
-│   ├── pages/                   # 路由页面
-│   └── store/                   # Zustand store
-├── backend/                     # Spring Boot 后端
-│   └── src/main/java/com/knowflow/backend/
-│       ├── auth/                # 认证
-│       ├── chat/                # 会话、消息、生成状态
-│       ├── config/              # Security/JWT/配置
-│       ├── document/            # 文档上传、解析、切片
-│       ├── knowledgebase/       # 知识库和成员权限
-│       ├── rag/                 # 检索、Prompt、模型调用
-│       ├── settings/            # 用户模型配置、偏好、RAG 参数
-│       └── user/                # 用户数据访问
-├── doc/
-│   ├── STAGE_PLAN.md            # 阶段计划和验收状态
-│   ├── PROJECT.md               # 项目概览和运行方式
-│   ├── API.md                   # API 契约
-│   ├── FRONTEND_TASK.md         # 前端任务书/验收记录
-│   └── BACKEND_TASK.md          # 后端任务书/验收记录
-├── compose.yaml                 # 全量 Docker Compose
-├── .env.example                 # Docker 环境变量模板
-├── Dockerfile                   # 前端生产镜像
-└── backend/Dockerfile           # 后端生产镜像
+MyWork/
+  frontend/      # React/Vite 前端项目
+  backend/       # Spring Boot 后端项目
+  doc/           # 核心项目文档
+  AGENTS.md      # Agent 协作规则
+  compose.yaml   # 本地 PostgreSQL Docker Compose
 ```
+
+根目录是协调仓库，不保留 `package.json`。前端依赖、脚本、Dockerfile、Nginx 配置和源码都在 `frontend/`；后端 Maven、Spring Boot 和后端 Dockerfile 都在 `backend/`；本地数据库 Docker Compose 固定放在根目录。
 
 ## 本地开发启动
 
@@ -100,24 +80,28 @@ KnowFlow AI 是一个 RAG-based 智能知识库问答平台。用户可以上传
 安装依赖：
 
 ```powershell
+cd D:\Studio\MyWork\frontend
 pnpm install
 ```
 
 启动开发数据库：
 
 ```powershell
-pnpm sql
+cd D:\Studio\MyWork
+docker compose up -d
 ```
 
 启动后端：
 
 ```powershell
-pnpm backend
+cd D:\Studio\MyWork\backend
+.\mvnw.cmd spring-boot:run
 ```
 
 启动前端：
 
 ```powershell
+cd D:\Studio\MyWork\frontend
 pnpm dev
 ```
 
@@ -135,42 +119,36 @@ Browser -> Vite Dev Server -> Spring Boot Backend -> PostgreSQL
 
 前端通过 Vite proxy 转发 `/api/**` 到 `http://localhost:8080/api/**`。
 
-## Docker 全量启动
+## Docker 数据库启动
 
-1. 复制环境变量模板：
+如需自定义数据库端口、库名、用户或密码，可先复制环境变量模板：
 
 ```powershell
 Copy-Item .env.example .env
 ```
 
-2. 编辑 `.env`，至少替换以下 secrets：
+然后按需编辑 `.env` 中的 PostgreSQL 配置：
 
 ```text
 POSTGRES_PASSWORD=CHANGE_ME_postgres_password
-KNOWFLOW_JWT_SECRET=CHANGE_ME_use_a_long_random_jwt_secret_at_least_32_chars
-KNOWFLOW_MODEL_SECRET_KEY=CHANGE_ME_use_a_long_random_model_secret_at_least_32_chars
 ```
 
-3. 启动全量服务：
+启动本地 PostgreSQL：
 
 ```powershell
-docker compose up -d --build
+cd D:\Studio\MyWork
+docker compose up -d
 ```
 
-根目录 `compose.yaml` 会要求 `POSTGRES_PASSWORD`、`KNOWFLOW_JWT_SECRET` 和 `KNOWFLOW_MODEL_SECRET_KEY` 存在；缺少这些变量时会直接拒绝启动，避免使用仓库里的弱默认密钥。
+根目录 `compose.yaml` 只启动 `knowflow-postgres`，使用 `pgvector/pgvector:pg17` 镜像和 `mywork_knowflow-postgres-data` 数据卷。
 
-4. 查看容器状态：
+查看容器状态：
 
 ```powershell
 docker compose ps
 ```
 
-5. 访问应用：
-
-- 前端：http://localhost:5173
-- 后端健康检查：http://localhost:8080/api/health
-
-6. 停止服务：
+停止数据库：
 
 ```powershell
 docker compose down
@@ -187,6 +165,7 @@ docker compose down -v
 前端生产构建：
 
 ```powershell
+cd frontend
 pnpm build
 ```
 
@@ -238,7 +217,7 @@ cd backend
 - `KNOWFLOW_DB_MAX_POOL_SIZE`
 - `KNOWFLOW_DB_MIN_IDLE`
 
-根目录 `compose.yaml` 会根据 `POSTGRES_*` 自动组装容器内数据库连接。
+根目录 `compose.yaml` 会根据 `POSTGRES_*` 启动本地 PostgreSQL；后端从根目录 `.env` 读取相同的 `POSTGRES_*`，也可用 `KNOWFLOW_DB_*` 单独覆盖连接配置。
 
 ## 健康检查和接口文档
 
@@ -262,37 +241,19 @@ Swagger/OpenAPI：
 
 ## 日志排查
 
-查看全部服务日志：
+查看 PostgreSQL 日志：
 
 ```powershell
 docker compose logs -f
 ```
 
-查看后端日志：
-
-```powershell
-docker compose logs -f backend
-```
-
-查看前端 Nginx 日志：
-
-```powershell
-docker compose logs -f frontend
-```
-
-查看 PostgreSQL 日志：
-
-```powershell
-docker compose logs -f postgres
-```
-
 常见排查点：
 
-- 后端无法启动：检查 `.env` 中 `POSTGRES_PASSWORD`、`KNOWFLOW_JWT_SECRET`、`KNOWFLOW_MODEL_SECRET_KEY` 是否已设置。
+- 后端无法启动：先确认已在根目录执行 `docker compose up -d`，再检查 `POSTGRES_*` / `KNOWFLOW_DB_*`、`KNOWFLOW_JWT_SECRET` 和 `KNOWFLOW_MODEL_SECRET_KEY`。
 - 修改 `.env` 中 `POSTGRES_PASSWORD` 后旧数据库卷不会自动改密码；本地演示环境可先备份数据，再执行 `docker compose down -v` 重新初始化数据库卷。
 - 数据库连接失败：检查 `postgres` 容器是否 healthy，端口 `KNOWFLOW_POSTGRES_PORT` 是否被占用。
 - Chat 生成失败：先在 `/Settings` 保存并测试真实 Base URL/API Key/Model；失败提示应脱敏，不应暴露密钥。
-- 前端无法访问后端：Docker 全量模式下前端容器应通过 Nginx 代理请求后端；开发模式下检查 Vite proxy 和 `pnpm backend` 是否运行。
+- 前端无法访问后端：检查 Vite proxy，并确认后端已在 `backend/` 目录通过 `.\mvnw.cmd spring-boot:run` 启动。
 
 ## PostgreSQL 备份和恢复
 

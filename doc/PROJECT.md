@@ -4,7 +4,7 @@
 
 KnowFlow AI 是一个智能知识库问答平台。用户上传学习资料、项目文档或产品文档后，可以基于自己的资料进行检索增强问答。
 
-项目当前已完成 **阶段 22：Settings/Chat 验收修复与协作规则升级**，阶段 23 的 Settings 联系方式与头像存储状态契约同步正在进行。当前版本已经具备从本地开发到 Docker 全量启动的完整复现路径，并补齐文档质量指标、重新处理入口、文档摘要、原始来源持久化、真正失败重试、持久化文档处理任务、可选 embedding、pgvector 向量字段、全文+语义混合检索、语义索引重建、用户级检索策略配置、全局后台任务中心、安全系统诊断、Chat SSE 流式输出、OSS 头像上传、默认头像持久化、当前知识库文档 `@` mention、Settings profile 二次验收更新和 Chat 验收交互修复；`do.md` 作为本地任务输入文件已加入 `.gitignore`，不再作为项目文件提交。
+项目当前已完成 **阶段 22：Settings/Chat 验收修复与协作规则升级**，阶段 23 的 Settings 联系方式与头像存储状态契约同步正在进行。当前版本已经具备本地开发复现路径：根目录 Docker Compose 管理 PostgreSQL，后端在 `backend/` 启动，前端在 `frontend/` 启动；并补齐文档质量指标、重新处理入口、文档摘要、原始来源持久化、真正失败重试、持久化文档处理任务、可选 embedding、pgvector 向量字段、全文+语义混合检索、语义索引重建、用户级检索策略配置、全局后台任务中心、安全系统诊断、Chat SSE 流式输出、OSS 头像上传、默认头像持久化、当前知识库文档 `@` mention、Settings profile 二次验收更新和 Chat 验收交互修复；`do.md` 作为本地任务输入文件已加入 `.gitignore`，不再作为项目文件提交。
 
 ## 当前能力
 
@@ -36,7 +36,7 @@ KnowFlow AI 是一个智能知识库问答平台。用户上传学习资料、�
 - 用户偏好：语言、时区。
 - 今日交谈次数统计。
 - 健康检查：`GET /api/health`。
-- Docker Compose 全量运行支持。
+- Docker Compose 本地 PostgreSQL 运行支持。
 
 前端已完成：
 
@@ -65,7 +65,7 @@ KnowFlow AI 是一个智能知识库问答平台。用户上传学习资料、�
 - 阶段 20 已通过阶段专项后端测试、完整后端回归、前端构建和目标 ESLint。
 - 阶段 21 新增 Chat SSE 流式输出、边流边保存、`@` 文件上下文、标题感知检索和 OSS 头像上传；专项后端测试覆盖流式事件、持久化 delta、打断防旧流写入、mention 权限、标题匹配和头像校验。
 - 阶段 22 新增默认头像 preset 持久化、`UserResponse.avatarSource/avatarPresetId`、Settings profile 二次验收更新、刷新已登录页面后重新获取上传头像短期签名 URL、Chat mention CLI 策略和 token 删除同步、乱码修复、点击沟通区域标记已读防抖和移动端布局约束。
-- 阶段 22 二次验收后端复核已通过 `Stage22DefaultAvatarTests` 专项测试和后端全量回归：`118 tests, 0 failures, 0 errors`；前端目标 ESLint 和 `pnpm build` 已通过，直接 `fetch` 仍只有 `src/api/chat-stream.ts` 的 POST SSE 例外。
+- 阶段 22 二次验收后端复核已通过 `Stage22DefaultAvatarTests` 专项测试和后端全量回归：`118 tests, 0 failures, 0 errors`；前端目标 ESLint 和 `pnpm build` 已通过，直接 `fetch` 仍只有 `frontend/src/api/chat-stream.ts` 的 POST SSE 例外。
 - 阶段 23 正在同步 Settings 联系方式和头像存储状态契约：`UserResponse.phone`、`UserResponse.avatarStorageConfigured`、`PATCH /api/auth/me` 的 `phone` 更新、OSS 未配置头像上传中文脱敏提示，以及 Settings 联系方式展示。
 - 项目开发推荐团队编排模式：主对话担任项目经理/协调者，负责审核计划、拆分任务、下发 Codex 后台 Thread/worktree 或 `AGENT_TEAM`、集成结果和最终验证；下发 worker 的思考/推理等级默认使用可用最高级（例如 `xhigh` / 最高级）。
 - `do.md` 修复已完成：Chat 模型选择、进入会话自动滚动、用户模型配置复用、Settings 模型测试、退出登录确认、引用来源跟随选中回答、未读角标、响应式问题、RAG tooltip、生成打断和 `.env` 本地模型兜底均已纳入阶段 14 收尾记录。
@@ -109,10 +109,10 @@ KnowFlow AI 是一个智能知识库问答平台。用户上传学习资料、�
 Browser -> Vite Dev Server -> Spring Boot Backend -> PostgreSQL
 ```
 
-Docker 全量链路：
+Docker 数据库链路：
 
 ```text
-Browser -> frontend Nginx container -> backend Spring Boot container -> postgres container
+Spring Boot Backend -> root Docker Compose PostgreSQL container
 ```
 
 主要后端模块：
@@ -145,34 +145,48 @@ Browser -> frontend Nginx container -> backend Spring Boot container -> postgres
 
 ## 本地开发命令
 
-安装依赖：
+根目录是协调仓库，不保留 Node package。前端命令必须在 `frontend/` 下运行，后端命令必须在 `backend/` 下运行。
+
+安装前端依赖：
 
 ```powershell
+cd D:\Studio\MyWork\frontend
 pnpm install
 ```
 
 启动本地 PostgreSQL：
 
 ```powershell
-pnpm sql
+cd D:\Studio\MyWork
+docker compose up -d
 ```
 
 启动后端：
 
 ```powershell
-pnpm backend
+cd D:\Studio\MyWork\backend
+.\mvnw.cmd spring-boot:run
 ```
 
 启动前端：
 
 ```powershell
+cd D:\Studio\MyWork\frontend
 pnpm dev
 ```
 
 构建前端：
 
 ```powershell
+cd D:\Studio\MyWork\frontend
 pnpm build
+```
+
+前端 ESLint：
+
+```powershell
+cd D:\Studio\MyWork\frontend
+pnpm lint
 ```
 
 后端测试：
@@ -195,7 +209,7 @@ cd backend
 - 后端服务：`http://localhost:8080`
 - 后端健康检查：`http://localhost:8080/api/health`
 
-## Docker 运行方式
+## Docker 数据库运行方式
 
 复制环境变量模板：
 
@@ -211,13 +225,14 @@ Copy-Item .env.example .env
 - 可选 AI 兜底：`KNOWFLOW_AI_BASE_URL`、`KNOWFLOW_AI_API_KEY`、`KNOWFLOW_AI_MODEL`
 - 端口：`KNOWFLOW_FRONTEND_PORT`、`KNOWFLOW_BACKEND_PORT`、`KNOWFLOW_POSTGRES_PORT`
 
-启动：
+启动本地 PostgreSQL：
 
 ```powershell
-docker compose up -d --build
+cd D:\Studio\MyWork
+docker compose up -d
 ```
 
-根目录 `compose.yaml` 要求 `POSTGRES_PASSWORD`、`KNOWFLOW_JWT_SECRET` 和 `KNOWFLOW_MODEL_SECRET_KEY` 必须由 `.env` 或 `--env-file` 提供，缺少这些变量时会拒绝启动。
+根目录 `compose.yaml` 只管理 PostgreSQL，固定使用 `knowflow-postgres` 容器、`pgvector/pgvector:pg17` 镜像和 `mywork_knowflow-postgres-data` 数据卷。
 
 检查：
 
@@ -229,8 +244,6 @@ curl http://localhost:8080/api/health
 查看日志：
 
 ```powershell
-docker compose logs -f backend
-docker compose logs -f frontend
 docker compose logs -f postgres
 ```
 
@@ -320,11 +333,11 @@ Get-Content .\knowflow-backup.sql | docker compose exec -T postgres psql -U know
 - `cd backend && .\mvnw.cmd -DskipTests package` 已通过。
 - `cd backend && .\mvnw.cmd test` 已通过，71 个测试全部成功。
 - `docker compose config` 已通过。
-- `docker compose up -d --build` 已通过，PostgreSQL、backend、frontend 均成功启动。
-- Compose 已验证关键 secrets 必须由 `.env` 或 `--env-file` 提供，缺少 `POSTGRES_PASSWORD`、`KNOWFLOW_JWT_SECRET` 或 `KNOWFLOW_MODEL_SECRET_KEY` 时会拒绝启动。
+- `docker compose up -d` 已通过，PostgreSQL 成功启动。
+- 当前根目录 Compose 只管理 PostgreSQL；后端和前端分别由 `backend/` Maven 与 `frontend/` pnpm 启动。
 - `http://localhost:8080/api/health` 返回 `{"status":"UP"}`。
-- `http://localhost:5173/api/health` 经前端 Nginx 代理返回 `{"status":"UP"}`。
-- browser-use 可见窗口已验证 Docker 前端可访问、空库注册登录可用、`/Settings` 可访问、`/Chat` 空状态可用、创建知识库后可进入 Chat 主界面。
+- `http://localhost:5173/api/health` 经 Vite proxy 返回 `{"status":"UP"}`。
+- browser-use 可见窗口已验证 Vite 前端可访问、空库注册登录可用、`/Settings` 可访问、`/Chat` 空状态可用、创建知识库后可进入 Chat 主界面。
 - 未配置真实模型时在 Chat 发送“你好”返回脱敏提示 `Model settings are incomplete`，符合本阶段“不内置 mock 模型服务”的验收边界。
 
 用户仍需人工提供真实模型配置，才能完成 browser-use 或人工的完整 Chat 真实回答验收：

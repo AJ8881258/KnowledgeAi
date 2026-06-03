@@ -1,5 +1,5 @@
 # Logs
-logs
+logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
@@ -10,8 +10,10 @@ lerna-debug.log*
 # Local agent/tooling state
 .claude/
 .codex/
+.codex-runtime/
 .idea/
 .playwright-mcp/
+.understand-anything/
 .vscode/
 do.md
 
@@ -20,9 +22,13 @@ do.md
 .env.local
 .env.*.local
 
-node_modules
-dist
-dist-ssr
+node_modules/
+frontend/node_modules/
+dist/
+frontend/dist/
+dist-ssr/
+frontend/dist-ssr/
+backend/target/
 *.local
 
 # Editor directories and files

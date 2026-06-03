@@ -9,8 +9,9 @@
 - 项目状态、运行方式或部署方式变化必须同步 `doc/PROJECT.md`。
 - 前后端任务书使用固定文件 `doc/FRONTEND_TASK.md` 和 `doc/BACKEND_TASK.md`。
 - `doc/` 下只保留核心文档：`STAGE_PLAN.md`、`PROJECT.md`、`API.md`、`FRONTEND_TASK.md`、`BACKEND_TASK.md`。
-- 文档/规划/指挥会话只同步核心文档和必要规则，不修改 `src/`、`backend/`、Docker 等业务/运行文件。
+- 文档/规划/指挥会话只同步核心文档和必要规则，不修改 `frontend/src/`、`backend/`、Docker 等业务/运行文件。
 - 项目开发推荐团队编排模式：一个主对话担任项目经理/协调者，负责阶段 kickoff、计划审核、任务拆分、Thread/worktree 或 `AGENT_TEAM` 下发、结果审核、集成验证和总结。下发给 Codex Thread 或 `AGENT_TEAM` 的实现/复核任务必须使用可用最高思考/推理等级（例如 `xhigh` / 最高级），除非用户明确要求降低成本或降低思考等级。
+- 当前仓库是根目录协调仓库：`frontend/` 只放前端，`backend/` 只放后端，`doc/` 和 `AGENTS.md` 留在根目录。根目录不保留 `package.json`；前端命令必须先进入 `frontend/`，后端命令必须先进入 `backend/`。
 
 ## 当前阶段总览
 
@@ -30,7 +31,7 @@
 | 阶段 11：文档处理增强                      | 已完成 | 新增 `.docx`、`.html/.htm` 文本提取，保持同步处理和 10MB 上限。                                                                                 |
 | 阶段 12：权限与团队协作                     | 已完成 | 单个知识库共享、`OWNER`/`EDITOR`/`VIEWER` 成员权限和前后端接入完成。                                                                               |
 | 阶段 13：用户模型配置、偏好设置与多会话协同增强         | 已完成 | 用户级模型配置、API Key 加密、未读会话、后台生成、今日交谈次数完成。                                                                                        |
-| 阶段 14：Docker 化与运维 + do.md 收尾修复    | 已完成 | Docker 全量启动、README 运维说明、构建/健康检查/日志/备份恢复文档完成；`do.md` 新增验收问题已完成代码和 API 文档同步。                                                    |
+| 阶段 14：Docker 化与运维 + do.md 收尾修复    | 已完成 | 根目录 Docker Compose 管理 PostgreSQL、README 运维说明、构建/健康检查/日志/备份恢复文档完成；`do.md` 新增验收问题已完成代码和 API 文档同步。                                                    |
 | 阶段 15：知识库质量与文档处理增强                | 已完成 | 文档质量指标、重新处理、摘要生成、前端展示和阶段 15 回归验证完成。                                                                                           |
 | 阶段 16：文档处理可靠性与真正失败重试              | 已完成 | 上传时保存原始文件 bytes 和成功解析文本，重新处理优先使用原始来源，失败无 chunks 文档可真正重试，前端按可重试能力控制入口。                                                         |
 | 阶段 17：后台任务化与文档处理进度                | 已完成 | 新增文档处理任务表、上传/重新处理任务记录、进度查询接口和 Documents 轮询进度 UI；完整后端回归、前端构建/ESLint 和 browser-use 验收已通过。                                       |
@@ -40,6 +41,52 @@
 | 阶段 21：Chat SSE 流式输出、头像上传与 @ 文件上下文 | 已完成 | 新增 Chat SSE 边流边保存、OSS 头像上传、`@` 文件 mention、标题感知文档匹配和对应前后端接入；后端 112 个测试、前端构建和目标 ESLint 已通过。                                     |
 | 阶段 22：Settings/Chat 验收修复与协作规则升级   | 已完成 | Settings 资料编辑二次验收、默认头像持久化、Chat mention CLI 策略、乱码修复、点击沟通区域标记已读、移动端约束和多 thread/worktree 协作规则已完成；后端 118 个测试、前端构建和目标 ESLint 已通过。 |
 | 阶段 23：Settings 联系方式与头像存储状态契约同步 | 进行中 | `UserResponse` / `PATCH /api/auth/me` 扩展联系方式 `phone`，补充 `avatarStorageConfigured`，统一 OSS 未配置头像上传脱敏提示，并同步 Settings 联系方式展示和文档规则。 |
+| 项目结构整理：前后端分目录 | 已完成 | 前端文件迁移到 `frontend/`，后端保留在 `backend/`，根目录作为协调仓库；根目录 `package.json` 已移除，Compose 前端 build context 指向 `./frontend`，运行日志和个人工具状态已从项目提交中排除。 |
+
+## 项目结构整理：前后端分目录
+
+### 目标
+
+解决根目录同时承载前端 Node package 和 `backend/` Spring Boot 项目导致 VS Code 打开 `D:\Studio\MyWork` 时自动加载 Java 后端插件的问题。迁移后，VS Code 可主要打开 `D:\Studio\MyWork\frontend` 做前端开发，IDEA 可打开 `D:\Studio\MyWork\backend` 做后端开发，根目录只负责协调文档、Git、Docker Compose 和项目规则。
+
+### 已完成内容
+
+- 新增 `frontend/`，并迁入前端 `src/`、`public/`、`app/`、`package.json`、`pnpm-lock.yaml`、`vite.config.ts`、`tsconfig*.json`、`eslint.config.js`、`components.json`、`index.html`、`Dockerfile` 和 `nginx.conf`。
+- 根目录保留 `backend/`、`doc/`、`README.md`、`AGENTS.md`、`compose.yaml`、`.gitignore`、`.dockerignore`、`.env.example` 和协调类文件；根目录不保留 Node package。
+- `frontend/package.json` 删除后端相关脚本，只保留前端 `dev`、`build`、`lint`、`preview`。
+- 根目录 `compose.yaml` 收敛为本地 PostgreSQL Compose 配置，避免再生成前后端 Docker 镜像和第二套数据库卷。
+- `.gitignore` 和 `.dockerignore` 已补齐日志、个人工具状态、前端构建产物、后端 `target/` 等项目无关内容。
+- 根目录运行日志已删除；`.codex/environments/environment.toml` 从 Git 索引移除但保留本地文件。
+
+### 固定运行方式
+
+前端：
+
+```powershell
+cd D:\Studio\MyWork\frontend
+pnpm install
+pnpm dev
+pnpm build
+pnpm lint
+```
+
+后端：
+
+```powershell
+cd D:\Studio\MyWork
+docker compose up -d
+cd D:\Studio\MyWork\backend
+.\mvnw.cmd spring-boot:run
+.\mvnw.cmd test
+```
+
+Docker 数据库配置固定从根目录执行：
+
+```powershell
+cd D:\Studio\MyWork
+docker compose config
+docker compose up -d
+```
 
 ## 阶段 23：Settings 联系方式与头像存储状态契约同步
 
@@ -56,7 +103,7 @@
   - `phone` 允许清空；非空值 trim 后长度为 5-32，且只能包含数字、普通空格、`+`、`-` 和英文括号，并至少包含 5 个数字。
   - OSS 未配置时，头像上传返回脱敏中文提示：“头像上传需要先配置 OSS 存储。”。
 - 前端：
-  - `src/api/auth.ts` 的 `UserResponse` 和 profile 更新请求类型同步 `phone`、`avatarStorageConfigured`。
+  - `frontend/src/api/auth.ts` 的 `UserResponse` 和 profile 更新请求类型同步 `phone`、`avatarStorageConfigured`。
   - Settings 账号资料区显示联系方式；编辑资料弹窗允许修改用户名、邮箱、联系方式和头像。
   - 当 `avatarStorageConfigured=false` 时禁用本地头像上传入口，并提示“头像上传需要先配置 OSS；当前可选择默认头像”。
   - Header、Sidebar、Settings 继续统一使用上传头像短期签名 URL 或默认头像 preset，不持久化签名 URL。
@@ -70,7 +117,7 @@
 - 后端响应不返回密码哈希、OSS object key、AccessKey、Secret、bucket 私密配置、Authorization header 或永久 URL。
 - `avatarStorageConfigured=false` 仅表示上传头像不可用，不影响选择默认头像 preset。
 - Settings 联系方式是资料字段，不用于登录、唯一性校验、短信验证或通知发送。
-- 本轮文档复核只同步核心文档和规则，不修改 `src/` 或 `backend/` 业务代码。
+- 本轮文档复核只同步核心文档和规则，不修改 `frontend/src/` 或 `backend/` 业务代码。
 
 ## 阶段 22：Settings/Chat 验收修复与协作规则升级
 
@@ -104,10 +151,10 @@
 
 - 新增 `V17__add_user_avatar_preset.sql`、`UpdateAvatarPresetRequest` 和 `Stage22DefaultAvatarTests`。
 - `AuthService`、`AuthController`、`UserRepository`、`UserResponse` 已支持默认头像 preset 和头像来源字段。
-- `src/api/auth.ts` 新增 `DefaultAvatarPresetId`、`AvatarSource` 和 `selectCurrentUserAvatarPreset`。
-- `src/store/auth.ts` 运行时保留短期 `avatarUrl`，持久化时剔除签名 URL。
+- `frontend/src/api/auth.ts` 新增 `DefaultAvatarPresetId`、`AvatarSource` 和 `selectCurrentUserAvatarPreset`。
+- `frontend/src/store/auth.ts` 运行时保留短期 `avatarUrl`，持久化时剔除签名 URL。
 - 主布局挂载时重新请求 `/api/auth/me`，刷新任意已登录页面后可重新获取上传头像短期签名 URL。
-- `src/components/user-avatar.tsx` 新增 8 个默认头像 preset、`UserAvatar` 和 `AvatarPresetPicker`。
+- `frontend/src/components/user-avatar.tsx` 新增 8 个默认头像 preset、`UserAvatar` 和 `AvatarPresetPicker`。
 - Settings 账号资料卡和编辑资料弹窗按二次验收恢复用户名、邮箱和头像编辑；角色、时区仍只读，语言入口移除。
 - Header、Sidebar、Settings 统一头像渲染。
 - ChatComposer mention 改为 CLI 风格触发和键盘交互，手动删改 token 后同步清理对应文档 ID。
@@ -118,8 +165,8 @@
 - `cd backend && .\mvnw.cmd -Dtest=Stage22DefaultAvatarTests test` 已通过：`6 tests, 0 failures, 0 errors`，覆盖默认头像和 profile 二次验收规则。
 - `cd backend && .\mvnw.cmd test` 已通过：`118 tests, 0 failures, 0 errors`。
 - 目标 ESLint 已通过。
-- `pnpm build` 已通过，仅保留既有 Vite 大 chunk 提示。
-- `rg -n "fetch\(" src` 仅匹配 `src/api/chat-stream.ts` 的 POST SSE 例外。
+- `cd frontend && pnpm build` 已通过，仅保留既有 Vite 大 chunk 提示。
+- 在 `frontend/` 下运行 `rg -n "fetch\(" src` 仅匹配 `frontend/src/api/chat-stream.ts` 的 POST SSE 例外。
 - 指定 Chat/Settings 范围 mojibake 残留检查无匹配。
 - `git diff --check` 已通过，仅有 Windows 下 LF 将转换为 CRLF 的提示。
 
@@ -140,7 +187,7 @@
   - 新增文档上下文解析：显式 `mentionedDocumentIds` 只允许当前会话知识库内可访问文档；未显式 mention 时，对问题文本做标题感知匹配。
   - 新增 OSS 头像配置、头像上传/删除接口和 `users.avatar_object_key` / `users.avatar_updated_at` 字段。
 - 前端：
-  - 新增 `src/api/chat-stream.ts`，仅该文件使用 `fetch` 读取 POST SSE；普通 API 继续走 axios wrapper。
+  - 新增 `frontend/src/api/chat-stream.ts`，仅该文件使用 `fetch` 读取 POST SSE；普通 API 继续走 axios wrapper。
   - Chat 默认使用流式接口，实时更新同一条助手消息，打断时 abort fetch 并调用后端 cancel。
   - Chat 输入框支持 `@` 当前知识库文档 mention，弹出文档列表和搜索框，发送时传 `mentionedDocumentIds`。
   - Settings 账号资料区新增头像上传/删除控件；Header 和 Sidebar 使用 `avatarUrl` 回显。
@@ -159,7 +206,7 @@
 - 后端新增 Chat 流式接口和 OpenAI-compatible SSE 解析，delta 会持续更新同一条 `ASSISTANT` 消息。
 - 后端新增 `ChatDocumentContextService`，支持显式 `mentionedDocumentIds` 校验、当前知识库文档限定检索和文件标题启发式匹配。
 - 后端非流式 Chat 发送接口同步支持 `mentionedDocumentIds`，保持旧调用兼容。
-- 前端新增 `src/api/chat-stream.ts`，Chat 工作台默认使用 SSE 流式发送、实时更新助手消息、更新 sources 并保留打断能力。
+- 前端新增 `frontend/src/api/chat-stream.ts`，Chat 工作台默认使用 SSE 流式发送、实时更新助手消息、更新 sources 并保留打断能力。
 - 前端 ChatComposer 支持输入 `@` 后选择当前知识库已索引文档，支持搜索和 mention chip 移除。
 - 前端 Settings、Header、Sidebar 接入头像上传、删除和回显。
 - `.env.example` 新增 OSS 配置模板。
@@ -167,9 +214,9 @@
 ### 验收结果
 
 - `cd backend && .\mvnw.cmd test` 已通过，112 个测试全部成功。
-- `pnpm build` 已通过，仅保留既有 Vite 大 chunk warning。
+- `cd frontend && pnpm build` 已通过，仅保留既有 Vite 大 chunk warning。
 - 目标 ESLint 已通过：
-  `pnpm exec eslint src/pages/Chat.tsx src/pages/Settings.tsx src/api/chat.ts src/api/chat-stream.ts src/api/auth.ts src/components/chat src/components/chat-page src/components/settings src/components/slider-sidebar.tsx src/components/MainHeader.tsx`。
+  在 `frontend/` 下运行 `pnpm exec eslint src/pages/Chat.tsx src/pages/Settings.tsx src/api/chat.ts src/api/chat-stream.ts src/api/auth.ts src/components/chat src/components/chat-page src/components/settings src/components/slider-sidebar.tsx src/components/MainHeader.tsx`。
 
 ## 阶段 20：后台任务中心与系统诊断
 
@@ -207,15 +254,15 @@
 - `DocumentController` 新增全局任务列表、重试和取消接口。
 - 新增 `SystemDiagnosticsController`，提供脱敏系统诊断。
 - 新增阶段 20 后端测试 `Stage20DocumentTaskCenterTests`，覆盖全局列表、状态筛选、权限隔离、重试、取消防迟到更新和诊断脱敏。
-- 前端新增 `src/pages/Jobs.tsx`、`src/api/system.ts`，并扩展 `src/api/documents.ts`。
+- 前端新增 `frontend/src/pages/Jobs.tsx`、`frontend/src/api/system.ts`，并扩展 `frontend/src/api/documents.ts`。
 - 前端路由和侧边栏已接入 `/Jobs`。
 
 ### 验收结果
 
 - `cd backend && .\mvnw.cmd -Dtest=Stage20DocumentTaskCenterTests test` 已通过。
 - `cd backend && .\mvnw.cmd test` 已通过，105 个测试全部成功。
-- `pnpm exec eslint src\api\documents.ts src\api\system.ts src\pages\Jobs.tsx src\main.tsx src\components\slider-sidebar.tsx src\components\slider-layout.tsx` 已通过。
-- `pnpm build` 已通过，仅保留既有 Vite chunk size warning。
+- 在 `frontend/` 下运行 `pnpm exec eslint src\api\documents.ts src\api\system.ts src\pages\Jobs.tsx src\main.tsx src\components\slider-sidebar.tsx src\components\slider-layout.tsx` 已通过。
+- `cd frontend && pnpm build` 已通过，仅保留既有 Vite chunk size warning。
 
 ## 阶段 19：语义索引运维与检索策略可控
 
@@ -260,9 +307,9 @@
 ### 验收结果
 
 - `cd backend && .\mvnw.cmd test` 已通过。
-- `pnpm build` 已通过。
+- `cd frontend && pnpm build` 已通过。
 - 目标 ESLint 已通过：
-  `pnpm exec eslint src/api/documents.ts src/api/settings.ts src/api/chat.ts src/pages/Documents.tsx src/pages/Settings.tsx src/components/documents/document-table.tsx src/components/documents/document-details.tsx src/components/knowledge-bases/knowledge-base-detail-view.tsx src/components/knowledge-bases/knowledge-base-search-panel.tsx src/components/settings/settings-rag.ts src/components/settings/rag-settings-section.tsx src/components/settings/settings-components.tsx`。
+  在 `frontend/` 下运行 `pnpm exec eslint src/api/documents.ts src/api/settings.ts src/api/chat.ts src/pages/Documents.tsx src/pages/Settings.tsx src/components/documents/document-table.tsx src/components/documents/document-details.tsx src/components/knowledge-bases/knowledge-base-detail-view.tsx src/components/knowledge-bases/knowledge-base-search-panel.tsx src/components/settings/settings-rag.ts src/components/settings/rag-settings-section.tsx src/components/settings/settings-components.tsx`。
 
 ## 阶段 18：语义检索与混合召回
 
@@ -299,7 +346,7 @@
 ### 已完成内容
 
 - 新增 Flyway 迁移 `V14__add_semantic_retrieval_embeddings.sql`。
-- 根目录 `compose.yaml` 和 `backend/compose.yaml` 的 PostgreSQL 镜像已切换为 `pgvector/pgvector:pg17`。
+- 根目录 `compose.yaml` 的 PostgreSQL 镜像已切换为 `pgvector/pgvector:pg17`；`backend/compose.yaml` 已移除，避免生成第二套 Compose 数据卷。
 - `.env.example` 新增 `KNOWFLOW_AI_EMBEDDING_MODEL`。
 - 文档上传和重新处理会在写入 chunks 后尝试写入 embedding 状态和向量。
 - Search API 和 Chat RAG 已统一走 `DocumentRetrievalService`，保证 sources 与 prompt 上下文一致。
@@ -311,9 +358,9 @@
 ### 验收结果
 
 - `cd backend && .\mvnw.cmd test` 已通过，95 个测试全部成功。
-- `pnpm build` 已通过。
+- `cd frontend && pnpm build` 已通过。
 - 目标 ESLint 已通过：
-  `pnpm exec eslint src/api/documents.ts src/api/chat.ts src/components/knowledge-bases/knowledge-base-search-panel.tsx src/components/knowledge-bases/knowledge-base-detail-view.tsx src/components/chat-page/rag-chat-workspace.tsx src/components/documents/document-table.tsx src/components/documents/document-details.tsx`。
+  在 `frontend/` 下运行 `pnpm exec eslint src/api/documents.ts src/api/chat.ts src/components/knowledge-bases/knowledge-base-search-panel.tsx src/components/knowledge-bases/knowledge-base-detail-view.tsx src/components/chat-page/rag-chat-workspace.tsx src/components/documents/document-table.tsx src/components/documents/document-details.tsx`。
 
 ## 阶段 17：后台任务化与文档处理进度
 
@@ -335,7 +382,7 @@
   - 默认保持同步执行，确保旧阶段测试和 API 行为稳定；可通过 `knowflow.documents.processing.async-enabled=true` 开启后台执行。
   - 提供知识库级、文档级、单任务级查询接口。
 - 前端：
-  - `src/api/documents.ts` 新增处理任务类型和 wrapper。
+  - `frontend/src/api/documents.ts` 新增处理任务类型和 wrapper。
   - Documents 页面加载最近任务，轮询活跃任务。
   - 文档列表显示后台处理进度，活跃任务期间禁用重复重新处理。
   - 文档详情显示最近一次任务的进度、阶段、消息和错误。
@@ -366,8 +413,8 @@
 ### 验收结果
 
 - `cd backend && .\mvnw.cmd test` 已通过，91 个测试全部成功。
-- `pnpm build` 已通过，只有 Vite 大 chunk 警告。
-- `pnpm eslint src/pages/Documents.tsx src/api/documents.ts src/components/documents` 已通过。
+- `cd frontend && pnpm build` 已通过，只有 Vite 大 chunk 警告。
+- 在 `frontend/` 下运行 `pnpm eslint src/pages/Documents.tsx src/api/documents.ts src/components/documents` 已通过。
 - `browser-use` 已验证 `/Documents`：登录、上传 TXT、查看 `UPLOAD_INDEX` 任务、重新处理生成 `REPROCESS` 任务、查看 chunks 预览均正常。
 
 ## 阶段 16：文档处理可靠性与真正失败重试
@@ -411,7 +458,7 @@
 - 重新处理文档时按“原始 bytes -> source_text -> 旧 chunks fallback”的顺序选择来源。
 - 普通列表/详情查询只返回来源存在性布尔值，避免把大文件 bytes 拉入 API 响应。
 - `DocumentResponse` 新增 `sourceStored`、`reprocessAvailable`。
-- 前端 `src/api/documents.ts` 类型已补充新字段，Documents 列表和详情会按可重试能力禁用入口并展示明确提示。
+- 前端 `frontend/src/api/documents.ts` 类型已补充新字段，Documents 列表和详情会按可重试能力禁用入口并展示明确提示。
 
 ### 验收结果
 
@@ -461,8 +508,8 @@
 - 有 chunks 的文档可以重新处理；无 chunks 的失败文档返回明确 `400`，失败原因可见且不泄露敏感内部信息。
 - 文档质量信息能帮助用户判断文档是否适合 RAG。
 - 文档摘要使用当前用户自己的模型配置或后端兜底配置，错误继续脱敏。
-- 前端通过 `src/api/` axios wrapper 接入，不新增直接 `fetch`、组件级 `localStorage` 或 mock-only 逻辑。
-- 验证命令至少包括 `cd backend && .\mvnw.cmd test`、`pnpm build` 和目标 ESLint。
+- 前端通过 `frontend/src/api/` axios wrapper 接入，不新增直接 `fetch`、组件级 `localStorage` 或 mock-only 逻辑。
+- 验证命令至少包括 `cd backend && .\mvnw.cmd test`、`cd frontend && pnpm build` 和目标 ESLint。
 
 ### 已完成内容
 
@@ -487,17 +534,17 @@
 ### 已完成内容
 
 - README 已更新到阶段 14 当前真实状态，覆盖认证、知识库、协作权限、文档处理、全文检索、RAG、用户级模型配置、未读会话、今日交谈次数和 Docker 化能力。
-- README 已补充本地开发启动命令：
-  - `pnpm sql`
-  - `pnpm backend`
-  - `pnpm dev`
-- README 已补充 Docker 全量启动流程：
+- README 已补充本地开发启动命令。项目结构整理后，前端、后端和 Docker 数据库分别从固定目录启动；当前固定为：
+  - `cd D:\Studio\MyWork && docker compose up -d`
+  - `cd backend && .\mvnw.cmd spring-boot:run`
+  - `cd frontend && pnpm dev`
+- README 已补充 Docker 数据库启动流程：
   - 复制 `.env.example` 为 `.env`
-  - 替换 PostgreSQL、JWT、模型加密等 secrets
-  - `docker compose up -d --build`
-  - 访问前端和后端健康检查
+  - 按需替换 PostgreSQL 配置
+  - `docker compose up -d`
+  - 访问后端健康检查
 - README 已补充构建命令：
-  - `pnpm build`
+  - `cd frontend && pnpm build`
   - `cd backend && .\mvnw.cmd -DskipTests package`
 - README 已补充环境变量表：
   - PostgreSQL
@@ -507,7 +554,7 @@
   - 前端/后端/PostgreSQL 端口
   - 数据库连接池参数
 - README 已补充健康检查、Swagger/OpenAPI 说明、Docker 日志排查、PostgreSQL 备份和恢复命令。
-- `doc/PROJECT.md` 已更新为阶段 14 完成态，说明本地开发、Docker 全量运行、构建、健康检查和运维方式。
+- `doc/PROJECT.md` 已更新为阶段 14 完成态，说明本地开发、根目录 Docker 数据库运行、构建、健康检查和运维方式。
 - `doc/BACKEND_TASK.md` 已更新为阶段 14 后端验收记录，不再保留“后续收尾重点”。
 - `doc/FRONTEND_TASK.md` 已更新为阶段 14 前端验收记录，不再保留“后续收尾重点”。
 - `do.md` 中列出的 Chat 模型选择、自动滚动、用户模型配置复用、Settings 模型测试、退出确认、引用来源跟随选中回答、未读角标和响应式问题，已按阶段 14 记录为代码级修复完成。
@@ -517,19 +564,19 @@
   - Chat 生成中禁用 RAG 开关和模型选择；发送按钮切换为“打断”，调用后端取消接口。
   - Chat 请求不再发送硬编码默认模型，避免绕开用户 Settings 或 `.env` 本地兜底配置。
   - 后端新增 `ragEnabled` 请求字段、`POST /api/chat/sessions/{sessionId}/cancel` 和 `active_generation_id` 防旧任务落库机制。
-  - 后端支持本地 `pnpm backend` 从项目根目录或 `backend/` 目录 `.env` 读取 AI 兜底配置。
+  - 后端支持从 `backend/` 目录启动时读取所需 AI 兜底配置；根目录旧后端启动脚本已随前端迁移移除。
 
 ### 验收结果
 
 - Docker 化和运维收尾文档已完成。
-- `pnpm build` 已通过，只有 Vite 大 chunk 警告。
+- `cd frontend && pnpm build` 已通过，只有 Vite 大 chunk 警告。
 - 目标 ESLint 已通过：
-  `pnpm eslint src/pages/Settings.tsx src/pages/Chat.tsx src/api/settings.ts src/api/chat.ts src/components/settings src/components/chat-page src/components/chat/ChatComposer.tsx src/components/MainHeader.tsx src/components/slider-sidebar.tsx`。
+  在 `frontend/` 下运行 `pnpm eslint src/pages/Settings.tsx src/pages/Chat.tsx src/api/settings.ts src/api/chat.ts src/components/settings src/components/chat-page src/components/chat/ChatComposer.tsx src/components/MainHeader.tsx src/components/slider-sidebar.tsx`。
 - `cd backend && .\mvnw.cmd -DskipTests package` 已通过。
 - `cd backend && .\mvnw.cmd test` 已通过，71 个测试全部成功。
 - `docker compose config` 已通过。
-- `docker compose up -d --build` 已通过，PostgreSQL、backend、frontend 均成功启动。
-- Compose 已验证关键 secrets 必须由 `.env` 或 `--env-file` 提供，缺少 `POSTGRES_PASSWORD`、`KNOWFLOW_JWT_SECRET` 或 `KNOWFLOW_MODEL_SECRET_KEY` 时会拒绝启动。
+- `docker compose up -d` 已通过，PostgreSQL 成功启动。
+- 当前根目录 Compose 只管理 PostgreSQL；后端和前端分别由 `backend/` Maven 与 `frontend/` pnpm 启动。
 - 直接后端健康检查 `http://localhost:8080/api/health` 返回 `{"status":"UP"}`。
 - 前端 Nginx 代理健康检查 `http://localhost:5173/api/health` 返回 `{"status":"UP"}`。
 - browser-use 可见窗口已验证 Docker 前端可访问、空库注册登录可用、`/Settings` 可访问、`/Chat` 空状态可用、创建知识库后可进入 Chat 主界面。

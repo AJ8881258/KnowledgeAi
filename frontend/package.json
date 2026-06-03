@@ -5,8 +5,6 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
-    "backend": "cd backend && .\\mvnw.cmd spring-boot:run",
-    "sql": "cd backend && docker compose up -d",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview"

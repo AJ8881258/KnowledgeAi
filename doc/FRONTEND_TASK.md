@@ -12,13 +12,13 @@
 
 继续使用现有 axios wrapper：
 
-- `src/api/auth.ts`
-- `src/api/chat.ts`
-- `src/api/documents.ts`
+- `frontend/src/api/auth.ts`
+- `frontend/src/api/chat.ts`
+- `frontend/src/api/documents.ts`
 
 阶段 21 技术例外仍保留：
 
-- `src/api/chat-stream.ts` 是唯一允许直接使用 `fetch` 的前端文件，用于浏览器读取 `POST + text/event-stream`。其他普通 API 不得新增直接 `fetch`。
+- `frontend/src/api/chat-stream.ts` 是唯一允许直接使用 `fetch` 的前端文件，用于浏览器读取 `POST + text/event-stream`。其他普通 API 不得新增直接 `fetch`。
 
 新增/扩展类型字段：
 
@@ -70,7 +70,7 @@ deleteCurrentUserAvatar()
    - 新增“编辑资料”弹窗；弹窗中允许选择默认头像、选择本地头像文件、修改用户名、邮箱和联系方式。
    - 保存资料按钮移动到弹窗底部。
    - 删除“删除头像”用户入口；用户可通过选择默认头像或重新上传替换头像。
-   - 新增 `src/components/user-avatar.tsx`，统一 `UserAvatar`、`AvatarPresetPicker` 和 8 个默认头像 preset。
+   - 新增 `frontend/src/components/user-avatar.tsx`，统一 `UserAvatar`、`AvatarPresetPicker` 和 8 个默认头像 preset。
    - Header、Sidebar、Settings 统一按 `avatarSource/avatarPresetId/avatarUrl` 渲染头像。
    - 阶段 23 增加 `avatarStorageConfigured` 判断：OSS 未配置时禁用本地头像上传，显示“头像上传需要先配置 OSS；当前可选择默认头像”，默认头像 preset 仍可保存。
    - Zustand auth store 运行时保留短期 `avatarUrl`，持久化时剔除 `avatarUrl`，避免把签名 URL 写入 storage。
@@ -107,6 +107,7 @@ deleteCurrentUserAvatar()
 阶段收尾运行：
 
 ```powershell
+cd D:\Studio\MyWork\frontend
 pnpm exec eslint src/pages/Settings.tsx src/api/auth.ts src/store/auth.ts src/components/settings src/components/chat src/components/chat-page src/components/slider-sidebar.tsx src/components/MainHeader.tsx
 pnpm build
 rg -n "fetch\(" src
@@ -117,7 +118,7 @@ rg -n "鏈|娣|鍏|璇|灞|鏀|�" src/components/chat-page src/components/chat
 
 - 目标 ESLint 已通过。
 - `pnpm build` 已通过，仅保留既有 Vite 大 chunk 提示。
-- `rg -n "fetch\(" src` 仅匹配 `src/api/chat-stream.ts` 的 POST SSE 例外。
+- `rg -n "fetch\(" src` 仅匹配 `frontend/src/api/chat-stream.ts` 的 POST SSE 例外。
 - 指定 Chat/Settings 范围 mojibake 残留检查无匹配。
 - `git diff --check` 已通过，仅有 Windows 下 LF 将转换为 CRLF 的提示。
 
