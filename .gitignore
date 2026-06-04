@@ -8,6 +8,8 @@ pnpm-debug.log*
 lerna-debug.log*
 
 # Local agent/tooling state
+AGENTS.md
+CLAUDE.md
 .claude/
 .codex/
 .codex-runtime/
